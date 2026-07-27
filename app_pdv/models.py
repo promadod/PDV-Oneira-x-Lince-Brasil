@@ -6,12 +6,13 @@ from django.dispatch import receiver
 from datetime import date
 from django.utils import timezone
 from django.utils.text import slugify
-from decimal import Decimal
+from decimal import Decimal, ROUND_DOWN
 
 # ------------------ OPÇÕES GERAIS (Status e Origem) ---------------
 STATUS_VENDA_CHOICES = [
     ('ABERTO', 'Em Aberto (Balcão)'),
     ('FINALIZADO', 'Finalizado'),
+    ('RETIRADO_NA_LOJA', 'Retirado na loja'),
     ('ORCAMENTO', 'Orçamento'),
     ('PENDENTE', 'Aguardando Aprovação'),   
     ('EM_PREPARACAO', 'Em Separação'),      
@@ -85,6 +86,8 @@ class Rede(models.Model):
         return self.nome
 
 class Loja(models.Model):
+    NOME_MARCA_PDV_MAX = 22
+
     # --- CAMPOS ORIGINAIS ---
     nome = models.CharField(max_length=100)
     gerente = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name="lojas_gerenciadas")
@@ -101,6 +104,21 @@ class Loja(models.Model):
     ativo = models.BooleanField(default=True, verbose_name="Loja Ativa?")
     data_criacao = models.DateTimeField(auto_now_add=True)
     loja_aberta = models.BooleanField(default=True, verbose_name="Loja Aberta para Delivery")
+
+    nome_marca_pdv = models.CharField(
+        max_length=22,
+        blank=True,
+        default='',
+        verbose_name='Nome exibido no menu lateral',
+        help_text='Marca no topo do menu (máx. 22 caracteres). Clique no nome no sistema para alterar.',
+    )
+    cnpj = models.CharField(
+        max_length=18,
+        blank=True,
+        default='',
+        verbose_name='CNPJ',
+        help_text='Exibido no rodapé do PDV. Ex: 00.000.000/0001-00',
+    )
 
     # --- INTEGRAÇÃO MOVEON ---
     usa_moveon = models.BooleanField(
@@ -126,6 +144,13 @@ class Loja(models.Model):
         default=False,
         verbose_name="Impressão automática ao finalizar venda?",
         help_text="Sim: ao finalizar venda no PDV, abre a impressão da nota fiscal.",
+    )
+
+    trabalha_com_leitor_codigo_barras = models.BooleanField(
+        default=False,
+        verbose_name="Trabalha com leitor de código de barras?",
+        help_text="Ativo: na tela de vendas, leituras USB selecionam o produto automaticamente. "
+                   "Cadastre o código de barras em cada produto.",
     )
 
     cobra_taxa_servico = models.BooleanField(
@@ -169,6 +194,13 @@ class Loja(models.Model):
         default=False,
         verbose_name="Permitir venda de produto completo (gás+vasilhame)?",
         help_text="Depósitos: cliente sem vazio pode comprar produto cheio sem troca de vasilhame.",
+    )
+
+    divide_produtos_por_grupos = models.BooleanField(
+        default=False,
+        verbose_name="Dividir produtos por grupos?",
+        help_text="Ativo: estoque e produtos organizados em grupos (ex.: Bebidas, Petiscos). "
+                   "Recibo de fechamento de caixa agrupa as saídas por grupo.",
     )
 
     # --- PLANO DE FIDELIDADE ---
@@ -267,6 +299,10 @@ class Loja(models.Model):
 
     def __str__(self): 
         return self.nome
+
+    def marca_pdv_exibicao(self):
+        nome = (self.nome_marca_pdv or '').strip()
+        return nome if nome else 'Oneira PDV'
 
     def get_formas_pagamento_ativas(self):
         return FormaPagamentoLoja.objects.filter(loja=self, ativo=True).order_by('ordem', 'nome')
@@ -512,14 +548,27 @@ def estoque_diario_ativo(loja):
 
 
 def produtos_disponiveis_pdv(loja):
-    """Produtos exibidos no PDV: cheios com estoque ou vazios com saldo de vasilhame."""
-    qs = Produto.objects.filter(loja=loja).select_related('item_estoque')
+    """Produtos exibidos no PDV: cheios com estoque, vazios ou kits com componentes disponíveis."""
+    qs = Produto.objects.filter(loja=loja).select_related('item_estoque').prefetch_related(
+        'componentes_kit__item_estoque'
+    )
     if loja.controla_vasilhame_vazio:
-        return qs.filter(
+        base = qs.filter(
+            Q(eh_kit=True) |
             Q(item_estoque__quantidade_estoque__gt=0) |
             Q(vende_vasilhame_vazio=True, item_estoque__quantidade_vazios__gt=0)
         )
-    return qs.filter(item_estoque__quantidade_estoque__gt=0)
+    else:
+        base = qs.filter(Q(eh_kit=True) | Q(item_estoque__quantidade_estoque__gt=0))
+
+    disponiveis = []
+    for produto in base:
+        if produto.eh_kit:
+            if validar_estoque_kit(produto, 1) is None:
+                disponiveis.append(produto.pk)
+        else:
+            disponiveis.append(produto.pk)
+    return qs.filter(pk__in=disponiveis)
 
 
 def produto_baixa_apenas_vasilhame_vazio(produto):
@@ -528,6 +577,8 @@ def produto_baixa_apenas_vasilhame_vazio(produto):
     Exige par no mesmo item: outro produto com vende_vasilhame_vazio=False (cheio).
     Se só existir um produto marcado como vazio (ex.: Gas Super), trata como venda cheia.
     """
+    if produto.eh_kit or not produto.item_estoque_id:
+        return False
     loja = produto.item_estoque.loja
     if not (produto.vende_vasilhame_vazio and loja.controla_vasilhame_vazio):
         return False
@@ -539,6 +590,12 @@ def produto_baixa_apenas_vasilhame_vazio(produto):
 
 def validar_estoque_item_venda(loja, produto, quantidade_vendida, venda_completa=False):
     """Retorna mensagem de erro se não houver estoque; None se OK."""
+    if produto.eh_kit:
+        return validar_estoque_kit(produto, quantidade_vendida)
+
+    if not produto.item_estoque_id:
+        return f'Produto "{produto.nome_venda}" sem item de estoque vinculado.'
+
     baixa = Decimal(str(quantidade_vendida)) * produto.quantidade_baixa
     item = produto.item_estoque
     if venda_completa and not produto_baixa_apenas_vasilhame_vazio(produto):
@@ -572,7 +629,11 @@ def _item_venda_completa(item_venda):
 
 
 def aplicar_baixa_item_venda(item_venda, quantidade_baixa):
-    item = item_venda.produto.item_estoque
+    produto = item_venda.produto
+    if produto.eh_kit:
+        aplicar_baixa_kit(produto, quantidade_baixa)
+        return
+    item = produto.item_estoque
     if _item_baixa_vasilhame_vazio(item_venda):
         baixar_vasilhame_vazio_item(item, quantidade_baixa)
     elif _item_venda_completa(item_venda):
@@ -582,7 +643,11 @@ def aplicar_baixa_item_venda(item_venda, quantidade_baixa):
 
 
 def aplicar_devolucao_item_venda(item_venda, quantidade_baixa):
-    item = item_venda.produto.item_estoque
+    produto = item_venda.produto
+    if produto.eh_kit:
+        aplicar_devolucao_kit(produto, quantidade_baixa)
+        return
+    item = produto.item_estoque
     if _item_baixa_vasilhame_vazio(item_venda):
         devolver_vasilhame_vazio_item(item, quantidade_baixa)
     elif _item_venda_completa(item_venda):
@@ -595,7 +660,10 @@ def ajustar_estoque_item_venda(item_venda, delta_quantidade_vendida):
     delta = Decimal(str(delta_quantidade_vendida))
     if delta == 0:
         return
-    alterar = abs(delta) * item_venda.produto.quantidade_baixa
+    if item_venda.produto.eh_kit:
+        alterar = abs(delta)
+    else:
+        alterar = abs(delta) * item_venda.produto.quantidade_baixa
     if delta > 0:
         aplicar_baixa_item_venda(item_venda, alterar)
     else:
@@ -611,11 +679,38 @@ def ajustar_estoque_item(item_estoque, delta_quantidade):
         devolver_estoque_item(item_estoque, abs(delta))
 
 # 3. ---------------------------------------Produtos ----------------------------
+class GrupoProduto(models.Model):
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='grupos_produto')
+    nome = models.CharField(max_length=100)
+    ordem = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'Grupo de Produto'
+        verbose_name_plural = 'Grupos de Produto'
+        ordering = ['ordem', 'nome']
+        unique_together = ('loja', 'nome')
+
+    def __str__(self):
+        return self.nome
+
+
 class Produto(models.Model):
     loja = models.ForeignKey(Loja, on_delete=models.CASCADE) 
     item = models.OneToOneField(ItemEstoque, on_delete=models.CASCADE, related_name="produto_principal", null=True, blank=True)
-    item_estoque = models.ForeignKey(ItemEstoque, on_delete=models.CASCADE, verbose_name="Item do Estoque", related_name="produtos_venda")
+    item_estoque = models.ForeignKey(
+        ItemEstoque, on_delete=models.CASCADE, verbose_name="Item do Estoque",
+        related_name="produtos_venda", null=True, blank=True,
+    )
+    grupo = models.ForeignKey(
+        GrupoProduto, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='produtos', verbose_name='Grupo',
+    )
     nome_venda = models.CharField(max_length=150, verbose_name="Nome na Venda (Ex: Pack, Promoção)")
+    codigo_barras = models.CharField(
+        max_length=50, blank=True, default='',
+        verbose_name="Código de barras (EAN/GTIN)",
+        help_text="Lido pelo leitor USB na tela de vendas (quando a loja usa leitor de código de barras).",
+    )
     preco_compra = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, verbose_name="Preço de Custo (Unitário)")
     preco_venda = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)
     preco_venda_completo = models.DecimalField(
@@ -653,11 +748,138 @@ class Produto(models.Model):
         verbose_name="Mensagem WhatsApp de recompra",
         help_text="Placeholders: {cliente}, {produto}, {dias}",
     )
+    eh_kit = models.BooleanField(
+        default=False,
+        verbose_name="Produto kit / promoção?",
+        help_text="Ao vender, baixa automaticamente vários itens de estoque conforme os componentes do kit.",
+    )
 
     def baixa_apenas_vasilhame_vazio(self):
         return produto_baixa_apenas_vasilhame_vazio(self)
 
+    def estoque_kits_disponiveis(self):
+        return estoque_disponivel_kit(self)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['loja', 'codigo_barras'],
+                condition=~models.Q(codigo_barras=''),
+                name='produto_codigo_barras_unico_por_loja',
+            ),
+        ]
+
     def __str__(self): return self.nome_venda
+
+
+class ComponenteKit(models.Model):
+    """Itens de estoque consumidos ao vender um produto kit/promoção."""
+    produto_kit = models.ForeignKey(
+        Produto, on_delete=models.CASCADE, related_name='componentes_kit',
+        verbose_name='Produto kit',
+    )
+    item_estoque = models.ForeignKey(
+        ItemEstoque, on_delete=models.CASCADE, related_name='kits_que_usam',
+        verbose_name='Item de estoque',
+    )
+    quantidade = models.DecimalField(
+        max_digits=10, decimal_places=3, default=1.000,
+        verbose_name='Qtd por kit vendido',
+    )
+    ordem = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name = 'Componente do kit'
+        verbose_name_plural = 'Componentes do kit'
+        ordering = ['ordem', 'id']
+        unique_together = ('produto_kit', 'item_estoque')
+
+    def __str__(self):
+        return f'{self.quantidade}× {self.item_estoque.nome}'
+
+
+def custo_medio_unitario_item_estoque(item_estoque):
+    """Custo médio por unidade do item (a partir dos produtos de venda normais)."""
+    custos = []
+    for produto in Produto.objects.filter(item_estoque=item_estoque, eh_kit=False):
+        qb = Decimal(str(produto.quantidade_baixa or 1))
+        if qb <= 0:
+            qb = Decimal('1')
+        if produto.preco_compra:
+            custos.append(Decimal(str(produto.preco_compra)) / qb)
+    if custos:
+        return (sum(custos) / len(custos)).quantize(Decimal('0.0001'))
+    pf = PrecoFornecedorItem.objects.filter(item_estoque=item_estoque, ativo=True).first()
+    if pf and pf.preco_compra:
+        return Decimal(str(pf.preco_compra))
+    return Decimal('0')
+
+
+def recalcular_custo_kit(produto):
+    if not produto.eh_kit:
+        return
+    total = Decimal('0')
+    for comp in produto.componentes_kit.select_related('item_estoque'):
+        total += comp.quantidade * custo_medio_unitario_item_estoque(comp.item_estoque)
+    produto.preco_compra = total.quantize(Decimal('0.01'))
+    produto.save(update_fields=['preco_compra'])
+
+
+def estoque_disponivel_kit(produto):
+    """Quantidade máxima de kits montáveis com o estoque atual dos componentes."""
+    if not produto.eh_kit:
+        return None
+    componentes = list(produto.componentes_kit.select_related('item_estoque'))
+    if not componentes:
+        return Decimal('0')
+    disponivel = None
+    for comp in componentes:
+        qtd_por_kit = Decimal(str(comp.quantidade))
+        if qtd_por_kit <= 0:
+            continue
+        kits_possiveis = (
+            comp.item_estoque.quantidade_estoque / qtd_por_kit
+        ).to_integral_value(rounding=ROUND_DOWN)
+        disponivel = kits_possiveis if disponivel is None else min(disponivel, kits_possiveis)
+    return disponivel if disponivel is not None else Decimal('0')
+
+
+def validar_estoque_kit(produto, quantidade_kits):
+    """Valida estoque de todos os componentes. quantidade_kits = unidades do kit vendidas."""
+    componentes = list(produto.componentes_kit.select_related('item_estoque'))
+    if not componentes:
+        return f'Kit "{produto.nome_venda}" não possui componentes cadastrados.'
+    qtd_kits = Decimal(str(quantidade_kits))
+    for comp in componentes:
+        necessario = qtd_kits * comp.quantidade
+        disp = comp.item_estoque.quantidade_estoque
+        if disp < necessario:
+            return (
+                f'Estoque insuficiente para o kit "{produto.nome_venda}". '
+                f'Item "{comp.item_estoque.nome}": necessário {necessario}, disponível {disp}.'
+            )
+    return None
+
+
+def aplicar_baixa_kit(produto, quantidade_kits):
+    qtd_kits = Decimal(str(quantidade_kits))
+    for comp in produto.componentes_kit.select_related('item_estoque'):
+        baixar_estoque_item(comp.item_estoque, qtd_kits * comp.quantidade)
+
+
+def aplicar_devolucao_kit(produto, quantidade_kits):
+    qtd_kits = Decimal(str(quantidade_kits))
+    for comp in produto.componentes_kit.select_related('item_estoque'):
+        devolver_estoque_item(comp.item_estoque, qtd_kits * comp.quantidade)
+
+
+def custo_unitario_produto_venda(produto):
+    if produto.eh_kit:
+        total = Decimal('0')
+        for comp in produto.componentes_kit.select_related('item_estoque'):
+            total += comp.quantidade * custo_medio_unitario_item_estoque(comp.item_estoque)
+        return total.quantize(Decimal('0.01'))
+    return produto.preco_compra or Decimal('0')
 
 
 class PrecoFornecedorItem(models.Model):
@@ -1109,6 +1331,7 @@ class Venda(models.Model):
     entregador = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="entregas_realizadas")
     eh_fiado = models.BooleanField(default=False, verbose_name="Venda Fiado?")
     eh_cortesia = models.BooleanField(default=False, verbose_name="Venda Cortesia?")
+    eh_avaria = models.BooleanField(default=False, verbose_name="Venda Avaria?")
     desconto_fidelidade = models.DecimalField(
         max_digits=10, decimal_places=2, default=0,
         verbose_name="Desconto fidelidade aplicado",
@@ -1469,8 +1692,13 @@ class LogAuditoria(models.Model):
         ('EDITAR', 'Editou'),
         ('EXCLUIR', 'Excluiu'),
         ('LOGIN', 'Login'),
+        ('LOGOUT', 'Logout'),
         ('TRANSFERIR', 'Transferiu estoque'),
         ('VENDA', 'Venda'),
+        ('CAIXA', 'Caixa'),
+        ('ESTOQUE', 'Estoque'),
+        ('SENHA', 'Senha / usuário'),
+        ('CONFIG', 'Configuração'),
         ('OUTRO', 'Outro'),
     ]
     usuario = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='logs_auditoria')
@@ -1518,7 +1746,13 @@ class Moto(models.Model):
 # ==============================================================================
 
 # Quais status configuram que o produto SAIU da prateleira?
-STATUS_COMPROMETIDOS = ['FINALIZADO', 'PENDENTE', 'EM_PREPARACAO', 'SAIU_ENTREGA', 'FIADO']
+STATUS_COMPROMETIDOS = [
+    'FINALIZADO', 'RETIRADO_NA_LOJA', 'PENDENTE', 'EM_PREPARACAO', 'SAIU_ENTREGA', 'FIADO',
+]
+# Vendas concluídas para faturamento / relatórios / CMV (sem entregas em aberto)
+STATUS_VENDA_FATURADA = ['FINALIZADO', 'RETIRADO_NA_LOJA']
+# Liquidação no caixa ao concluir (inclui entrega em preparação)
+STATUS_GERA_LIQUIDACAO = ['FINALIZADO', 'RETIRADO_NA_LOJA', 'EM_PREPARACAO']
 
 @receiver(pre_save, sender=Venda)
 def blindagem_status_venda(sender, instance, **kwargs):
@@ -1530,13 +1764,19 @@ def blindagem_status_venda(sender, instance, **kwargs):
             if venda_antiga.status in STATUS_COMPROMETIDOS and instance.status not in STATUS_COMPROMETIDOS:
                 for item in instance.itens.all():
                     qtd_decimal = Decimal(str(item.quantidade))
-                    devolver = qtd_decimal * item.produto.quantidade_baixa
+                    if item.produto.eh_kit:
+                        devolver = qtd_decimal
+                    else:
+                        devolver = qtd_decimal * item.produto.quantidade_baixa
                     aplicar_devolucao_item_venda(item, devolver)
 
             elif venda_antiga.status not in STATUS_COMPROMETIDOS and instance.status in STATUS_COMPROMETIDOS:
                 for item in instance.itens.all():
                     qtd_decimal = Decimal(str(item.quantidade))
-                    baixar = qtd_decimal * item.produto.quantidade_baixa
+                    if item.produto.eh_kit:
+                        baixar = qtd_decimal
+                    else:
+                        baixar = qtd_decimal * item.produto.quantidade_baixa
                     aplicar_baixa_item_venda(item, baixar)
         except Venda.DoesNotExist:
             pass
@@ -1546,7 +1786,10 @@ def blindagem_novo_item(sender, instance, created, **kwargs):
     """Toda vez que nascer um item em uma venda válida, deduz do estoque"""
     if created and instance.venda.status in STATUS_COMPROMETIDOS:
         qtd_decimal = Decimal(str(instance.quantidade))
-        baixar = qtd_decimal * instance.produto.quantidade_baixa
+        if instance.produto.eh_kit:
+            baixar = qtd_decimal
+        else:
+            baixar = qtd_decimal * instance.produto.quantidade_baixa
         aplicar_baixa_item_venda(instance, baixar)
 
 @receiver(pre_save, sender=ItemVenda)
@@ -1570,12 +1813,15 @@ def blindagem_exclusao_item(sender, instance, **kwargs):
     # Só estorna se a venda ainda estava ativa. Se for cancelada, a blindagem da Venda já cuidou disso.
     if getattr(instance, 'venda', None) and instance.venda.status in STATUS_COMPROMETIDOS:
         qtd_decimal = Decimal(str(instance.quantidade))
-        devolver = qtd_decimal * instance.produto.quantidade_baixa
+        if instance.produto.eh_kit:
+            devolver = qtd_decimal
+        else:
+            devolver = qtd_decimal * instance.produto.quantidade_baixa
         aplicar_devolucao_item_venda(instance, devolver)
 
 
 @receiver(post_save, sender=Venda)
 def processar_fidelidade_ao_finalizar(sender, instance, created, **kwargs):
-    if instance.status == 'FINALIZADO' and instance.cliente_id:
+    if instance.status in ('FINALIZADO', 'RETIRADO_NA_LOJA') and instance.cliente_id:
         from .fidelidade_service import registrar_progresso_fidelidade
         registrar_progresso_fidelidade(instance)

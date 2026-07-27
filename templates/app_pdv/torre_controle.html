@@ -140,19 +140,49 @@
         let monitorarEntrega = {{ monitorar_entrega|yesno:"true,false" }};
         let listaMotoboys = {{ motoboys_json|safe }};
 
-        function selectMotoboyHtml(p) {
+        function selectMotoboyHtml(p, valorSelecionado) {
             if (!listaMotoboys.length) {
                 return `<div class="text-warning small mb-2"><i class="bi bi-exclamation-triangle"></i> Cadastre entregadores em /entregas/</div>`;
             }
-            const opts = listaMotoboys.map(m =>
-                `<option value="${m.id}">${m.nome}</option>`
-            ).join('');
+            const atual = String(valorSelecionado || '');
+            const opts = listaMotoboys.map(m => {
+                const id = String(m.id);
+                const sel = id === atual ? ' selected' : '';
+                return `<option value="${id}"${sel}>${m.nome}</option>`;
+            }).join('');
             return `
                 <select id="motoboy-${p.id}" class="form-select form-select-sm mb-2" style="background:#1a1a1a;color:#fff;border-color:#555;">
                     <option value="">Selecione o entregador...</option>
                     ${opts}
                 </select>
             `;
+        }
+
+        function capturarSelecaoMotoboys() {
+            const mapa = {};
+            document.querySelectorAll('select[id^="motoboy-"]').forEach(sel => {
+                if (sel.value) mapa[sel.id] = sel.value;
+            });
+            const ativo = document.activeElement;
+            let focoId = null;
+            if (ativo && ativo.tagName === 'SELECT' && ativo.id && ativo.id.startsWith('motoboy-')) {
+                focoId = ativo.id;
+            }
+            return { mapa, focoId };
+        }
+
+        function restaurarSelecaoMotoboys(estado) {
+            if (!estado) return;
+            Object.entries(estado.mapa || {}).forEach(([id, valor]) => {
+                const sel = document.getElementById(id);
+                if (sel) sel.value = valor;
+            });
+            if (estado.focoId) {
+                const sel = document.getElementById(estado.focoId);
+                if (sel) {
+                    try { sel.focus({ preventScroll: true }); } catch (e) { sel.focus(); }
+                }
+            }
         }
 
         // ------------------ SCRIPT DO BOTÃO DA LOJA ------------------
@@ -196,6 +226,8 @@
 
         async function atualizarPainel() {
             try {
+                const selecaoMotoboys = capturarSelecaoMotoboys();
+
                 const response = await fetch(API_URL);
                 const data = await response.json();
 
@@ -214,7 +246,8 @@
                 let temPedidoPendente = false;
 
                 data.pedidos.forEach(pedido => {
-                    const card = criarCartao(pedido);
+                    const valorSel = selecaoMotoboys.mapa[`motoboy-${pedido.id}`] || '';
+                    const card = criarCartao(pedido, valorSel);
                     
                     if (pedido.status === 'PENDENTE') {
                         document.getElementById('coluna-pendente').innerHTML += card;
@@ -225,6 +258,8 @@
                         document.getElementById('coluna-rota').innerHTML += card;
                     }
                 });
+
+                restaurarSelecaoMotoboys(selecaoMotoboys);
 
                 // GERENCIADOR INTELIGENTE DO ÁUDIO
                 const audio = document.getElementById('som-alerta');
@@ -262,7 +297,7 @@
             return `<button onclick="confirmarEntrega(${id})" class="btn btn-success btn-acao">✅ Confirmar Entrega</button>`;
         }
 
-        function criarCartao(p) {
+        function criarCartao(p, valorMotoboySelecionado) {
             let botoes = '';
             let classeExtra = '';
 
@@ -287,7 +322,7 @@
                             : '';
                         botoes = `
                             ${infoMoto}
-                            ${selectMotoboyHtml(p)}
+                            ${selectMotoboyHtml(p, valorMotoboySelecionado)}
                             <button onclick="enviarParaRota(${p.id})" class="btn btn-warning btn-acao">🛵 Saiu para Entrega</button>
                         `;
                     }

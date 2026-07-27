@@ -16,8 +16,16 @@
                 <input type="date" id="filtro_data_inicio" name="data_inicio" value="{{ filtros.data_inicio }}">
             </div>
             <div class="vendas-filtro-field">
+                <label for="filtro_hora_inicio">Hora início</label>
+                <input type="time" id="filtro_hora_inicio" name="hora_inicio" value="{{ filtros.hora_inicio }}">
+            </div>
+            <div class="vendas-filtro-field">
                 <label for="filtro_data_fim">Data fim</label>
                 <input type="date" id="filtro_data_fim" name="data_fim" value="{{ filtros.data_fim }}">
+            </div>
+            <div class="vendas-filtro-field">
+                <label for="filtro_hora_fim">Hora fim</label>
+                <input type="time" id="filtro_hora_fim" name="hora_fim" value="{{ filtros.hora_fim }}">
             </div>
             <div class="vendas-filtro-field vendas-filtro-field-wide">
                 <label for="filtro_status">Status</label>
@@ -138,6 +146,16 @@
                             <i class="fas fa-hand-holding-usd"></i> FIADO — R$ {{ venda.saldo_devedor|floatformat:2 }} pendente
                         </span>
 
+                    {% elif venda.eh_cortesia %}
+                        <span style="background-color: #9e9e9e; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
+                            <i class="fas fa-gift"></i> CORTESIA
+                        </span>
+
+                    {% elif venda.eh_avaria %}
+                        <span style="background-color: #e65100; color: #fff; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
+                            <i class="fas fa-box-open"></i> AVARIA
+                        </span>
+
                     {% elif venda.eh_entrega %}
                         {% if venda.status_entrega == 'PENDENTE' %}
                             <span style="background-color: #ff9800; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
@@ -154,7 +172,11 @@
                         {% endif %}
 
                     {% else %}
-                        {% if venda.status == 'FINALIZADO' %}
+                        {% if venda.status == 'RETIRADO_NA_LOJA' %}
+                            <span style="background-color: #26a69a; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
+                                <i class="fas fa-store"></i> RETIRADO NA LOJA
+                            </span>
+                        {% elif venda.status == 'FINALIZADO' %}
                             
                             {% if venda.origem == 'APP' %}
                                 <span style="background-color: #ffc107; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
@@ -170,7 +192,7 @@
                         {% elif venda.status == 'ORCAMENTO' %}
                             <span style="background-color: #bb86fc; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">ORÇAMENTO</span>
                         {% else %}
-                            <span style="background-color: #aaa; color: #000; padding: 4px 8px; border-radius: 4px; font-size: 0.8em;">{{ venda.status }}</span>
+                            <span style="background-color: #aaa; color: #000; padding: 4px 8px; border-radius: 4px; font-size: 0.8em;">{{ venda.get_status_display }}</span>
                         {% endif %}
                         
                     {% endif %}

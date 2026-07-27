@@ -5,7 +5,12 @@
 {% block content %}
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
     <h2>Produtos / Estoque</h2>
-    <a href="{% url 'novo_produto' %}" class="btn">Novo Produto +</a>
+    <div style="display:flex; gap:10px;">
+        {% if loja.divide_produtos_por_grupos %}
+        <a href="{% url 'gerenciar_grupos_produto' %}" class="btn" style="background:#15a0a5; color:#000;">Cadastrar Grupo</a>
+        {% endif %}
+        <a href="{% url 'novo_produto' %}" class="btn">Novo Produto +</a>
+    </div>
 </div>
 
 <div class="card">
@@ -13,6 +18,7 @@
         <thead>
             <tr style="text-align:left; border-bottom: 1px solid #444;">
                 <th style="padding:15px;">Nome</th>
+                {% if loja.divide_produtos_por_grupos %}<th>Grupo</th>{% endif %}
                 <th>Custo Médio (R$)</th> <th>Venda (R$)</th>
                 <th>Estoque</th>
                 <th>Ações</th>
@@ -21,12 +27,38 @@
         <tbody>
             {% for produto in produtos %}
             <tr style="border-bottom: 1px solid #03dac6;">
-                <td style="padding:10px;">{{ produto.nome_venda }}</td>
+                <td style="padding:10px;">
+                    {{ produto.nome_venda }}
+                    {% if produto.eh_kit %}
+                    <span style="background:#03dac6; color:#000; font-size:0.75em; padding:2px 6px; border-radius:4px; margin-left:6px;">KIT</span>
+                    {% endif %}
+                </td>
+                {% if loja.divide_produtos_por_grupos %}
+                <td style="color:#aaa;">{{ produto.grupo.nome|default:"Sem grupo" }}</td>
+                {% endif %}
         
                 <td style="color: #03dac6;">R$ {{ produto.preco_compra }}</td>
         
                 <td style="color: #03dac6; font-weight: bold;">R$ {{ produto.preco_venda }}</td>
-                <td style="font-weight: bold; color: #03dac6">{{ produto.item_estoque.quantidade_estoque }}</td>
+                <td style="font-weight: bold; color: #03dac6">
+                    {% if produto.eh_kit %}
+                        {% with comps=produto.componentes_kit.all kits_disp=produto.estoque_kits_disponiveis %}
+                        <div>{{ kits_disp|floatformat:0 }} kit(s) disponível(is)</div>
+                        {% if comps %}
+                        <div style="font-size:0.85em; color:#aaa; margin-top:4px;">
+                            {% for comp in comps %}{{ comp.quantidade|floatformat:-3 }}× {{ comp.item_estoque.nome }}{% if not forloop.last %}, {% endif %}{% endfor %}
+                            <span style="color:#888;"> por kit</span>
+                        </div>
+                        {% else %}
+                        <span style="color:#aaa;">Sem componentes</span>
+                        {% endif %}
+                        {% endwith %}
+                    {% elif produto.item_estoque %}
+                        {{ produto.item_estoque.quantidade_estoque }}
+                    {% else %}
+                        —
+                    {% endif %}
+                </td>
                 <td>
                     <a href="{% url 'editar_produto' produto.id %}" style="color: #03dac6; margin-right:10px;">Editar</a>
                     <a href="{% url 'deletar_produto' produto.id %}" style="color: #ff5555;" onclick="return confirm('Tem certeza?')">Excluir</a>

@@ -77,7 +77,7 @@ def calcular_desconto_fidelidade(cliente, loja, total_produtos, usar_promocao=Fa
 
 def registrar_progresso_fidelidade(venda):
     """Atualiza progresso do cliente ao finalizar venda."""
-    if venda.status != 'FINALIZADO' or not venda.cliente:
+    if venda.status not in ('FINALIZADO', 'RETIRADO_NA_LOJA') or not venda.cliente:
         return
     loja = venda.loja
     if not loja.fidelidade_ativa:

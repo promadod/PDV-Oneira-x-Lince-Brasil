@@ -99,7 +99,7 @@
     #obs_status_msg.erro { color: #cf6679; }
 
     @media print {
-        .sidebar, .btn-voltar, .btn-imprimir, .btn-cancelar { display: none !important; }
+        .sidebar, .btn-voltar, .btn-imprimir, .btn-cancelar, .header-top, .btn-tela-cheia, .btn-header-acao { display: none !important; }
         .observacao-edit { display: none !important; }
         .content { margin: 0 !important; padding: 0 !important; }
         body { background-color: #fff !important; color: #000 !important; margin: 0; padding: 0; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
@@ -248,7 +248,9 @@
                         {{ item.quantidade|floatformat:3 }}
                     {% endif %}
                 </td>
-                <td style="text-align: right;">{{ item.preco_unitario }}</td>
+                <td style="text-align: right;">
+                    {% if venda.eh_cortesia or venda.eh_avaria %}0,00{% else %}{{ item.preco_unitario }}{% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -257,8 +259,18 @@
     <div class="nota-separador" aria-hidden="true">--------------------------------------------------------------------------------------------------------------------------------</div>
 
     <div style="margin-top: 8px;">
+        {% if venda.eh_cortesia or venda.eh_avaria %}
         <div class="nota-totais-linha">
-            <span>TOTAL DO CONSUMO</span>
+            <span>{% if venda.eh_avaria %}AVARIA — SEM COBRANÇA{% else %}CORTESIA — SEM COBRANÇA{% endif %}</span>
+            <span>R$ 0,00</span>
+        </div>
+        <div class="nota-totais-linha" style="font-size: 15px; margin-top: 8px;">
+            <span><strong>Total Geral</strong></span>
+            <span><strong>R$ 0,00</strong></span>
+        </div>
+        {% else %}
+        <div class="nota-totais-linha">
+            <span>{% if modo_taxa_servico %}TOTAL DO CONSUMO{% else %}TOTAL DA COMPRA{% endif %}</span>
             <span>R$ {{ subtotal_consumo|floatformat:2 }}</span>
         </div>
         {% if venda.desconto_fidelidade > 0 %}
@@ -283,6 +295,7 @@
             <span><strong>Total Geral</strong></span>
             <span><strong>R$ {{ venda.total|floatformat:2 }}</strong></span>
         </div>
+        {% endif %}
     </div>
     
     <div class="nota-separador" aria-hidden="true">--------------------------------------------------------------------------------------------------------------------------------</div>

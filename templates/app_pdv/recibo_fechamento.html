@@ -115,6 +115,29 @@
         {% if produtos_vendidos %}
         <div style="border-top: 1px dashed #000; margin-top: 12px; padding-top: 8px;">
             <p class="recibo-produtos-titulo">MOVIMENTAÇÃO SAÍDAS DE MERCADORIAS</p>
+            {% if divide_produtos_por_grupos and produtos_por_grupo %}
+                {% for bloco in produtos_por_grupo %}
+                <p style="font-weight:bold; font-size:12px; margin:10px 0 4px; text-transform:uppercase;">{{ bloco.grupo }}</p>
+                <table class="recibo-produtos-table">
+                    <thead>
+                        <tr>
+                            <th style="text-align: left;">PRODUTO</th>
+                            <th style="text-align: center;">QTE</th>
+                            <th style="text-align: right;">TOTAL</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for p in bloco.itens %}
+                        <tr>
+                            <td>{{ p.nome }}</td>
+                            <td style="text-align: center;">{{ p.qtd|floatformat:0 }}</td>
+                            <td style="text-align: right;">{{ p.total|floatformat:2 }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+                {% endfor %}
+            {% else %}
             <table class="recibo-produtos-table">
                 <thead>
                     <tr>
@@ -133,6 +156,7 @@
                     {% endfor %}
                 </tbody>
             </table>
+            {% endif %}
             <p style="text-align: right; font-size: 12px; margin-top: 8px; font-weight: bold;">
                 *TOT.GERAL: {{ total_produtos_qtd|floatformat:0 }} — R$ {{ total_produtos_valor|floatformat:2 }}
             </p>

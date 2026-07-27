@@ -27,30 +27,147 @@
     .precos-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
     .precos-table th, .precos-table td { padding: 8px; border-bottom: 1px solid #444; text-align: left; }
     .precos-table input { max-width: 140px; }
-    .hint { color: #aaa; font-size: 0.9em; margin-top: 5px; }
+    .hint { color: #aaa; font-size: 0.9em; margin-top: 5px; margin-bottom: 0; }
+    .form-field { margin-bottom: 18px; }
+    .form-field > label.field-label {
+        display: block;
+        margin-bottom: 6px;
+        color: #e0e0e0;
+    }
+    .form-check-row {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 14px;
+        background: rgba(3, 218, 198, 0.06);
+        border: 1px solid rgba(3, 218, 198, 0.2);
+        border-radius: 8px;
+    }
+    .form-check-row input[type="checkbox"] {
+        width: 18px;
+        height: 18px;
+        margin: 2px 0 0 0;
+        flex-shrink: 0;
+        accent-color: #03dac6;
+        cursor: pointer;
+    }
+    .form-check-row .form-check-text { flex: 1; min-width: 0; }
+    .form-check-row .form-check-text label {
+        display: block;
+        margin: 0 0 4px 0;
+        color: #fff;
+        font-weight: 500;
+        cursor: pointer;
+    }
+    .section-title {
+        margin-bottom: 10px;
+        font-size: 1.1em;
+        color: #03dac6;
+        font-weight: 600;
+    }
+    .kit-row {
+        display: grid;
+        grid-template-columns: 1fr 100px 36px;
+        gap: 10px;
+        align-items: end;
+        margin-bottom: 10px;
+    }
+    .kit-row .btn-remover-kit {
+        background: #cf6679;
+        color: #fff;
+        border: none;
+        border-radius: 6px;
+        height: 38px;
+        width: 36px;
+        padding: 0;
+        font-size: 1.2rem;
+        line-height: 1;
+        cursor: pointer;
+    }
+    .kit-section { margin-top: 20px; padding-top: 15px; border-top: 1px solid #444; }
+    .btn-kit-add {
+        background: #03dac6;
+        color: #000;
+        font-weight: 600;
+        border: none;
+        margin-top: 8px;
+    }
+    .btn-kit-add:hover { filter: brightness(1.08); }
+    .form-section {
+        margin-top: 25px;
+        padding-top: 15px;
+        border-top: 1px solid #444;
+    }
+    .campo-produto-kit-only { display: none; }
+    body.modo-kit .campo-produto-normal { display: none !important; }
+    body.modo-kit .campo-produto-kit-only { display: block !important; }
+    .form-actions { margin-top: 24px; display: flex; gap: 10px; flex-wrap: wrap; }
+    .form-field.has-error input,
+    .form-field.has-error select,
+    .form-field.has-error .select2-selection {
+        border-color: #cf6679 !important;
+    }
 </style>
 
 <h2 style="margin-bottom:20px;">{{ titulo }}</h2>
 
 <div class="card" style="max-width: 700px;">
-    <form method="post" enctype="multipart/form-data" id="form-produto">
+    <form method="post" enctype="multipart/form-data" id="form-produto" novalidate>
         {% csrf_token %}
 
+        {% if form.errors %}
+        <div class="alert-box error" style="margin-bottom:16px; background:#3a1f24; border:1px solid #cf6679; color:#ffb4c0; padding:12px 14px; border-radius:8px;">
+            <strong><i class="fas fa-exclamation-triangle"></i> Não foi possível salvar o produto</strong>
+            <ul style="margin:8px 0 0 18px; padding:0;">
+                {% for field in form %}
+                    {% for error in field.errors %}
+                    <li><strong>{{ field.label }}:</strong> {{ error }}</li>
+                    {% endfor %}
+                {% endfor %}
+                {% for error in form.non_field_errors %}
+                <li>{{ error }}</li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
+
         {% for field in form %}
-        <div style="margin-bottom: 15px;">
-            <label style="display:block; margin-bottom:5px;">{{ field.label }}</label>
+        {% if field.field.widget.input_type == 'checkbox' %}
+        <div class="form-field {% if field.name == 'vende_vasilhame_vazio' or field.name == 'usa_venda_completa' or field.name == 'preco_venda_completo' %}campo-produto-normal{% endif %}">
+            <div class="form-check-row">
+                {{ field }}
+                <div class="form-check-text">
+                    <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+                    {% if field.name == 'eh_kit' %}
+                    <p class="hint">Marque para criar promoção/kit que baixa vários itens de estoque ao vender (ex.: 2× item A + 1× item B).</p>
+                    {% endif %}
+                    {% if field.name == 'vende_vasilhame_vazio' %}
+                    <p class="hint">Marque para produtos que vendem botijão/galão <strong>vazio</strong>. A baixa será apenas no estoque de vazios (não altera o estoque cheio).</p>
+                    {% endif %}
+                    {% if field.name == 'rastrear_recompra' %}
+                    <p class="hint">Ative para exibir alertas de recompra no dashboard quando o cliente passar dos dias configurados.</p>
+                    {% endif %}
+                    {% if field.name == 'usa_venda_completa' %}
+                    <p class="hint">Cliente sem vasilhame vazio pode comprar produto cheio + vasilhame. Baixa só o estoque cheio. Informe o <strong>Preço venda completa</strong> abaixo.</p>
+                    {% endif %}
+                </div>
+            </div>
+            {% if field.errors %}
+                <small style="color: #ff5555; display:block; margin-top:6px;">{{ field.errors }}</small>
+            {% endif %}
+        </div>
+        {% else %}
+        <div class="form-field {% if field.name == 'item_estoque' or field.name == 'quantidade_baixa' or field.name == 'preco_venda_completo' %}campo-produto-normal{% endif %}{% if field.errors %} has-error{% endif %}">
+            <label class="field-label" for="{{ field.id_for_label }}">{{ field.label }}</label>
             {{ field }}
+            {% if field.name == 'item_estoque' %}
+            <p class="hint">Obrigatório (exceto se for kit). Sem item de estoque o produto <strong>não salva</strong>.</p>
+            {% endif %}
+            {% if field.name == 'codigo_barras' %}
+            <p class="hint">Código lido pelo leitor USB na tela de vendas. Deve ser único nesta loja.</p>
+            {% endif %}
             {% if field.name == 'preco_compra' %}
             <p class="hint">Atualizado automaticamente ao abastecer estoque. Pode definir valor inicial aqui.</p>
-            {% endif %}
-            {% if field.name == 'vende_vasilhame_vazio' %}
-            <p class="hint">Marque para produtos que vendem botijão/galão <strong>vazio</strong>. A baixa será apenas no estoque de vazios (não altera o estoque cheio).</p>
-            {% endif %}
-            {% if field.name == 'rastrear_recompra' %}
-            <p class="hint">Ative para exibir alertas de recompra no dashboard quando o cliente passar dos dias configurados.</p>
-            {% endif %}
-            {% if field.name == 'usa_venda_completa' %}
-            <p class="hint">Cliente sem vasilhame vazio pode comprar produto cheio + vasilhame. Baixa só o estoque cheio. Informe o <strong>Preço venda completa</strong> abaixo.</p>
             {% endif %}
             {% if field.name == 'preco_venda_completo' %}
             <p class="hint">Usado quando <strong>Venda completa</strong> está marcada. Se vazio, usa o preço de venda normal.</p>
@@ -59,13 +176,61 @@
             <p class="hint">Ex.: 5 dias para água, 30 dias para gás. Configure conforme o produto.</p>
             {% endif %}
             {% if field.errors %}
-                <small style="color: #ff5555;">{{ field.errors }}</small>
+                <small style="color: #ff5555; display:block; margin-top:6px;">{{ field.errors }}</small>
             {% endif %}
         </div>
+        {% endif %}
         {% endfor %}
 
-        <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #444;">
-            <h3 style="margin-bottom: 10px; font-size: 1.1em;">Validade e lote do item de estoque</h3>
+        <div class="kit-section campo-produto-kit-only" id="secao-kit">
+            <h3 class="section-title">Componentes do kit</h3>
+            <p class="hint" style="margin-bottom:12px;">Informe cada item de estoque e a quantidade retirada <strong>por kit vendido</strong>.</p>
+            <div id="kit-linhas">
+                {% for comp in componentes_kit %}
+                <div class="kit-row">
+                    <div>
+                        <label class="hint">Item de estoque</label>
+                        <select name="kit_item_estoque" class="form-control select-search-kit">
+                            <option value="">— Selecione —</option>
+                            {% for item in itens_estoque_loja %}
+                            <option value="{{ item.id }}"{% if comp.item_estoque_id == item.id %} selected{% endif %}>{{ item.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="hint">Qtd</label>
+                        <input type="number" name="kit_quantidade" class="form-control" step="0.001" min="0.001" value="{{ comp.quantidade }}">
+                    </div>
+                    <div>
+                        <button type="button" class="btn-remover-kit" onclick="removerLinhaKit(this)" title="Remover">×</button>
+                    </div>
+                </div>
+                {% empty %}
+                <div class="kit-row">
+                    <div>
+                        <label class="hint">Item de estoque</label>
+                        <select name="kit_item_estoque" class="form-control select-search-kit">
+                            <option value="">— Selecione —</option>
+                            {% for item in itens_estoque_loja %}
+                            <option value="{{ item.id }}">{{ item.nome }}</option>
+                            {% endfor %}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="hint">Qtd</label>
+                        <input type="number" name="kit_quantidade" class="form-control" step="0.001" min="0.001" value="1">
+                    </div>
+                    <div>
+                        <button type="button" class="btn-remover-kit" onclick="removerLinhaKit(this)" title="Remover">×</button>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            <button type="button" class="btn btn-kit-add" onclick="adicionarLinhaKit()">+ Adicionar item ao kit</button>
+        </div>
+
+        <div class="form-section campo-produto-normal">
+            <h3 class="section-title">Validade e lote do item de estoque</h3>
             <p class="hint">Estes dados aparecem na página <strong>Estoque</strong> para o item vinculado ao produto.</p>
             <div style="margin-bottom: 15px;">
                 <label style="display:block; margin-bottom:5px;">Data de validade</label>
@@ -80,8 +245,8 @@
             </div>
         </div>
 
-        <div style="margin-top: 25px; padding-top: 15px; border-top: 1px solid #444;">
-            <h3 style="margin-bottom: 10px; font-size: 1.1em;">Preços de custo por fornecedor</h3>
+        <div class="form-section campo-produto-normal">
+            <h3 class="section-title">Preços de custo por fornecedor</h3>
             <p class="hint">Cadastre o custo unitário do <strong>item de estoque</strong> para cada fornecedor. Usado na entrada de estoque.</p>
 
             {% if tabela_precos %}
@@ -113,9 +278,9 @@
             {% endif %}
         </div>
 
-        <div style="margin-top: 20px;">
+        <div class="form-actions">
             <button type="submit" class="btn btn-success">Salvar</button>
-            <a href="javascript:history.back()" class="btn" style="background-color: #333; color:#fff; margin-left:10px;">Cancelar</a>
+            <a href="javascript:history.back()" class="btn btn-cancelar">Cancelar</a>
         </div>
     </form>
 </div>
@@ -155,12 +320,63 @@
             .catch(() => {});
     }
 
+    const itensEstoqueOptsHtml = `{% for item in itens_estoque_loja %}<option value="{{ item.id }}">{{ item.nome|escapejs }}</option>{% endfor %}`;
+
+    function initSelectKit(el) {
+        $(el).select2({
+            placeholder: "Digite para pesquisar...",
+            allowClear: true,
+            width: '100%'
+        });
+    }
+
+    function toggleModoKit() {
+        const ehKit = document.getElementById('id_eh_kit') && document.getElementById('id_eh_kit').checked;
+        document.body.classList.toggle('modo-kit', !!ehKit);
+    }
+
+    function adicionarLinhaKit() {
+        const container = document.getElementById('kit-linhas');
+        const row = document.createElement('div');
+        row.className = 'kit-row';
+        row.innerHTML = `
+            <div>
+                <label class="hint">Item de estoque</label>
+                <select name="kit_item_estoque" class="form-control select-search-kit">
+                    <option value="">— Selecione —</option>
+                    ${itensEstoqueOptsHtml}
+                </select>
+            </div>
+            <div>
+                <label class="hint">Qtd</label>
+                <input type="number" name="kit_quantidade" class="form-control" step="0.001" min="0.001" value="1">
+            </div>
+            <div>
+                <button type="button" class="btn-remover-kit" onclick="removerLinhaKit(this)" title="Remover">×</button>
+            </div>`;
+        container.appendChild(row);
+        initSelectKit(row.querySelector('.select-search-kit'));
+    }
+
+    function removerLinhaKit(btn) {
+        const container = document.getElementById('kit-linhas');
+        if (container.querySelectorAll('.kit-row').length <= 1) return;
+        btn.closest('.kit-row').remove();
+    }
+
     $(document).ready(function() {
         $('.select-search').select2({
             placeholder: "Digite para pesquisar...",
             allowClear: true,
             width: '100%'
         });
+        $('.select-search-kit').each(function() { initSelectKit(this); });
+
+        const chkKit = document.getElementById('id_eh_kit');
+        if (chkKit) {
+            chkKit.addEventListener('change', toggleModoKit);
+            toggleModoKit();
+        }
 
         const itemSelect = $('#id_item_estoque');
         if (itemSelect.length) {
@@ -168,6 +384,28 @@
                 carregarPrecosFornecedor(this.value);
                 carregarDadosItem(this.value);
             });
+        }
+
+        // Garante que o Select2 sincroniza o <select> nativo antes do POST
+        const formProduto = document.getElementById('form-produto');
+        if (formProduto) {
+            formProduto.addEventListener('submit', function() {
+                $('.select-search, .select-search-kit').each(function() {
+                    if ($(this).data('select2')) {
+                        $(this).trigger('change.select2');
+                    }
+                });
+                const btn = formProduto.querySelector('button[type="submit"]');
+                if (btn) {
+                    btn.disabled = true;
+                    btn.textContent = 'Salvando...';
+                }
+            });
+        }
+
+        const erroBox = document.querySelector('.alert-box.error, .form-field.has-error');
+        if (erroBox) {
+            erroBox.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
     });
 </script>

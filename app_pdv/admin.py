@@ -2,7 +2,7 @@ from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
 from .models import (
-    Loja, PerfilUsuario, Fornecedor, ItemEstoque, Produto, Cliente, 
+    Loja, PerfilUsuario, Fornecedor, ItemEstoque, Produto, Cliente, GrupoProduto, ComponenteKit,
     Venda, ItemVenda, Caixa, EntradaEstoque, PrecoFornecedorItem, PagamentoFiado, LiquidacaoVenda,
     ParcelaFiadoAgendada, BloqueioIPLogin,
     CategoriaTransacao, Transacao, Receita, Despesa, Moto, Motoboy, Rede,
@@ -18,6 +18,7 @@ admin.site.index_title = "Gerenciamento do Sistema"
 class PerfilUsuarioInline(admin.StackedInline):
     model = PerfilUsuario
     can_delete = False
+    max_num = 1
     verbose_name_plural = 'Perfil do Usuário (Vincular Loja)'
     readonly_fields = ('congelada_em', 'tentativas_login_falhas', 'session_key_ativa', 'token_ativo')
     fieldsets = (
@@ -42,6 +43,28 @@ class PerfilUsuarioInline(admin.StackedInline):
 class UserAdmin(BaseUserAdmin):
     inlines = (PerfilUsuarioInline,)
     actions = ['descongelar_contas_selecionadas']
+
+    def save_formset(self, request, form, formset, change):
+        # Signal post_save já cria PerfilUsuario no add; evita 2º INSERT (UNIQUE user_id).
+        if formset.model is PerfilUsuario:
+            saved = []
+            for f in formset.forms:
+                if not getattr(f, 'cleaned_data', None) or f.cleaned_data.get('DELETE'):
+                    continue
+                perfil, _ = PerfilUsuario.objects.get_or_create(user=form.instance)
+                for field_name, value in f.cleaned_data.items():
+                    if field_name in ('id', 'user', 'DELETE'):
+                        continue
+                    if hasattr(perfil, field_name):
+                        setattr(perfil, field_name, value)
+                perfil.save()
+                saved.append(perfil)
+            # construct_change_message exige esses atributos após formset.save()
+            formset.new_objects = saved if not change else []
+            formset.changed_objects = [(obj, []) for obj in saved] if change else []
+            formset.deleted_objects = []
+            return
+        super().save_formset(request, form, formset, change)
 
     @admin.action(description='Descongelar contas selecionadas (segurança)')
     def descongelar_contas_selecionadas(self, request, queryset):
@@ -81,21 +104,21 @@ class SaasAdmin(admin.ModelAdmin):
 
 @admin.register(Loja)
 class LojaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'monitorar_entrega', 'trabalha_com_entregas', 'impressao_automatica', 'data_criacao') 
-    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario')
+    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'impressao_automatica', 'data_criacao') 
+    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario')
     fieldsets = (
         (None, {
-            'fields': ('nome', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta')
+            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta')
         }),
         ('Entregas', {
             'fields': ('taxa_entrega_app', 'taxa_entrega_pdv', 'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon')
         }),
         ('PDV', {
-            'fields': ('impressao_automatica', 'cobra_taxa_servico', 'taxa_servico_pct'),
+            'fields': ('nome_marca_pdv', 'impressao_automatica', 'trabalha_com_leitor_codigo_barras', 'cobra_taxa_servico', 'taxa_servico_pct'),
             'description': 'Taxa de serviço só vale com "Trabalha com entregas" desmarcado.',
         }),
         ('Depósito / Fiado', {
-            'fields': ('usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'permite_venda_completa'),
+            'fields': ('usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos'),
             'description': 'Habilite fiado para venda a prazo. Estoque diário exige controle de vasilhame ativo.',
         }),
         ('Fidelidade', {
@@ -131,11 +154,21 @@ class FornecedorAdmin(SaasAdmin):
 
 @admin.register(ItemEstoque)
 class ItemEstoqueAdmin(SaasAdmin):
-    
-    list_display = ('id', 'nome', 'quantidade_estoque', 'status_estoque')
+
+    list_display = (
+        'id', 'nome', 'unidade_medida',
+        'quantidade_estoque', 'quantidade_vazios', 'status_estoque',
+    )
+    list_editable = ('quantidade_estoque', 'quantidade_vazios')
     search_fields = ('nome',)
-    list_per_page = 20
-    readonly_fields = ('id',) 
+    list_filter = ('unidade_medida',)
+    list_per_page = 50
+    readonly_fields = ('id',)
+    actions = [
+        'zerar_apenas_cheios',
+        'zerar_apenas_vazios',
+        'zerar_cheios_e_vazios',
+    ]
 
     @admin.display(description='Situação')
     def status_estoque(self, obj):
@@ -143,11 +176,50 @@ class ItemEstoqueAdmin(SaasAdmin):
             return "⚠️ Baixo"
         return "✅ Normal"
 
+    @admin.action(description='Zerar apenas CHEIOS (quantidade em estoque)')
+    def zerar_apenas_cheios(self, request, queryset):
+        n = queryset.update(quantidade_estoque=0)
+        self.message_user(
+            request,
+            f'{n} item(ns): quantidade de cheios zerada. Vazios não foram alterados. Itens mantidos.',
+        )
+
+    @admin.action(description='Zerar apenas VAZIOS (vasilhame)')
+    def zerar_apenas_vazios(self, request, queryset):
+        n = queryset.update(quantidade_vazios=0)
+        self.message_user(
+            request,
+            f'{n} item(ns): quantidade de vazios zerada. Cheios não foram alterados. Itens mantidos.',
+        )
+
+    @admin.action(description='Zerar CHEIOS e VAZIOS (estoque completo)')
+    def zerar_cheios_e_vazios(self, request, queryset):
+        n = queryset.update(quantidade_estoque=0, quantidade_vazios=0)
+        self.message_user(
+            request,
+            f'{n} item(ns): cheios e vazios zerados. Cadastro dos itens mantido.',
+        )
+
+
+@admin.register(GrupoProduto)
+class GrupoProdutoAdmin(SaasAdmin):
+    list_display = ('nome', 'loja', 'ordem')
+    list_filter = ('loja',)
+    search_fields = ('nome',)
+    ordering = ('loja', 'ordem', 'nome')
+
+
+@admin.register(ComponenteKit)
+class ComponenteKitAdmin(SaasAdmin):
+    list_display = ('produto_kit', 'item_estoque', 'quantidade', 'ordem')
+    list_filter = ('produto_kit__loja',)
+    search_fields = ('produto_kit__nome_venda', 'item_estoque__nome')
+
 
 @admin.register(Produto)
 class ProdutoAdmin(SaasAdmin):
     
-    list_display = ('id', 'nome_venda', 'preco_compra', 'preco_venda', 'lucro_unidade', 'vende_vasilhame_vazio', 'fornecedor')
+    list_display = ('id', 'nome_venda', 'preco_compra', 'preco_venda', 'lucro_unidade', 'eh_kit', 'vende_vasilhame_vazio', 'fornecedor')
     search_fields = ('nome_venda',)
     list_filter = ('fornecedor', 'vende_vasilhame_vazio')
     list_editable = ('preco_venda',)

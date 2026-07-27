@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+
+{% block title %}Grupos de Produto{% endblock %}
+
+{% block content %}
+<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
+    <h2>Grupos de Produto</h2>
+    <a href="{% url 'lista_produtos' %}" class="btn" style="background:#333;">Voltar aos Produtos</a>
+</div>
+
+<div class="card" style="max-width:520px; margin-bottom:24px;">
+    <h3 style="color:#15A0A5; margin-bottom:12px;">Novo grupo</h3>
+    <form method="post">
+        {% csrf_token %}
+        <div style="display:flex; gap:10px; flex-wrap:wrap;">
+            <input type="text" name="nome" class="form-control" placeholder="Ex: Bebidas, Petiscos..." required style="flex:1; min-width:200px;">
+            <button type="submit" class="btn">Cadastrar</button>
+        </div>
+    </form>
+</div>
+
+<div class="card">
+    <table style="width:100%; border-collapse:collapse; color:#fff;">
+        <thead>
+            <tr style="text-align:left; border-bottom:1px solid #444;">
+                <th style="padding:12px;">Grupo</th>
+                <th>Produtos</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for grupo in grupos %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:10px;">{{ grupo.nome }}</td>
+                <td>{{ grupo.produtos.count }}</td>
+                <td>
+                    <a href="{% url 'deletar_grupo_produto' grupo.id %}" style="color:#ff5555;"
+                       onclick="return confirm('Remover o grupo? Os produtos ficarão sem grupo.');">Excluir</a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="3" style="padding:20px; text-align:center; color:#aaa;">Nenhum grupo cadastrado.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

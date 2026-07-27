@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PDV Bebidas - {% block title %}{% endblock %}</title>
+    <title>Sistema - {% block title %}{% endblock %}</title>
     <link rel="stylesheet" href="{% static 'css/main.css' %}">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
 
@@ -50,6 +50,172 @@
             50% { text-shadow: 0 0 10px rgba(255, 68, 68, 0.8); }
             100% { text-shadow: 0 0 0px rgba(255, 68, 68, 0.5); }
         }
+
+        .sidebar-marca-nome {
+            color: var(--accent);
+            margin: 0;
+            font-size: clamp(0.95rem, 2.4vw, 1.35rem);
+            line-height: 1.25;
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            padding: 6px 10px;
+            border-radius: 8px;
+            border: 1px solid transparent;
+            transition: background 0.2s, border-color 0.2s;
+        }
+        .sidebar-marca-nome.editavel {
+            cursor: pointer;
+        }
+        .sidebar-marca-nome.editavel:hover {
+            background: rgba(3, 218, 198, 0.1);
+            border-color: rgba(3, 218, 198, 0.25);
+        }
+        .sidebar-marca-hint {
+            display: block;
+            font-size: 0.65rem;
+            color: #888;
+            margin-top: 4px;
+            font-weight: normal;
+        }
+        .modal-marca-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.65);
+            z-index: 10000;
+            align-items: center;
+            justify-content: center;
+            padding: 16px;
+        }
+        .modal-marca-overlay.aberto { display: flex; }
+        .modal-marca-box {
+            background: #1e1e1e;
+            border: 1px solid #444;
+            border-radius: 10px;
+            padding: 22px;
+            width: 100%;
+            max-width: 360px;
+            color: #eee;
+        }
+        .modal-marca-box h3 { margin: 0 0 8px; color: #03dac6; font-size: 1.1rem; }
+        .modal-marca-box input { width: 100%; box-sizing: border-box; margin: 10px 0 4px; }
+        .modal-marca-contador { font-size: 0.8em; color: #888; text-align: right; }
+        .modal-marca-acoes { display: flex; gap: 10px; margin-top: 16px; justify-content: flex-end; }
+
+        .header-top-acoes {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-right: auto;
+        }
+        .btn-tela-cheia, .btn-header-acao {
+            background: rgba(255,255,255,0.06);
+            border: 1px solid #444;
+            color: #ddd;
+            border-radius: 8px;
+            width: 40px;
+            height: 40px;
+            cursor: pointer;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .btn-tela-cheia:hover, .btn-header-acao:hover {
+            border-color: #03dac6;
+            color: #03dac6;
+        }
+        .modal-config-loja-overlay {
+            display: none; position: fixed; inset: 0;
+            background: rgba(0,0,0,0.7); z-index: 10020;
+            align-items: center; justify-content: center; padding: 16px;
+        }
+        .modal-config-loja-overlay.aberto { display: flex; }
+        .modal-config-loja-box {
+            background: #1e1e1e; border: 1px solid #444; border-radius: 12px;
+            padding: 22px; width: 100%; max-width: 520px; max-height: 88vh;
+            overflow: auto; color: #eee;
+        }
+        .modal-config-loja-box h3 { margin: 0 0 6px; color: #03dac6; }
+        .config-loja-grupo {
+            margin: 18px 0 10px;
+            font-weight: 700;
+            color: #03dac6;
+            font-size: 0.92em;
+            border-bottom: 1px solid rgba(3, 218, 198, 0.25);
+            padding-bottom: 6px;
+        }
+        .config-loja-item {
+            display: flex;
+            align-items: flex-start;
+            justify-content: flex-start;
+            gap: 12px;
+            padding: 12px 0;
+            border-bottom: 1px solid #333;
+            text-align: left;
+        }
+        .config-loja-item input[type="checkbox"] {
+            width: 18px !important;
+            height: 18px;
+            min-width: 18px;
+            margin: 2px 0 0;
+            flex: 0 0 18px;
+            accent-color: #03dac6;
+            cursor: pointer;
+        }
+        .config-loja-item label {
+            flex: 1 1 auto;
+            min-width: 0;
+            width: auto;
+            margin: 0;
+            cursor: pointer;
+            text-align: left;
+            font-weight: 600;
+            color: #eee;
+            line-height: 1.35;
+        }
+        .config-loja-item small {
+            display: block;
+            color: #888;
+            font-size: 0.78em;
+            font-weight: 400;
+            margin-top: 4px;
+            line-height: 1.4;
+        }
+        .config-loja-item input[type="number"] {
+            width: 90px;
+            flex: 0 0 90px;
+            background: #111;
+            border: 1px solid #555;
+            color: #eee;
+            border-radius: 6px;
+            padding: 6px 8px;
+            box-sizing: border-box;
+        }
+        .config-loja-item select {
+            width: 100%;
+            max-width: 260px;
+            background: #111;
+            border: 1px solid #555;
+            color: #eee;
+            border-radius: 6px;
+            padding: 6px 8px;
+            box-sizing: border-box;
+        }
+        .modal-config-loja-box .config-loja-subtitulo {
+            margin: 0 0 12px;
+            color: #aaa;
+            font-size: 0.9em;
+        }
+
+        @media print {
+            .sidebar, .header-top, .btn-tela-cheia, .btn-header-acao,
+            .saas-warning-text, .alert-box {
+                display: none !important;
+            }
+            .content { margin: 0 !important; padding: 0 !important; }
+        }
     </style>
 </head>
 <body class="{% if not user.is_authenticated %}login-page{% endif %}">
@@ -57,7 +223,16 @@
     {% if user.is_authenticated %}
     <nav class="sidebar">
         <div class="sidebar-header">
-            <h2>Oneira PDV</h2>
+            <h2 id="sidebar-marca-nome"
+                class="sidebar-marca-nome{% if pode_editar_marca_pdv %} editavel{% endif %}"
+                {% if pode_editar_marca_pdv %}
+                title="Clique para alterar o nome da loja no menu"
+                role="button"
+                tabindex="0"
+                {% endif %}>{{ nome_marca_pdv }}</h2>
+            {% if pode_editar_marca_pdv %}
+            <span class="sidebar-marca-hint">Clique para editar</span>
+            {% endif %}
         </div>
         
         <div class="sidebar-menu">
@@ -92,6 +267,7 @@
 
             {% if request.user.is_superuser or request.user.perfil.perm_relatorios %}
             <a href="{% url 'relatorios' %}"><i class="fas fa-chart-line"></i> Relatórios</a>
+            <a href="{% url 'central_logs' %}"><i class="fas fa-clipboard-list"></i> Central de Logs</a>
             {% endif %}
 
             {% if request.user.is_superuser or request.user.perfil.perm_usuarios %}
@@ -113,9 +289,21 @@
         
         <div class="header-top">
             {% if user.is_authenticated %}
-            <button type="button" id="btn-tela-cheia" class="btn-tela-cheia" title="Tela cheia (oculta menu)">
-                <i class="fas fa-expand"></i>
-            </button>
+            <div class="header-top-acoes">
+                {% if request.resolver_match.url_name == 'nova_venda' or request.resolver_match.url_name == 'retomar_venda' %}
+                <button type="button" id="btn-gabarito-codigos" class="btn-header-acao" title="Gabarito de códigos dos produtos">
+                    <i class="fas fa-barcode"></i>
+                </button>
+                {% endif %}
+                {% if pode_configurar_loja %}
+                <button type="button" id="btn-config-loja" class="btn-header-acao" title="Configurações da loja">
+                    <i class="fas fa-cog"></i>
+                </button>
+                {% endif %}
+                <button type="button" id="btn-tela-cheia" class="btn-tela-cheia" title="Tela cheia (oculta menu)">
+                    <i class="fas fa-expand"></i>
+                </button>
+            </div>
             {% endif %}
             {% if user.is_authenticated and saas_alerta %}
                 <a href="{% url 'minha_assinatura' %}" class="saas-warning-text" title="Clique para regularizar">
@@ -144,6 +332,279 @@
     </div>
 
     {% if user.is_authenticated %}
+    <div id="modal-marca-pdv" class="modal-marca-overlay" role="dialog" aria-labelledby="modal-marca-titulo">
+        <div class="modal-marca-box">
+            <h3 id="modal-marca-titulo"><i class="fas fa-store"></i> Nome no menu</h3>
+            <p style="margin:0; font-size:0.9em; color:#aaa;">Aparece no topo do menu lateral para todos os usuários desta loja.</p>
+            <input type="text" id="input-nome-marca" class="form-control" maxlength="{{ nome_marca_pdv_max }}" autocomplete="off">
+            <div class="modal-marca-contador"><span id="marca-contador">0</span>/{{ nome_marca_pdv_max }}</div>
+            <div class="modal-marca-acoes">
+                <button type="button" class="btn" id="btn-marca-cancelar" style="background:#555;color:#fff;">Cancelar</button>
+                <button type="button" class="btn" id="btn-marca-salvar" style="background:#03dac6;color:#000;font-weight:600;">Salvar</button>
+            </div>
+        </div>
+    </div>
+
+    {% if pode_configurar_loja %}
+    <div id="modal-config-loja" class="modal-config-loja-overlay" role="dialog">
+        <div class="modal-config-loja-box">
+            <h3><i class="fas fa-cog"></i> Configurações da loja</h3>
+            <p id="config-loja-subtitulo" class="config-loja-subtitulo">Mesmas opções do admin: Entregas, PDV, Depósito/Fiado e Fidelidade.</p>
+            <div id="config-loja-campos">Carregando…</div>
+            <div class="modal-marca-acoes">
+                <button type="button" class="btn" id="btn-config-cancelar" style="background:#555;color:#fff;">Cancelar</button>
+                <button type="button" class="btn" id="btn-config-salvar" style="background:#03dac6;color:#000;font-weight:600;">Salvar</button>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    <script>
+    (function() {
+        const podeEditar = {{ pode_editar_marca_pdv|yesno:"true,false" }};
+        const maxChars = {{ nome_marca_pdv_max }};
+        const urlSalvar = "{% url 'api_salvar_nome_marca_pdv' %}";
+        const tituloMarca = document.getElementById('sidebar-marca-nome');
+        const modal = document.getElementById('modal-marca-pdv');
+        const inputMarca = document.getElementById('input-nome-marca');
+        const contador = document.getElementById('marca-contador');
+        const btnSalvar = document.getElementById('btn-marca-salvar');
+        const btnCancelar = document.getElementById('btn-marca-cancelar');
+
+        function atualizarContador() {
+            if (contador && inputMarca) contador.textContent = inputMarca.value.length;
+        }
+
+        function abrirModalMarca() {
+            if (!podeEditar || !modal || !inputMarca) return;
+            inputMarca.value = tituloMarca ? tituloMarca.textContent.trim() : '';
+            atualizarContador();
+            modal.classList.add('aberto');
+            inputMarca.focus();
+            inputMarca.select();
+        }
+
+        function fecharModalMarca() {
+            if (modal) modal.classList.remove('aberto');
+        }
+
+        if (podeEditar && tituloMarca) {
+            tituloMarca.addEventListener('click', abrirModalMarca);
+            tituloMarca.addEventListener('keydown', function(e) {
+                if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    abrirModalMarca();
+                }
+            });
+        }
+
+        if (inputMarca) inputMarca.addEventListener('input', atualizarContador);
+
+        if (btnCancelar) btnCancelar.addEventListener('click', fecharModalMarca);
+        if (modal) {
+            modal.addEventListener('click', function(e) {
+                if (e.target === modal) fecharModalMarca();
+            });
+        }
+
+        if (btnSalvar) {
+            btnSalvar.addEventListener('click', function() {
+                const nome = (inputMarca.value || '').trim();
+                if (!nome) {
+                    alert('Informe um nome.');
+                    return;
+                }
+                btnSalvar.disabled = true;
+                fetch(urlSalvar, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': '{{ csrf_token }}',
+                    },
+                    body: JSON.stringify({ nome: nome }),
+                })
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'ok') {
+                        if (tituloMarca) tituloMarca.textContent = data.nome;
+                        fecharModalMarca();
+                    } else {
+                        alert(data.mensagem || 'Erro ao salvar.');
+                    }
+                })
+                .catch(() => alert('Erro de conexão.'))
+                .finally(() => { btnSalvar.disabled = false; });
+            });
+        }
+    })();
+    </script>
+    {% if pode_configurar_loja %}
+    <script>
+    (function() {
+        const urlConfig = "{% url 'api_config_loja_pdv' %}";
+        const modal = document.getElementById('modal-config-loja');
+        const camposEl = document.getElementById('config-loja-campos');
+        const subtituloEl = document.getElementById('config-loja-subtitulo');
+        const btnAbrir = document.getElementById('btn-config-loja');
+        const btnCancelar = document.getElementById('btn-config-cancelar');
+        const btnSalvar = document.getElementById('btn-config-salvar');
+        const GRUPOS = {
+            entregas: ['trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon', 'taxa_entrega_pdv'],
+            pdv: ['impressao_automatica', 'trabalha_com_leitor_codigo_barras', 'cobra_taxa_servico', 'taxa_servico_pct'],
+            deposito: ['usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos'],
+            fidelidade: ['fidelidade_ativa', 'fidelidade_tipo_meta', 'fidelidade_meta', 'fidelidade_desconto_pct'],
+        };
+
+        function csrfToken() {
+            const cookie = document.cookie.split(';').map(s => s.trim()).find(s => s.startsWith('csrftoken='));
+            if (cookie) return decodeURIComponent(cookie.split('=').slice(1).join('='));
+            return '{{ csrf_token }}';
+        }
+
+        function fechar() { if (modal) modal.classList.remove('aberto'); }
+
+        function escapeHtml(texto) {
+            return String(texto || '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;');
+        }
+
+        function renderCampos(campos, lojaNome) {
+            const byName = {};
+            (campos || []).forEach(c => { byName[c.nome] = c; });
+            if (subtituloEl) {
+                const lojaTxt = lojaNome ? ` — ${lojaNome}` : '';
+                subtituloEl.textContent = `Opções do admin: Entregas, PDV, Depósito/Fiado e Fidelidade${lojaTxt}.`;
+            }
+            let html = '';
+            const secoes = [
+                ['Entregas', GRUPOS.entregas],
+                ['PDV', GRUPOS.pdv],
+                ['Depósito / Fiado', GRUPOS.deposito],
+                ['Fidelidade', GRUPOS.fidelidade],
+            ];
+            secoes.forEach(([titulo, nomes]) => {
+                html += `<div class="config-loja-grupo">${titulo}</div>`;
+                nomes.forEach(nome => {
+                    const c = byName[nome];
+                    if (!c) return;
+                    const label = escapeHtml(c.label);
+                    const help = escapeHtml(c.help || '');
+                    if (c.tipo === 'bool') {
+                        html += `<div class="config-loja-item">
+                            <input type="checkbox" id="cfg_${c.nome}" data-nome="${c.nome}" data-tipo="bool" ${c.valor ? 'checked' : ''}>
+                            <label for="cfg_${c.nome}">${label}${help ? `<small>${help}</small>` : ''}</label>
+                        </div>`;
+                    } else if (c.tipo === 'choice') {
+                        const opts = (c.opcoes || []).map(o =>
+                            `<option value="${escapeHtml(o.value)}"${String(o.value) === String(c.valor) ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+                        ).join('');
+                        html += `<div class="config-loja-item" style="flex-direction:column;gap:6px;">
+                            <label for="cfg_${c.nome}">${label}${help ? `<small>${help}</small>` : ''}</label>
+                            <select id="cfg_${c.nome}" data-nome="${c.nome}" data-tipo="choice">${opts}</select>
+                        </div>`;
+                    } else {
+                        html += `<div class="config-loja-item">
+                            <label for="cfg_${c.nome}" style="flex:1;">${label}${help ? `<small>${help}</small>` : ''}</label>
+                            <input type="number" id="cfg_${c.nome}" data-nome="${c.nome}" data-tipo="decimal" step="0.01" value="${c.valor == null ? '' : c.valor}">
+                        </div>`;
+                    }
+                });
+            });
+            camposEl.innerHTML = html || '<p>Nenhum campo.</p>';
+        }
+
+        function coletarPayload() {
+            const payload = {};
+            camposEl.querySelectorAll('[data-nome]').forEach(el => {
+                const nome = el.getAttribute('data-nome');
+                const tipo = el.getAttribute('data-tipo') || (el.type === 'checkbox' ? 'bool' : 'decimal');
+                if (tipo === 'bool' || el.type === 'checkbox') {
+                    payload[nome] = !!el.checked;
+                } else {
+                    payload[nome] = el.value;
+                }
+            });
+            return payload;
+        }
+
+        function abrir() {
+            if (!modal) return;
+            camposEl.textContent = 'Carregando…';
+            modal.classList.add('aberto');
+            fetch(urlConfig, { headers: { 'X-Requested-With': 'XMLHttpRequest' }, credentials: 'same-origin' })
+                .then(async r => {
+                    const data = await r.json().catch(() => ({}));
+                    if (!r.ok || data.status !== 'ok') {
+                        throw new Error(data.mensagem || `Erro ao carregar (${r.status})`);
+                    }
+                    renderCampos(data.campos, data.loja_nome);
+                })
+                .catch(err => { camposEl.textContent = err.message || 'Erro de conexão.'; });
+        }
+
+        if (btnAbrir) btnAbrir.addEventListener('click', abrir);
+        if (btnCancelar) btnCancelar.addEventListener('click', fechar);
+        if (modal) modal.addEventListener('click', e => { if (e.target === modal) fechar(); });
+
+        if (btnSalvar) {
+            btnSalvar.addEventListener('click', function() {
+                const payload = coletarPayload();
+                if (!Object.prototype.hasOwnProperty.call(payload, 'usa_fiado')) {
+                    alert('Erro interno: campo Fiado não encontrado no formulário. Recarregue a página.');
+                    return;
+                }
+                btnSalvar.disabled = true;
+                fetch(urlConfig, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrfToken(),
+                        'X-Requested-With': 'XMLHttpRequest',
+                    },
+                    body: JSON.stringify(payload),
+                })
+                .then(async r => {
+                    const data = await r.json().catch(() => ({}));
+                    if (!r.ok || data.status !== 'ok') {
+                        throw new Error(data.mensagem || `Erro ao salvar (${r.status})`);
+                    }
+                    return data;
+                })
+                .then(data => {
+                    const fiadoOk = data.valores && data.valores.usa_fiado === true;
+                    if (data.alterados > 0) {
+                        alert(
+                            'Configurações salvas com sucesso.' +
+                            (payload.usa_fiado ? (fiadoOk ? '\nFiado: ATIVO' : '\nAtenção: Fiado pode não ter sido gravado.') : '')
+                        );
+                        location.reload();
+                    } else {
+                        alert('Nenhuma alteração detectada.');
+                        fechar();
+                    }
+                })
+                .catch(err => alert(err.message || 'Erro de conexão.'))
+                .finally(() => { btnSalvar.disabled = false; });
+            });
+        }
+    })();
+    </script>
+    {% endif %}
+    <script>
+    (function() {
+        const btnCodigos = document.getElementById('btn-gabarito-codigos');
+        if (btnCodigos) {
+            btnCodigos.addEventListener('click', function() {
+                if (typeof window.abrirModalCodigosPdv === 'function') {
+                    window.abrirModalCodigosPdv();
+                }
+            });
+        }
+    })();
+    </script>
     <script>
     (function() {
         const btn = document.getElementById('btn-tela-cheia');

@@ -1,5 +1,6 @@
 from django import forms
-from .models import Produto, Cliente, Fornecedor, EntradaEstoque, Loja, ItemEstoque, CategoriaTransacao, Transacao, Motoboy, Moto, PerfilUsuario
+from decimal import Decimal
+from .models import Produto, Cliente, Fornecedor, EntradaEstoque, Loja, ItemEstoque, CategoriaTransacao, Transacao, Motoboy, Moto, PerfilUsuario, GrupoProduto, ComponenteKit
 from django.contrib.auth.models import User
 from django.contrib.auth.forms import UserCreationForm
 
@@ -19,25 +20,36 @@ class ProdutoForm(forms.ModelForm):
     class Meta:
         model = Produto
         fields = [
-            'item_estoque', 'nome_venda', 'imagem', 'quantidade_baixa',
-            'preco_compra', 'preco_venda', 'fornecedor', 'vende_vasilhame_vazio',
-            'rastrear_recompra', 'usa_venda_completa', 'preco_venda_completo',
-            'dias_recompra', 'mensagem_recompra',
+            'eh_kit', 'item_estoque', 'nome_venda', 'imagem', 'quantidade_baixa',
+            'preco_compra', 'preco_venda', 'fornecedor', 'grupo',
+            'rastrear_recompra', 'vende_vasilhame_vazio',
+            'usa_venda_completa', 'preco_venda_completo',
+            'dias_recompra', 'mensagem_recompra', 'codigo_barras',
         ]
         
         labels = {
+            'eh_kit': 'Produto kit / promoção?',
             'item_estoque': 'Item do Estoque (Pai)', 
             'nome_venda': 'Nome de Venda (Ex: Pack c/ 12)',
+            'codigo_barras': 'Código de barras (leitor USB)',
             'imagem': 'Foto do Produto (Aparece no App)', 
             'quantidade_baixa': 'Qtd Itens neste Produto (Ex: 12)',
             'preco_compra': 'Custo Médio (atualizado pelas entradas de estoque)',
             'preco_venda': 'Preço de Venda (Deste pacote)',
-            'fornecedor': 'Fornecedor'
+            'fornecedor': 'Fornecedor',
+            'grupo': 'Grupo do produto',
+            'vende_vasilhame_vazio': 'Vende vasilhame vazio',
         }
         
         widgets = {
+            'eh_kit': forms.CheckboxInput(attrs={'class': 'form-check-input', 'id': 'id_eh_kit'}),
             'item_estoque': forms.Select(attrs={'class': 'form-control select-search'}),
             'nome_venda': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ex: Coca Cola Fardo'}),
+            'codigo_barras': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'Ex: 7891234567890',
+                'autocomplete': 'off',
+            }),
             'imagem': forms.FileInput(attrs={'class': 'form-control'}), 
             'quantidade_baixa': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001', 'placeholder': '1 para avulso...'}),
             'preco_compra': forms.NumberInput(attrs={
@@ -47,6 +59,7 @@ class ProdutoForm(forms.ModelForm):
             'preco_venda': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
             'preco_venda_completo': forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
             'fornecedor': forms.Select(attrs={'class': 'form-control select-search'}),
+            'grupo': forms.Select(attrs={'class': 'form-control select-search'}),
             'vende_vasilhame_vazio': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'usa_venda_completa': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'rastrear_recompra': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
@@ -56,20 +69,76 @@ class ProdutoForm(forms.ModelForm):
         loja = kwargs.pop('loja', None)
         self.loja = loja
         super(ProdutoForm, self).__init__(*args, **kwargs)
+
+        if not loja or not loja.trabalha_com_leitor_codigo_barras:
+            self.fields.pop('codigo_barras', None)
+        if not loja or not loja.permite_venda_completa:
+            self.fields.pop('usa_venda_completa', None)
+            self.fields.pop('preco_venda_completo', None)
+        if not loja or not loja.controla_vasilhame_vazio:
+            self.fields.pop('vende_vasilhame_vazio', None)
+        if not loja or not loja.divide_produtos_por_grupos:
+            self.fields.pop('grupo', None)
+
         if loja:
             if 'item_estoque' in self.fields:
                 self.fields['item_estoque'].queryset = self.fields['item_estoque'].queryset.filter(loja=loja).order_by('nome')
+                self.fields['item_estoque'].required = False
+                self.fields['item_estoque'].empty_label = '— Selecione o item de estoque —'
             if 'fornecedor' in self.fields:
                 self.fields['fornecedor'].queryset = self.fields['fornecedor'].queryset.filter(loja=loja).order_by('nome')
-        if not loja or not loja.controla_vasilhame_vazio:
-            self.fields.pop('vende_vasilhame_vazio', None)
+                self.fields['fornecedor'].required = False
+            if 'grupo' in self.fields:
+                self.fields['grupo'].queryset = GrupoProduto.objects.filter(loja=loja).order_by('ordem', 'nome')
+                self.fields['grupo'].required = False
+                self.fields['grupo'].empty_label = 'Sem grupo'
+        for nome in ('preco_compra', 'preco_venda', 'preco_venda_completo', 'quantidade_baixa'):
+            if nome in self.fields:
+                self.fields[nome].required = False if nome == 'preco_venda_completo' else self.fields[nome].required
+
+    def clean_codigo_barras(self):
+        codigo = (self.cleaned_data.get('codigo_barras') or '').strip()
+        if not codigo:
+            return ''
+        if self.loja:
+            qs = Produto.objects.filter(loja=self.loja, codigo_barras=codigo)
+            if self.instance and self.instance.pk:
+                qs = qs.exclude(pk=self.instance.pk)
+            if qs.exists():
+                raise forms.ValidationError('Já existe outro produto nesta loja com este código de barras.')
+        return codigo
+
+    def clean_grupo(self):
+        grupo = self.cleaned_data.get('grupo')
+        if grupo and self.loja and grupo.loja_id != self.loja.id:
+            raise forms.ValidationError('Grupo inválido para esta loja.')
+        return grupo
 
     def clean(self):
         cleaned = super().clean()
+        eh_kit = cleaned.get('eh_kit')
+        if eh_kit:
+            cleaned['item_estoque'] = None
+            cleaned['quantidade_baixa'] = Decimal('1')
+            if 'vende_vasilhame_vazio' in self.fields:
+                cleaned['vende_vasilhame_vazio'] = False
+            if 'usa_venda_completa' in self.fields:
+                cleaned['usa_venda_completa'] = False
+            if 'preco_venda_completo' in self.fields:
+                cleaned['preco_venda_completo'] = None
+        elif not cleaned.get('item_estoque'):
+            self.add_error('item_estoque', 'Obrigatório para produtos que não são kit. Selecione um item de estoque.')
         if cleaned.get('vende_vasilhame_vazio') and self.loja and not self.loja.controla_vasilhame_vazio:
             raise forms.ValidationError(
                 'Venda de vasilhame vazio só está disponível para lojas com controle de vasilhame ativo.'
             )
+        # Defaults numéricos quando vazios
+        if cleaned.get('quantidade_baixa') in (None, ''):
+            cleaned['quantidade_baixa'] = Decimal('1')
+        if cleaned.get('preco_compra') in (None, ''):
+            cleaned['preco_compra'] = Decimal('0')
+        if cleaned.get('preco_venda') in (None, ''):
+            cleaned['preco_venda'] = Decimal('0')
         return cleaned
 
 # --- TODO O RESTO ABAIXO ESTÁ INTACTO CONFORME SEU CÓDIGO ---
@@ -77,14 +146,29 @@ class ProdutoForm(forms.ModelForm):
 class ClienteForm(forms.ModelForm):
     class Meta:
         model = Cliente
-        fields = ['nome', 'telefone', 'whatsapp', 'endereco', 'bairro']
+        fields = ['nome', 'whatsapp', 'endereco', 'bairro']
         widgets = {
             'nome': forms.TextInput(attrs={'class': 'form-control'}),
-            'telefone': forms.TextInput(attrs={'class': 'form-control'}),
-            'whatsapp': forms.TextInput(attrs={'class': 'form-control'}),
+            'whatsapp': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': '(00) 00000-0000',
+            }),
             'endereco': forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
             'bairro': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ex: Botânico'}),
         }
+        labels = {
+            'whatsapp': 'WhatsApp',
+        }
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        # Mantém telefone legado sincronizado com o WhatsApp (campo único na prática).
+        zap = (obj.whatsapp or '').strip()
+        obj.whatsapp = zap or None
+        obj.telefone = zap or None
+        if commit:
+            obj.save()
+        return obj
 
 class ConfigFidelidadeForm(forms.ModelForm):
     class Meta:

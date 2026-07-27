@@ -19,7 +19,7 @@
     <div class="card" style="flex: 1; min-width: 300px;">
         <h3 style="color: #15A0A5;"><i class="fas fa-users"></i> Importar Clientes</h3>
         <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
-            <strong>Colunas:</strong> Nome, Telefone, WhatsApp, Endereco.<br>
+            <strong>Colunas:</strong> Nome, WhatsApp, Endereco, Bairro.<br>
             Para evitar erros, baixe e preencha a nossa planilha modelo abaixo.
         </p>
         
@@ -43,7 +43,8 @@
     <div class="card" style="flex: 1; min-width: 300px;">
         <h3 style="color: #15A0A5;"><i class="fas fa-box"></i> Importar Produtos</h3>
         <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
-            <strong>Colunas:</strong> Item Pai, Unidade, Estoque Total, Nome Venda, Qtd Baixa, Preco Custo, Preco Venda.<br>
+            <strong>Colunas:</strong> Item Pai, Unidade, Estoque Total, Data Validade, Observacao,
+            Nome Venda, Codigo Barras, Preco Custo e Venda.
             Para evitar erros, baixe e preencha a nossa planilha modelo abaixo.
         </p>
 
@@ -53,6 +54,7 @@
 
         <div style="background: #333; padding: 10px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px;">
             <i class="fas fa-info-circle"></i> O sistema criará o Item no Cofre (Estoque Pai) e o Produto de Venda de forma inteligente.
+        
         </div>
 
         <form action="{% url 'importar_produtos' %}" method="POST" enctype="multipart/form-data">

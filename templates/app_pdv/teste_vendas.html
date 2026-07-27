@@ -1,0 +1,882 @@
+{% extends 'base.html' %}
+
+{% block title %}PDV Protótipo{% endblock %}
+
+{% block content %}
+
+<style>
+.pdv-proto-banner {
+    background: linear-gradient(90deg, rgba(103,58,183,0.25), rgba(3,218,198,0.15));
+    border: 1px solid rgba(3,218,198,0.4);
+    border-radius: 8px;
+    padding: 8px 14px;
+    margin-bottom: 12px;
+    font-size: 0.88em;
+    color: #ccc;
+}
+.pdv-proto-banner strong { color: #03dac6; }
+.pdv-cliente-row { display: flex; gap: 8px; align-items: stretch; }
+.pdv-cliente-row input { flex: 1; min-width: 0; }
+.btn-novo-cliente {
+    background: var(--accent, #15a0a5); color: #000; border: none;
+    border-radius: 6px; padding: 0 14px; font-size: 1.1rem; cursor: pointer; flex-shrink: 0;
+}
+.pdv-footer-proto {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 20px;
+    align-items: center;
+    padding: 16px 20px !important;
+}
+.pdv-info-caixa {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+.pdv-info-caixa-texto { min-width: 0; }
+.pdv-linha-operador, .pdv-linha-empresa {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-width: 0;
+}
+.pdv-linha-empresa { margin-top: 6px; }
+.pdv-texto-padrao {
+    font-size: 1.05rem; font-weight: 600; color: #fff;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.pdv-status-inline {
+    display: inline-flex; align-items: center; gap: 6px;
+    font-size: 1.05rem; font-weight: 600; flex-shrink: 0;
+}
+.pdv-status-inline.aberto { color: #66bb6a; }
+.pdv-status-inline.fechado { color: #cf6679; }
+.pdv-status-inline a { font-size: inherit; font-weight: inherit; }
+.pdv-status-dot {
+    width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0;
+    box-shadow: 0 0 8px currentColor;
+}
+.pdv-status-dot.aberto { background: #66bb6a; color: #66bb6a; }
+.pdv-status-dot.fechado { background: #cf6679; color: #cf6679; }
+.pdv-footer-proto .pdv-footer-checkout {
+    display: flex; align-items: center; gap: 20px; flex-shrink: 0;
+}
+.modal-pagamento-overlay {
+    display: none; position: fixed; inset: 0;
+    background: rgba(0,0,0,0.75); z-index: 10001;
+    align-items: center; justify-content: center; padding: 16px;
+    overflow-y: auto;
+}
+.modal-pagamento-overlay.aberto { display: flex; }
+.modal-pagamento-box {
+    background: #1a1a1a; border: 1px solid #444; border-radius: 14px;
+    width: 100%; max-width: 920px; max-height: 92vh; overflow-y: auto;
+    padding: 22px; color: #eee;
+}
+.modal-pagamento-header {
+    display: flex; justify-content: space-between; align-items: flex-start;
+    gap: 12px; margin-bottom: 18px; flex-wrap: wrap;
+}
+.modal-pagamento-header h3 { margin: 0; color: #03dac6; font-size: 1.25rem; }
+.modal-total-resumo { text-align: right; }
+.modal-total-resumo .valor { font-size: 1.8rem; font-weight: 700; color: #03dac6; }
+.modal-total-resumo .restante { font-size: 0.95em; margin-top: 4px; }
+.modal-total-resumo .restante.ok { color: #66bb6a; }
+.modal-total-resumo .restante.pendente { color: #ff9800; }
+.pagamento-cards-grid {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+.pagamento-cards-grid .pagamento-card {
+    flex: 0 1 150px;
+    width: 150px;
+    max-width: 160px;
+    box-sizing: border-box;
+}
+.pagamento-card {
+    background: #252525; border: 2px solid #333; border-radius: 10px;
+    padding: 14px 10px; text-align: center; cursor: pointer;
+    transition: transform 0.15s, border-color 0.15s, box-shadow 0.15s;
+    position: relative;
+}
+.pagamento-card:hover { transform: translateY(-2px); }
+.pagamento-card.ativo {
+    border-color: var(--card-cor, #03dac6);
+    box-shadow: 0 0 16px rgba(3,218,198,0.2);
+}
+.pagamento-card.especial.ativo { border-color: var(--card-cor); }
+.pagamento-card .card-icon { font-size: 2rem; margin-bottom: 6px; display: block; }
+.pagamento-card .card-nome { font-size: 0.9em; font-weight: 600; margin-bottom: 8px; }
+.pagamento-card input.card-valor {
+    width: 100%; box-sizing: border-box; margin: 0;
+    padding: 8px 6px; text-align: center; font-size: 0.95em;
+    background: #1e1e1e; border: 1px solid #555; border-radius: 6px; color: #fff;
+}
+.pagamento-card input.card-valor:disabled { opacity: 0.4; cursor: not-allowed; }
+.pagamento-card .card-top { height: 4px; border-radius: 10px 10px 0 0; margin: -14px -10px 10px; }
+.modal-secao { margin-top: 16px; padding-top: 14px; border-top: 1px solid #333; }
+.modal-secao-titulo { font-size: 0.85em; color: #888; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; }
+.modal-rodape-compacto {
+    display: flex;
+    align-items: flex-end;
+    gap: 14px;
+    flex-wrap: wrap;
+}
+.modal-rodape-compacto .campo-taxa { flex: 0 0 140px; min-width: 120px; }
+.modal-rodape-compacto label { display: block; font-size: 0.85em; margin-bottom: 4px; color: #aaa; }
+.modal-rodape-compacto input[type="number"] { width: 100%; box-sizing: border-box; margin: 0; }
+.modal-taxa-opcoes {
+    display: flex; flex-direction: column; justify-content: flex-end;
+    gap: 8px; flex-shrink: 0;
+}
+.modal-taxa-opcoes .form-check-inline-proto { margin-top: 0; white-space: nowrap; }
+.modal-rodape-compacto .modal-pagamento-acoes {
+    display: flex; gap: 10px; align-items: center;
+    margin-left: auto; flex-shrink: 0;
+}
+.modal-troco-wrap { margin-top: 12px; display: none; }
+.modal-troco-wrap.visivel { display: block; }
+.modal-lancamento-wrap { display: none; margin-top: 12px; }
+.modal-lancamento-wrap.visivel { display: block; }
+.form-check-inline-proto {
+    display: flex; align-items: center; gap: 8px; margin-top: 10px;
+}
+.form-check-inline-proto input { width: auto; margin: 0; }
+.btn-modal-cancelar { background: #555; color: #fff; }
+.btn-modal-confirmar { background: #03dac6; color: #000; font-weight: 700; }
+.modal-cliente-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    z-index: 10002; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-cliente-overlay.aberto { display: flex; }
+.modal-cliente-box {
+    background: #1e1e1e; border: 1px solid #444; border-radius: 10px;
+    padding: 24px; width: 100%; max-width: 420px; color: #eee;
+}
+.pdv-barcode-wrap {
+    margin-bottom: 12px; padding: 10px 12px;
+    background: rgba(3,218,198,0.08); border: 1px solid rgba(3,218,198,0.35); border-radius: 8px;
+}
+</style>
+
+<div class="pdv-proto-banner">
+    <strong>Protótipo PDV</strong> — <code>/teste_vendas/</code> ou <code>/teste_venda/</code>.
+    A página original em <a href="{% url 'nova_venda' %}" style="color:#03dac6;">/vendas/nova/</a> não foi alterada.
+</div>
+
+<input type="hidden" id="cliente_id_hidden">
+<input type="hidden" id="produto_id_hidden">
+<input type="hidden" id="produto_unidade_hidden">
+<input type="checkbox" id="checkEntrega" style="display:none !important;">
+
+<datalist id="lista_clientes">
+    <option value="Venda Direta" data-id="">Consumidor Final</option>
+    {% for cliente in clientes %}
+    <option value="{{ cliente.nome }}" data-id="{{ cliente.id }}"></option>
+    {% endfor %}
+</datalist>
+
+<datalist id="lista_produtos">
+    {% for produto in produtos %}
+    <option value="{{ produto.nome_venda }}"
+            data-id="{{ produto.id }}"
+            data-preco="{{ produto.preco_venda|stringformat:'.2f' }}"
+            data-preco-completo="{% if produto.preco_venda_completo %}{{ produto.preco_venda_completo|stringformat:'.2f' }}{% else %}{{ produto.preco_venda|stringformat:'.2f' }}{% endif %}"
+            data-unidade="{% if produto.item_estoque %}{{ produto.item_estoque.unidade_medida|default:'UN' }}{% else %}UN{% endif %}"
+            data-qtd-baixa="{{ produto.quantidade_baixa|stringformat:'.3f' }}"
+            data-vende-vazio="{% if produto.baixa_apenas_vasilhame_vazio %}1{% else %}0{% endif %}"
+            data-venda-completa="{% if produto.usa_venda_completa %}1{% else %}0{% endif %}"
+            data-eh-kit="{% if produto.eh_kit %}1{% else %}0{% endif %}"
+            data-estoque-kit="{% if produto.eh_kit %}{{ produto.estoque_kits_disponiveis|stringformat:'.3f' }}{% else %}0{% endif %}"
+            data-estoque-cheio="{% if produto.item_estoque %}{{ produto.item_estoque.quantidade_estoque|stringformat:'.3f' }}{% else %}0{% endif %}"
+            data-estoque-vazio="{% if produto.item_estoque %}{{ produto.item_estoque.quantidade_vazios|stringformat:'.3f' }}{% else %}0{% endif %}"
+            {% if produto.codigo_barras %}data-codigo-barras="{{ produto.codigo_barras }}"{% endif %}>
+    </option>
+    {% endfor %}
+</datalist>
+
+<div class="pdv-page pdv-compact">
+    <div class="pdv-container">
+        <div class="painel-esquerdo">
+            <div class="card">
+                <h3>Dados da Venda</h3>
+                <label for="cliente_input">Cliente</label>
+                <div class="pdv-cliente-row">
+                    <input type="text" id="cliente_input" list="lista_clientes" placeholder="Busque o cliente..." onchange="buscarClienteID()" autocomplete="off">
+                    <button type="button" id="btn-novo-cliente" class="btn btn-novo-cliente" title="Cadastrar cliente"><i class="fas fa-plus"></i></button>
+                </div>
+                <label for="tipo_venda">Tipo</label>
+                <select id="tipo_venda">
+                    <option value="FINALIZADO">Venda Direta</option>
+                    <option value="ORCAMENTO">Orçamento</option>
+                </select>
+            </div>
+
+            <div class="card card-produto">
+                <h3>Adicionar Produto</h3>
+                {% if leitor_codigo_barras %}
+                <div class="pdv-barcode-wrap">
+                    <label for="barcode_input"><i class="fas fa-barcode"></i> Leitor de código de barras</label>
+                    <input type="text" id="barcode_input" placeholder="Passe o produto no leitor USB..." autocomplete="off">
+                </div>
+                {% endif %}
+                <label for="produto_input">Produto</label>
+                <input type="text" id="produto_input" list="lista_produtos" placeholder="Nome ou código..." onchange="buscarProdutoDetalhes()" autocomplete="off">
+                <div class="pdv-row-3">
+                    <div class="pdv-field">
+                        <label>Quantidade <span id="label_unidade" class="pdv-unidade-tag"></span></label>
+                        <input type="number" id="qtd_input" value="1" step="0.001">
+                    </div>
+                    <div class="pdv-field">
+                        <label for="preco_input">Preço Unit. (R$)</label>
+                        <input type="number" id="preco_input" step="0.01" placeholder="0.00">
+                    </div>
+                    <div class="pdv-field">
+                        <label for="total_item_input">Total do Item (R$)</label>
+                        <input type="number" id="total_item_input" step="0.01" class="pdv-input-destaque" placeholder="0.00">
+                    </div>
+                </div>
+                <button type="button" class="btn-pdv-acao" onclick="adicionarAoCarrinho()">ADICIONAR ITEM (Enter)</button>
+            </div>
+        </div>
+
+        <div class="painel-direito">
+            <div class="card card-cupom">
+                <h3>CUPOM FISCAL</h3>
+                <div class="cupom-body">
+                    <table class="cupom-table">
+                        <thead><tr><th>Produto</th><th>Qtd</th><th>Total</th><th></th></tr></thead>
+                        <tbody id="lista-itens"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="pdv-footer-bar card pdv-footer-proto">
+        <div class="pdv-info-caixa">
+            <div class="pdv-info-caixa-texto">
+                <div class="pdv-linha-operador">
+                    <span class="pdv-status-inline {% if caixa_aberto %}aberto{% else %}fechado{% endif %}">
+                        <span class="pdv-status-dot {% if caixa_aberto %}aberto{% else %}fechado{% endif %}"></span>
+                        {% if caixa_aberto %}
+                            Caixa aberto
+                        {% else %}
+                            Caixa fechado — <a href="{% url 'fluxo_caixa' %}" style="color:#cf6679;">abrir caixa</a>
+                        {% endif %}
+                    </span>
+                    <span class="pdv-texto-padrao">Nome do Operador:</span>
+                    <span class="pdv-texto-padrao">{{ primeiro_nome }}{% if sobrenome %} {{ sobrenome }}{% endif %}</span>
+                </div>
+                <div class="pdv-linha-empresa">
+                    <span class="pdv-texto-padrao">Empresa:</span>
+                    <span class="pdv-texto-padrao">{{ nome_loja }}</span>
+                    {% if cnpj_loja %}
+                    <span class="pdv-texto-padrao">CNPJ: {{ cnpj_loja }}</span>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="pdv-footer-checkout">
+            <div class="total-display" id="valorTotalDisplay">R$ 0.00</div>
+            <button type="button" class="btn-finalizar-venda btn-pdv-acao" id="btnAbrirPagamento">FINALIZAR VENDA (F2)</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal pagamento -->
+<div id="modal-pagamento" class="modal-pagamento-overlay" role="dialog">
+    <div class="modal-pagamento-box">
+        <div class="modal-pagamento-header">
+            <div>
+                <h3><i class="fas fa-cash-register"></i> Liquidação da venda</h3>
+                <p style="margin:4px 0 0; font-size:0.88em; color:#888;">Clique nos cards e informe os valores. Vários meios = pagamento dividido automático.</p>
+            </div>
+            <div class="modal-total-resumo">
+                <div class="valor" id="modalTotalDisplay">R$ 0,00</div>
+                <div class="restante pendente" id="modalRestanteDisplay">Restante: R$ 0,00</div>
+            </div>
+        </div>
+
+        <div class="modal-secao-titulo">Meios de liquidação</div>
+        <div class="pagamento-cards-grid" id="gridMeiosPagamento">
+            {% for meio in meios_pagamento_cards %}
+            <div class="pagamento-card meio-card" data-tipo="meio" data-codigo="{{ meio.codigo }}"
+                 style="--card-cor: {{ meio.cor }};">
+                <div class="card-top" style="background: {{ meio.cor }};"></div>
+                <i class="fas {{ meio.icone }} card-icon" style="color: {{ meio.cor }};"></i>
+                <div class="card-nome">{{ meio.nome }}</div>
+                <input type="number" class="card-valor" step="0.01" min="0" placeholder="0,00" data-meio="{{ meio.codigo }}">
+            </div>
+            {% endfor %}
+        </div>
+
+        <div class="modal-secao-titulo">Opções especiais</div>
+        <div class="pagamento-cards-grid">
+            <div class="pagamento-card especial" data-tipo="especial" data-modo="finalizar_depois" style="--card-cor: #ff9800;">
+                <div class="card-top" style="background: #ff9800;"></div>
+                <i class="fas fa-clock card-icon" style="color: #ff9800;"></i>
+                <div class="card-nome">Finalizar depois</div>
+                <small style="color:#888; font-size:0.75em;">Venda em aberto</small>
+            </div>
+            {% if usa_fiado %}
+            <div class="pagamento-card especial" data-tipo="especial" data-modo="fiado" style="--card-cor: #673ab7;">
+                <div class="card-top" style="background: #673ab7;"></div>
+                <i class="fas fa-handshake card-icon" style="color: #673ab7;"></i>
+                <div class="card-nome">Venda fiado</div>
+                <small style="color:#888; font-size:0.75em;">Consignada</small>
+            </div>
+            {% endif %}
+            <div class="pagamento-card especial" data-tipo="especial" data-modo="cortesia" style="--card-cor: #9e9e9e;">
+                <div class="card-top" style="background: #9e9e9e;"></div>
+                <i class="fas fa-gift card-icon" style="color: #9e9e9e;"></i>
+                <div class="card-nome">Cortesia</div>
+                <small style="color:#888; font-size:0.75em;">Sem receita</small>
+            </div>
+            <div class="pagamento-card especial" data-tipo="especial" data-modo="avaria" style="--card-cor: #cf6679;">
+                <div class="card-top" style="background: #cf6679;"></div>
+                <i class="fas fa-box-open card-icon" style="color: #cf6679;"></i>
+                <div class="card-nome">Avaria</div>
+                <small style="color:#888; font-size:0.75em;">Baixa estoque</small>
+            </div>
+        </div>
+
+        <div class="modal-secao">
+            <div class="modal-rodape-compacto">
+                {% if modo_taxa_servico or trabalha_com_entregas %}
+                <div class="campo-taxa" id="wrapCampoTaxaModal">
+                    <label for="inputTaxaModal" id="labelTaxaModal">{% if modo_taxa_servico %}Taxa Serviço (%){% else %}Taxa Entrega (R$){% endif %}</label>
+                    <input type="number" id="inputTaxaModal" value="{% if modo_taxa_servico %}{{ taxa_servico_pct }}{% else %}{{ taxa_padrao }}{% endif %}" step="0.01" min="0"{% if trabalha_com_entregas and not modo_taxa_servico %} disabled{% endif %}>
+                </div>
+                {% endif %}
+                <div class="modal-taxa-opcoes">
+                    <div class="form-check-inline-proto">
+                        <input type="checkbox" id="check_tipo_lancamento">
+                        <label for="check_tipo_lancamento">Lançamento avulso</label>
+                    </div>
+                    {% if modo_taxa_servico or trabalha_com_entregas %}
+                    <div class="form-check-inline-proto" id="wrapCheckSalvarTaxa">
+                        <input type="checkbox" id="check_att_padrao">
+                        <label for="check_att_padrao">Salvar taxa padrão</label>
+                    </div>
+                    {% endif %}
+                </div>
+                <div class="modal-pagamento-acoes">
+                    <button type="button" class="btn btn-modal-cancelar" id="btnFecharModalPagamento">Voltar</button>
+                    <button type="button" class="btn btn-modal-confirmar" id="btnConfirmarPagamento">
+                        <i class="fas fa-check"></i> Confirmar venda
+                    </button>
+                </div>
+            </div>
+
+            <div class="modal-troco-wrap" id="wrapTrocoModal">
+                <label for="input_troco_modal">Troco para (dinheiro)</label>
+                <input type="number" id="input_troco_modal" step="0.01" min="0" placeholder="50.00" class="form-control">
+            </div>
+
+            <div class="modal-lancamento-wrap" id="wrapLancamentoAvulso">
+                <label for="selectLancamentoAvulso">Tipo de lançamento</label>
+                <select id="selectLancamentoAvulso" class="form-control">
+                    <option value="">— Selecione —</option>
+                    {% for forma in formas_lancamento_avulsas %}
+                    <option value="{{ forma.codigo }}">{{ forma.nome }}</option>
+                    {% endfor %}
+                </select>
+                <p style="font-size:0.8em; color:#888; margin:6px 0 0;">Cortesia, avaria e formas customizadas (sem duplicar Pix, Dinheiro, etc.)</p>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let carrinho = [];
+    let modoEspecial = null;
+    const PERMITE_PAGAMENTO_DIVIDIDO = {{ permite_pagamento_dividido|yesno:"true,false" }};
+    const LOJA_TRABALHA_COM_ENTREGAS = {{ trabalha_com_entregas|yesno:"true,false" }};
+    const MODO_TAXA_SERVICO = {{ modo_taxa_servico|yesno:"true,false" }};
+    const EXIBE_CAMPO_TAXA = MODO_TAXA_SERVICO || LOJA_TRABALHA_COM_ENTREGAS;
+    const TAXA_SERVICO_PADRAO = parseFloat("{{ taxa_servico_pct|default:10|stringformat:'.2f' }}") || 10;
+    const TAXA_PADRAO_LOJA = parseFloat("{{ taxa_padrao|default_if_none:0|stringformat:'.2f' }}") || 0;
+    const USA_FIADO = {{ usa_fiado|yesno:"true,false" }};
+    const CAIXA_ABERTO = {{ caixa_aberto|yesno:"true,false" }};
+    const LEITOR_CODIGO_BARRAS = {{ leitor_codigo_barras|yesno:"true,false" }};
+    const MAPA_CODIGOS_BARRAS = {{ mapa_codigos_barras_json|safe }};
+
+    function parsePrecoBR(val) {
+        if (val == null || val === '') return 0;
+        return parseFloat(String(val).trim().replace(',', '.')) || 0;
+    }
+
+    function taxaModalAplicavel() {
+        if (!EXIBE_CAMPO_TAXA) return false;
+        if (modoEspecial === 'cortesia' || modoEspecial === 'avaria') return false;
+        if (MODO_TAXA_SERVICO) return true;
+        return document.getElementById('checkEntrega') && document.getElementById('checkEntrega').checked;
+    }
+
+    function configurarCampoTaxaModal() {
+        const inp = document.getElementById('inputTaxaModal');
+        if (!inp) return;
+        if (MODO_TAXA_SERVICO) {
+            inp.disabled = false;
+            if (!inp.value || parsePrecoBR(inp.value) === 0) {
+                inp.value = TAXA_SERVICO_PADRAO.toFixed(2);
+            }
+        } else if (LOJA_TRABALHA_COM_ENTREGAS) {
+            const ehEntrega = document.getElementById('checkEntrega') && document.getElementById('checkEntrega').checked;
+            inp.disabled = !ehEntrega;
+            if (!ehEntrega) {
+                inp.value = '0';
+            } else if (parsePrecoBR(inp.value) === 0 && TAXA_PADRAO_LOJA > 0) {
+                inp.value = TAXA_PADRAO_LOJA.toFixed(2);
+            }
+        }
+    }
+
+    function obterTaxaModal() {
+        const inp = document.getElementById('inputTaxaModal');
+        if (!inp || inp.disabled || !taxaModalAplicavel()) return 0;
+        const v = parsePrecoBR(inp.value);
+        return isFinite(v) && v > 0 ? v : 0;
+    }
+
+    function obterSubtotalCarrinho() {
+        return carrinho.reduce((s, it) => s + (parseFloat(it.preco) || 0) * (parseFloat(it.quantidade) || 0), 0);
+    }
+
+    function calcularTotalVenda() {
+        if (modoEspecial === 'cortesia' || modoEspecial === 'avaria') return 0;
+        let sub = obterSubtotalCarrinho();
+        if (!taxaModalAplicavel()) return Math.round(sub * 100) / 100;
+        if (MODO_TAXA_SERVICO) {
+            const pct = obterTaxaModal();
+            if (pct > 0) sub += Math.round(sub * pct / 100 * 100) / 100;
+        } else {
+            sub += obterTaxaModal();
+        }
+        return Math.round(sub * 100) / 100;
+    }
+
+    function renderizarTabela() {
+        const tbody = document.getElementById('lista-itens');
+        tbody.innerHTML = '';
+        carrinho.forEach((item, idx) => {
+            const tr = document.createElement('tr');
+            const tot = (parseFloat(item.preco) * parseFloat(item.quantidade)).toFixed(2);
+            tr.innerHTML = `<td>${item.nome}</td><td>${item.quantidade}</td><td>R$ ${tot}</td>
+                <td><button type="button" onclick="removerItem(${idx})" style="background:none;border:none;color:#cf6679;cursor:pointer;">×</button></td>`;
+            tbody.appendChild(tr);
+        });
+        const total = calcularTotalVendaSemModal();
+        document.getElementById('valorTotalDisplay').textContent = 'R$ ' + total.toFixed(2);
+    }
+
+    function calcularTotalVendaSemModal() {
+        let sub = obterSubtotalCarrinho();
+        if (MODO_TAXA_SERVICO) {
+            const pct = TAXA_SERVICO_PADRAO;
+            if (pct > 0) sub += Math.round(sub * pct / 100 * 100) / 100;
+        }
+        return Math.round(sub * 100) / 100;
+    }
+
+    function obterOpcaoProdutoSelecionada() {
+        const inputVal = document.getElementById('produto_input').value;
+        const datalist = document.getElementById('lista_produtos');
+        for (let i = 0; i < datalist.options.length; i++) {
+            if (datalist.options[i].value === inputVal) return datalist.options[i];
+        }
+        return null;
+    }
+
+    function buscarProdutoDetalhes() {
+        const option = obterOpcaoProdutoSelecionada();
+        if (!option) return;
+        document.getElementById('produto_id_hidden').value = option.getAttribute('data-id');
+        document.getElementById('produto_unidade_hidden').value = option.getAttribute('data-unidade') || 'UN';
+        document.getElementById('preco_input').value = parsePrecoBR(option.getAttribute('data-preco')).toFixed(2);
+        document.getElementById('qtd_input').focus();
+    }
+
+    function adicionarAoCarrinho() {
+        const id = document.getElementById('produto_id_hidden').value;
+        const nome = document.getElementById('produto_input').value;
+        const preco = parsePrecoBR(document.getElementById('preco_input').value);
+        const qtd = parsePrecoBR(document.getElementById('qtd_input').value);
+        if (!id || !nome || qtd <= 0) { alert('Selecione produto e quantidade válidos.'); return; }
+
+        const option = obterOpcaoProdutoSelecionada();
+        if (option && option.getAttribute('data-eh-kit') === '1') {
+            const estoqueKit = parseFloat(option.getAttribute('data-estoque-kit') || '0');
+            const existente = carrinho.find(i => String(i.id) === String(id));
+            const qtdTotal = (existente ? existente.quantidade : 0) + qtd;
+            if (qtdTotal > estoqueKit) {
+                alert(`Estoque insuficiente para o kit. Disponível: ${estoqueKit}`);
+                return;
+            }
+        }
+
+        const existente = carrinho.find(i => String(i.id) === String(id));
+        if (existente) existente.quantidade += qtd;
+        else carrinho.push({ id, nome, preco, quantidade: qtd, unidade: 'UN', venda_completa: false });
+
+        document.getElementById('produto_input').value = '';
+        document.getElementById('produto_id_hidden').value = '';
+        document.getElementById('qtd_input').value = '1';
+        renderizarTabela();
+    }
+
+    function removerItem(idx) {
+        carrinho.splice(idx, 1);
+        renderizarTabela();
+    }
+
+    function selecionarProdutoPorCodigoBarras(codigo) {
+        const codigoLimpo = String(codigo || '').trim();
+        if (!codigoLimpo) return false;
+
+        let nomeProduto = MAPA_CODIGOS_BARRAS[codigoLimpo];
+        const datalist = document.getElementById('lista_produtos');
+        if (!nomeProduto && datalist) {
+            for (let i = 0; i < datalist.options.length; i++) {
+                const opt = datalist.options[i];
+                if ((opt.getAttribute('data-codigo-barras') || '').trim() === codigoLimpo) {
+                    nomeProduto = opt.value;
+                    break;
+                }
+            }
+        }
+        if (!nomeProduto) {
+            alert('Produto não encontrado para o código: ' + codigoLimpo);
+            return false;
+        }
+
+        document.getElementById('produto_input').value = nomeProduto;
+        buscarProdutoDetalhes();
+        const qtdInput = document.getElementById('qtd_input');
+        if (qtdInput) qtdInput.focus();
+        return true;
+    }
+
+    function processarLeituraCodigoBarras() {
+        const inp = document.getElementById('barcode_input');
+        if (!inp) return;
+        selecionarProdutoPorCodigoBarras(inp.value);
+        inp.value = '';
+        inp.focus();
+    }
+
+    function buscarClienteID() {
+        const val = document.getElementById('cliente_input').value;
+        const dl = document.getElementById('lista_clientes');
+        for (let i = 0; i < dl.options.length; i++) {
+            if (dl.options[i].value === val) {
+                document.getElementById('cliente_id_hidden').value = dl.options[i].getAttribute('data-id') || '';
+                if (LOJA_TRABALHA_COM_ENTREGAS) {
+                    const entrega = val.length > 0 && val.toUpperCase() !== 'VENDA DIRETA' && val.toUpperCase() !== 'CONSUMIDOR FINAL';
+                    document.getElementById('checkEntrega').checked = entrega;
+                    configurarCampoTaxaModal();
+                    if (document.getElementById('modal-pagamento').classList.contains('aberto')) {
+                        atualizarResumoModal();
+                    }
+                }
+                return;
+            }
+        }
+        document.getElementById('cliente_id_hidden').value = '';
+        if (LOJA_TRABALHA_COM_ENTREGAS) {
+            document.getElementById('checkEntrega').checked = false;
+            configurarCampoTaxaModal();
+            if (document.getElementById('modal-pagamento').classList.contains('aberto')) {
+                atualizarResumoModal();
+            }
+        }
+    }
+
+    function coletarLiquidacoesModal() {
+        const parcelas = [];
+        document.querySelectorAll('.meio-card .card-valor').forEach(inp => {
+            const v = parsePrecoBR(inp.value);
+            if (v > 0) {
+                parcelas.push({
+                    meio_liquidacao: inp.dataset.meio,
+                    valor: v,
+                    troco_para: null,
+                });
+            }
+        });
+        const dinheiro = parcelas.find(p => p.meio_liquidacao === 'DINHEIRO');
+        if (dinheiro) {
+            const troco = parsePrecoBR(document.getElementById('input_troco_modal').value);
+            if (troco > 0) dinheiro.troco_para = troco;
+        }
+        return parcelas;
+    }
+
+    function atualizarResumoModal() {
+        const total = calcularTotalVenda();
+        document.getElementById('modalTotalDisplay').textContent = 'R$ ' + total.toFixed(2);
+        const parcelas = coletarLiquidacoesModal();
+        const soma = parcelas.reduce((s, p) => s + p.valor, 0);
+        const restante = Math.round((total - soma) * 100) / 100;
+        const el = document.getElementById('modalRestanteDisplay');
+        if (modoEspecial === 'cortesia' || modoEspecial === 'avaria' || modoEspecial === 'finalizar_depois') {
+            el.textContent = modoEspecial === 'finalizar_depois' ? 'Venda ficará em aberto' : 'Sem cobrança';
+            el.className = 'restante ok';
+        } else if (modoEspecial === 'fiado') {
+            const restanteFiado = Math.max(0, Math.round((total - soma) * 100) / 100);
+            if (soma > 0) {
+                el.textContent = 'Entrada: R$ ' + soma.toFixed(2) + ' — Fiado: R$ ' + restanteFiado.toFixed(2);
+            } else {
+                el.textContent = 'Fiado integral — informe entrada nos cards acima (opcional)';
+            }
+            el.className = restanteFiado > 0.01 ? 'restante pendente' : 'restante ok';
+        } else if (Math.abs(restante) <= 0.01) {
+            el.textContent = parcelas.length > 1 ? 'Pagamento dividido ✓' : 'Quitado ✓';
+            el.className = 'restante ok';
+        } else {
+            el.textContent = 'Restante: R$ ' + restante.toFixed(2);
+            el.className = 'restante pendente';
+        }
+        const temDinheiro = parcelas.some(p => p.meio_liquidacao === 'DINHEIRO');
+        document.getElementById('wrapTrocoModal').classList.toggle('visivel', temDinheiro && !modoEspecial);
+    }
+
+    function abrirModalPagamento() {
+        if (!carrinho.length) { alert('Adicione itens ao carrinho.'); return; }
+        if (!CAIXA_ABERTO && modoEspecial !== 'finalizar_depois') {
+            if (!confirm('Caixa está fechado. Deseja continuar mesmo assim?')) return;
+        }
+        modoEspecial = null;
+        document.querySelectorAll('.pagamento-card').forEach(c => c.classList.remove('ativo'));
+        document.querySelectorAll('.card-valor').forEach(i => { i.value = ''; i.disabled = false; });
+        document.getElementById('check_tipo_lancamento').checked = false;
+        document.getElementById('wrapLancamentoAvulso').classList.remove('visivel');
+        configurarCampoTaxaModal();
+        atualizarResumoModal();
+        document.getElementById('modal-pagamento').classList.add('aberto');
+    }
+
+    function fecharModalPagamento() {
+        document.getElementById('modal-pagamento').classList.remove('aberto');
+    }
+
+    function confirmarVendaModal() {
+        const parcelas = coletarLiquidacoesModal();
+        const total = calcularTotalVenda();
+        const ehCortesia = modoEspecial === 'cortesia';
+        const ehAvaria = modoEspecial === 'avaria';
+        const ehFiado = modoEspecial === 'fiado';
+        const finalizarDepois = modoEspecial === 'finalizar_depois';
+        const semReceita = ehCortesia || ehAvaria;
+
+        if (LOJA_TRABALHA_COM_ENTREGAS && !MODO_TAXA_SERVICO && !semReceita) {
+            const inpTaxa = document.getElementById('inputTaxaModal');
+            const taxaDigitada = inpTaxa ? parsePrecoBR(inpTaxa.value) : 0;
+            const ehEntrega = document.getElementById('checkEntrega').checked;
+            if (taxaDigitada > 0 && !ehEntrega) {
+                alert('Taxa de entrega só pode ser aplicada em vendas com entrega. Selecione um cliente para entrega.');
+                return;
+            }
+        }
+
+        if (!semReceita && !finalizarDepois && !ehFiado) {
+            const soma = parcelas.reduce((s, p) => s + p.valor, 0);
+            if (parcelas.length === 0) {
+                alert('Informe ao menos um meio de pagamento ou escolha uma opção especial.');
+                return;
+            }
+            if (Math.abs(soma - total) > 0.01) {
+                alert('A soma dos pagamentos deve ser igual ao total. Restante: R$ ' + (total - soma).toFixed(2));
+                return;
+            }
+            if (parcelas.length >= 2 && !PERMITE_PAGAMENTO_DIVIDIDO) {
+                alert('Esta loja não permite pagamento dividido.');
+                return;
+            }
+        }
+
+        if (ehFiado) {
+            const clienteId = document.getElementById('cliente_id_hidden').value;
+            if (!clienteId) { alert('Fiado exige cliente cadastrado.'); return; }
+            const somaEntrada = parcelas.reduce((s, p) => s + p.valor, 0);
+            if (somaEntrada > total + 0.01) {
+                alert('Entrada não pode ser maior que o total da venda.');
+                return;
+            }
+        }
+
+        let isDividido = false;
+        let formaPagamento = null;
+        let meioLiquidacao = null;
+
+        if (finalizarDepois) {
+            formaPagamento = null;
+            meioLiquidacao = null;
+        } else         if (ehFiado) {
+            formaPagamento = 'FIADO';
+            const somaEntrada = parcelas.reduce((s, p) => s + p.valor, 0);
+            if (parcelas.length >= 1) {
+                meioLiquidacao = parcelas[0].meio_liquidacao;
+            } else {
+                meioLiquidacao = null;
+            }
+        } else {
+            isDividido = parcelas.length >= 2;
+            formaPagamento = parcelas.length === 1 ? parcelas[0].meio_liquidacao : (parcelas[0] ? parcelas[0].meio_liquidacao : null);
+            meioLiquidacao = isDividido ? 'MISTO' : (parcelas[0] ? parcelas[0].meio_liquidacao : null);
+        }
+
+        const usarLancamento = document.getElementById('check_tipo_lancamento').checked;
+        if (usarLancamento && !finalizarDepois && !ehFiado) {
+            const cod = document.getElementById('selectLancamentoAvulso').value;
+            if (!cod) { alert('Selecione o tipo de lançamento avulso.'); return; }
+            formaPagamento = cod;
+            if (cod === 'CORTESIA') { /* modo cortesia via lancamento */ }
+            if (cod === 'AVARIA') { /* modo avaria via lancamento */ }
+        } else if (ehCortesia) {
+            formaPagamento = 'CORTESIA';
+            meioLiquidacao = 'CORTESIA';
+        } else if (ehAvaria) {
+            formaPagamento = 'AVARIA';
+            meioLiquidacao = null;
+        }
+
+        let statusVenda = 'FINALIZADO';
+        const tipoVenda = document.getElementById('tipo_venda').value;
+        if (ehFiado) statusVenda = 'FIADO';
+        else if (tipoVenda === 'ORCAMENTO') statusVenda = 'ORCAMENTO';
+        else if (finalizarDepois) statusVenda = 'AGUARDANDO_FINALIZAR';
+        else if (document.getElementById('checkEntrega').checked) statusVenda = 'EM_PREPARACAO';
+
+        let troco = null;
+        const dinP = parcelas.find(p => p.meio_liquidacao === 'DINHEIRO');
+        if (dinP && dinP.troco_para) troco = dinP.troco_para;
+
+        const dadosVenda = {
+            cliente_id: document.getElementById('cliente_id_hidden').value || null,
+            status: statusVenda,
+            tipo_venda: ehCortesia ? 'CORTESIA' : (ehAvaria ? 'AVARIA' : tipoVenda),
+            eh_cortesia: ehCortesia || (usarLancamento && formaPagamento === 'CORTESIA'),
+            eh_avaria: ehAvaria || (usarLancamento && formaPagamento === 'AVARIA'),
+            forma_pagamento: formaPagamento,
+            meio_liquidacao: meioLiquidacao,
+            pagamento_dividido: isDividido,
+            taxa_entrega: (!MODO_TAXA_SERVICO && LOJA_TRABALHA_COM_ENTREGAS) ? obterTaxaModal() : 0,
+            taxa_servico_pct: MODO_TAXA_SERVICO ? obterTaxaModal() : 0,
+            total_final: semReceita ? 0 : total,
+            troco_para: troco,
+            eh_fiado: ehFiado,
+            valor_pago_inicial: ehFiado ? parcelas.reduce((s, p) => s + p.valor, 0) : 0,
+            usar_fidelidade: false,
+            atualizar_padrao: EXIBE_CAMPO_TAXA && document.getElementById('check_att_padrao') && document.getElementById('check_att_padrao').checked,
+            itens: carrinho.map(it => ({
+                id: it.id, nome: it.nome, preco: it.preco,
+                quantidade: it.quantidade, venda_completa: !!it.venda_completa,
+            })),
+            eh_entrega: document.getElementById('checkEntrega').checked,
+            endereco_entrega: '',
+        };
+        if (isDividido) dadosVenda.liquidacoes = parcelas;
+        else if (ehFiado && parcelas.length > 1) dadosVenda.liquidacoes = parcelas;
+
+        document.getElementById('btnConfirmarPagamento').disabled = true;
+        fetch('{% url "salvar_venda" %}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
+            body: JSON.stringify(dadosVenda),
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'sucesso') {
+                alert('Venda registrada!');
+                window.location.href = "{% url 'lista_vendas' %}";
+            } else {
+                alert(data.mensagem || 'Erro ao salvar.');
+            }
+        })
+        .catch(() => alert('Erro de conexão.'))
+        .finally(() => { document.getElementById('btnConfirmarPagamento').disabled = false; });
+    }
+
+    document.querySelectorAll('.pagamento-card').forEach(card => {
+        card.addEventListener('click', (e) => {
+            if (e.target.classList.contains('card-valor')) return;
+            const tipo = card.dataset.tipo;
+            if (tipo === 'especial') {
+                document.querySelectorAll('.pagamento-card.especial').forEach(c => c.classList.remove('ativo'));
+                card.classList.add('ativo');
+                modoEspecial = card.dataset.modo;
+                const desabilita = ['cortesia', 'avaria', 'finalizar_depois'].includes(modoEspecial);
+                document.querySelectorAll('.card-valor').forEach(i => {
+                    i.disabled = desabilita;
+                    if (desabilita) i.value = '';
+                });
+            } else {
+                card.classList.toggle('ativo');
+                const inp = card.querySelector('.card-valor');
+                if (card.classList.contains('ativo') && inp) {
+                    inp.focus();
+                    if (!inp.value && calcularTotalVenda() > 0 && modoEspecial !== 'fiado') {
+                        const parcelas = coletarLiquidacoesModal();
+                        const soma = parcelas.reduce((s, p) => s + p.valor, 0);
+                        const rest = Math.max(0, calcularTotalVenda() - soma);
+                        if (rest > 0) inp.value = rest.toFixed(2);
+                    }
+                }
+                if (modoEspecial !== 'fiado') {
+                    modoEspecial = null;
+                    document.querySelectorAll('.pagamento-card.especial').forEach(c => c.classList.remove('ativo'));
+                }
+            }
+            atualizarResumoModal();
+        });
+    });
+
+    document.querySelectorAll('.card-valor').forEach(inp => {
+        inp.addEventListener('input', atualizarResumoModal);
+        inp.addEventListener('click', e => e.stopPropagation());
+    });
+
+    document.getElementById('check_tipo_lancamento').addEventListener('change', function() {
+        document.getElementById('wrapLancamentoAvulso').classList.toggle('visivel', this.checked);
+    });
+
+    const inputTaxaModalEl = document.getElementById('inputTaxaModal');
+    if (inputTaxaModalEl) {
+        inputTaxaModalEl.addEventListener('input', () => {
+            renderizarTabela();
+            atualizarResumoModal();
+        });
+    }
+
+    document.getElementById('btnAbrirPagamento').addEventListener('click', abrirModalPagamento);
+    document.getElementById('btnFecharModalPagamento').addEventListener('click', fecharModalPagamento);
+    document.getElementById('btnConfirmarPagamento').addEventListener('click', confirmarVendaModal);
+
+    document.addEventListener('keydown', e => {
+        if (e.key === 'Enter' && ['produto_input','qtd_input','preco_input'].includes(document.activeElement.id)) {
+            e.preventDefault(); adicionarAoCarrinho();
+        }
+        if (e.key === 'F2') { e.preventDefault(); abrirModalPagamento(); }
+    });
+
+    if (LEITOR_CODIGO_BARRAS) {
+        const barcodeInput = document.getElementById('barcode_input');
+        if (barcodeInput) {
+            barcodeInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    processarLeituraCodigoBarras();
+                }
+            });
+        }
+    }
+</script>
+
+{% endblock %}

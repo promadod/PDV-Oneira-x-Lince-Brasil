@@ -22,3 +22,12 @@ def ao_logar_com_sucesso(sender, request, user, **kwargs):
         invalidar_tokens_api(user)
         if request.session.session_key:
             encerrar_outras_sessoes_web(user, request.session.session_key)
+    try:
+        from .audit_log import registrar_log
+        registrar_log(
+            request, 'LOGIN',
+            f'Login: {user.username}',
+            modelo='User', objeto_id=user.id,
+        )
+    except Exception:
+        pass

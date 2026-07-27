@@ -13,6 +13,10 @@
     .badge-ativo { background: #28a745; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; }
     .badge-inativo { background: #cf6679; color: #fff; padding: 2px 8px; border-radius: 12px; font-size: 0.75em; }
     .campanha-bar { background: #252525; padding: 16px; border-radius: 8px; margin-bottom: 20px; display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+    .filtros-clientes { background: #252525; padding: 16px; border-radius: 8px; margin-bottom: 20px; }
+    .filtros-clientes-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); gap: 12px; margin-bottom: 12px; }
+    .filtros-clientes label { display: block; font-size: 0.8em; color: #15A0A5; margin-bottom: 4px; text-transform: uppercase; }
+    .filtros-clientes input { width: 100%; padding: 8px; border-radius: 4px; border: 1px solid #444; background: #1e1e1e; color: #fff; }
 </style>
 
 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px; flex-wrap:wrap; gap:12px;">
@@ -36,6 +40,40 @@
         <h4>Inativos (60+ dias)</h4>
         <div class="valor" style="color:#cf6679;">{{ stats.inativos_60d }}</div>
     </div>
+</div>
+
+<div class="filtros-clientes">
+    <h3 style="color:#15A0A5; margin:0 0 12px; font-size:1em;"><i class="fas fa-search"></i> Buscar clientes</h3>
+    <form method="get">
+        <div class="filtros-clientes-grid">
+            <div>
+                <label for="filtro_nome">Nome</label>
+                <input type="text" id="filtro_nome" name="nome" value="{{ filtros.nome }}" placeholder="João...">
+            </div>
+            <div>
+                <label for="filtro_bairro">Bairro</label>
+                <input type="text" id="filtro_bairro" name="bairro" value="{{ filtros.bairro }}" placeholder="Centro...">
+            </div>
+            <div>
+                <label for="filtro_whatsapp">WhatsApp</label>
+                <input type="text" id="filtro_whatsapp" name="whatsapp" value="{{ filtros.whatsapp }}" placeholder="5511999...">
+            </div>
+            <div>
+                <label for="filtro_dias">Dias sem comprar (mín.)</label>
+                <input type="number" id="filtro_dias" name="dias_sem_comprar" value="{{ filtros.dias_sem_comprar }}" min="1" placeholder="30">
+            </div>
+            <div>
+                <label for="filtro_ultima">Última compra em</label>
+                <input type="date" id="filtro_ultima" name="ultima_compra" value="{{ filtros.ultima_compra }}">
+            </div>
+        </div>
+        <div style="display:flex; gap:10px; align-items:center; flex-wrap:wrap;">
+            <button type="submit" class="btn">Filtrar</button>
+            {% if filtros_ativos %}
+            <a href="{% url 'lista_clientes' %}" class="btn" style="background:#333;">Limpar</a>
+            {% endif %}
+        </div>
+    </form>
 </div>
 
 <div class="campanha-bar">
@@ -81,7 +119,7 @@
             <strong>{{ c.nome }}</strong>
             {% if c.status == 'ativo' %}<span class="badge-ativo">Ativo</span>
             {% elif c.status == 'inativo' %}<span class="badge-inativo">Inativo</span>{% endif %}
-            <br><small style="color:#888;">{{ c.telefone|default:"—" }} · Última compra: {{ c.ultima_compra|default:"Nunca" }}</small>
+            <br><small style="color:#888;">{{ c.whatsapp|default:c.telefone|default:"—" }} · Última compra: {{ c.ultima_compra|default:"Nunca" }}</small>
         </div>
         <div>
             <a href="{% url 'editar_cliente' c.id %}" style="color:#15A0A5; margin-right:8px;">Editar</a>

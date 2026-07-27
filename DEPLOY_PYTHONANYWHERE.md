@@ -21,7 +21,74 @@ python manage.py check
 
 ---
 
-## Deploy atual — taxa de serviço, nota legível, recibo caixa com produtos (migration `0046`)
+## Deploy atual — leitor de código de barras (migration `0049`)
+
+### Migration
+
+| Arquivo |
+|---------|
+| `app_pdv/migrations/0049_codigo_barras.py` |
+
+### Backend — alterados
+
+- [ ] `app_pdv/models.py` — `Loja.trabalha_com_leitor_codigo_barras`, `Produto.codigo_barras`
+- [ ] `app_pdv/views.py` — contexto PDV com mapa de códigos
+- [ ] `app_pdv/forms.py` — campo código de barras (só se loja ativa)
+- [ ] `app_pdv/admin.py` — checkbox na Loja
+
+### Templates — alterados
+
+- [ ] `templates/app_pdv/vendas.html` — leitura USB na venda
+- [ ] `templates/app_pdv/form_produto.html` — campo + layout corrigido
+
+### Como usar
+
+1. **Admin Django** → **Loja** → marque **Trabalha com leitor de código de barras?**
+2. **Produtos** → cadastre o **Código de barras** em cada produto
+3. **PDV** (`/vendas/nova/`) → passe o produto no leitor USB → produto selecionado automaticamente
+
+---
+
+## Deploy anterior — produto kit / promoção (migration `0048`)
+
+### Migrations (obrigatório)
+
+| Ordem | Arquivo |
+|-------|---------|
+| 1 | `app_pdv/migrations/0047_grupos_avaria.py` (se ainda não aplicada) |
+| 2 | `app_pdv/migrations/0048_produto_kit.py` |
+
+### Backend — alterados
+
+- [ ] `app_pdv/models.py` — `eh_kit`, `ComponenteKit`, baixa/validação/devolução kit
+- [ ] `app_pdv/views.py` — cadastro componentes, custo na venda
+- [ ] `app_pdv/forms.py` — campo kit
+- [ ] `app_pdv/admin.py` — `ComponenteKitAdmin`
+- [ ] `app_pdv/signals.py` — estorno/baixa kit em vendas
+
+### Templates — alterados
+
+- [ ] `templates/app_pdv/form_produto.html` — seção componentes do kit
+- [ ] `templates/app_pdv/lista_produtos.html` — badge KIT
+
+### Como usar
+
+1. **Produtos** → **Novo Produto** → marque **Produto kit / promoção?**
+2. Defina **preço de venda** promocional (ex.: R$ 25,00)
+3. Adicione componentes: ex. 2× Estoque A + 1× Estoque B + 4× Estoque C
+4. Ao vender 1 kit no PDV, o sistema baixa automaticamente de cada estoque
+
+### Testes
+
+| O quê | Como |
+|-------|------|
+| Cadastro kit | `/produtos/novo/` → marcar kit → salvar com componentes |
+| Venda PDV | `/vendas/nova/` → vender kit → conferir baixa nos 3 estoques |
+| Cancelamento | Cancelar venda → estoque dos componentes devolvido |
+
+---
+
+## Deploy anterior — taxa de serviço, nota legível, recibo caixa com produtos (migration `0046`)
 
 ### Migration
 
@@ -249,6 +316,9 @@ Esperado (últimas linhas com `[X]`):
 [X] 0044_produto_usa_venda_completa
 [X] 0045_loja_entregas_impressao
 [X] 0046_taxa_servico
+[X] 0047_grupos_avaria
+[X] 0048_produto_kit
+[X] 0049_codigo_barras
 ```
 
 ---

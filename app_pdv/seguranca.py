@@ -37,6 +37,25 @@ def _perfil(user):
     return getattr(user, 'perfil', None)
 
 
+def usuario_pode_configurar_loja(user):
+    """Dono/gestor com permissões completas (ou superuser) pode alterar flags da loja."""
+    if not user or not user.is_authenticated:
+        return False
+    if user.is_superuser:
+        return True
+    perfil = _perfil(user)
+    if not perfil or not perfil.loja_id:
+        return False
+    return all([
+        perfil.perm_dashboard,
+        perfil.perm_pdv,
+        perfil.perm_caixa,
+        perfil.perm_estoque,
+        perfil.perm_relatorios,
+        perfil.perm_usuarios,
+    ])
+
+
 def conta_congelada_username(username):
     if not username or usuario_eh_superuser(username):
         return False

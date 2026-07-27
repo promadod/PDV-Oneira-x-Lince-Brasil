@@ -21,7 +21,7 @@ def montar_ranking_recompra(lojas_alvo, limite=30):
         agregados = (
             ItemVenda.objects.filter(
                 produto=produto,
-                venda__status='FINALIZADO',
+                venda__status__in=['FINALIZADO', 'RETIRADO_NA_LOJA'],
                 venda__cliente__isnull=False,
             )
             .values(

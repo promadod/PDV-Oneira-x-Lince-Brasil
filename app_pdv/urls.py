@@ -15,6 +15,8 @@ urlpatterns = [
     path('produtos/novo/', views.gerenciar_produto, name='novo_produto'),
     path('produtos/editar/<int:id>/', views.gerenciar_produto, name='editar_produto'),
     path('produtos/deletar/<int:id>/', views.deletar_produto, name='deletar_produto'),
+    path('produtos/grupos/', views.gerenciar_grupos_produto, name='gerenciar_grupos_produto'),
+    path('produtos/grupos/deletar/<int:id>/', views.deletar_grupo_produto, name='deletar_grupo_produto'),
 
     # ------------------------------Clientes------------------------------
 
@@ -24,12 +26,17 @@ urlpatterns = [
     path('clientes/deletar/<int:id>/', views.deletar_cliente, name='deletar_cliente'),
     path('config/fidelidade/', views.config_fidelidade, name='config_fidelidade'),
     path('config/whatsapp/', views.config_whatsapp, name='config_whatsapp'),
+    path('config/nome-marca/', views.api_salvar_nome_marca_pdv, name='api_salvar_nome_marca_pdv'),
+    path('config/loja/', views.api_config_loja_pdv, name='api_config_loja_pdv'),
 
     # ------------------------------Vendas------------------------------
 
     path('vendas/nova/', views.nova_venda, name='nova_venda'),
+    path('teste_venda/', views.teste_venda, name='teste_venda'),
+    path('teste_vendas/', views.teste_venda, name='teste_vendas'),
     path('vendas/salvar/', views.salvar_venda, name='salvar_venda'),
     path('vendas/cliente/rapido/', views.api_criar_cliente_pdv, name='api_criar_cliente_pdv'),
+    path('vendas/caixa/status/', views.api_status_caixa_pdv, name='api_status_caixa_pdv'),
     path('vendas/excluir/<int:id>/', views.excluir_venda, name='excluir_venda'),
 
     # ------------------------------Fornecedores------------------------------

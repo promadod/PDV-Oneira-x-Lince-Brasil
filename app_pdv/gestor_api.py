@@ -4,13 +4,14 @@ API do Painel Gestor (mobile) — agrega dashboard, relatórios e alertas.
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from django.db.models import Sum, Count
-from django.db.models.functions import TruncDate
+from django.db.models import Sum, Count, F, Value, DecimalField
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
 from .recompra_service import montar_ranking_recompra
 from .models import (
     Venda,
+    ItemVenda,
     ItemEstoque,
     Transacao,
     PagamentoFiado,
@@ -19,7 +20,26 @@ from .models import (
 )
 
 # Faturamento do painel: vendas comprometidas (exclui cancelado, aberto, orçamento)
-GESTOR_STATUS_FATURAMENTO = ['FINALIZADO', 'EM_PREPARACAO', 'FIADO']
+GESTOR_STATUS_FATURAMENTO = ['FINALIZADO', 'RETIRADO_NA_LOJA', 'EM_PREPARACAO', 'FIADO']
+
+_DECIMAL_ZERO = Value(0, output_field=DecimalField(max_digits=12, decimal_places=2))
+
+
+def calcular_custo_mercadorias_periodo(lojas_alvo, data_ini, data_fim):
+    """CMV do período: soma quantidade × custo (snapshot na venda ou preco_compra atual)."""
+    from .models import STATUS_VENDA_FATURADA
+    custo_efetivo = Coalesce(F('custo_unitario'), F('produto__preco_compra'), _DECIMAL_ZERO)
+    total = ItemVenda.objects.filter(
+        venda__loja__in=lojas_alvo,
+        venda__data_venda__date__range=[data_ini, data_fim],
+        venda__status__in=STATUS_VENDA_FATURADA,
+    ).aggregate(
+        custo=Sum(
+            F('quantidade') * custo_efetivo,
+            output_field=DecimalField(max_digits=14, decimal_places=2),
+        )
+    )['custo'] or Decimal('0')
+    return total
 
 
 class GestorAcessoNegado(Exception):
@@ -226,10 +246,11 @@ def montar_ranking_bairros(lojas_alvo, data_ini, data_fim, limite=10):
 
 
 def montar_financeiro(lojas_alvo, data_ini, data_fim):
+    from .models import STATUS_VENDA_FATURADA
     total_vendas = Venda.objects.filter(
         loja__in=lojas_alvo,
         data_venda__date__range=[data_ini, data_fim],
-        status='FINALIZADO',
+        status__in=STATUS_VENDA_FATURADA,
         eh_fiado=False,
     ).aggregate(Sum('total'))['total__sum'] or 0
 
@@ -249,15 +270,20 @@ def montar_financeiro(lojas_alvo, data_ini, data_fim):
         Sum('valor')
     )['valor__sum'] or 0
 
+    custo_mercadorias = calcular_custo_mercadorias_periodo(lojas_alvo, data_ini, data_fim)
+    custo_mercadorias_val = float(custo_mercadorias)
     total_receber = float(total_vendas + receitas_fiado + receitas_extras)
     total_pagar = float(despesas)
+    lucro_liquido = round(total_receber - total_pagar - custo_mercadorias_val, 2)
     return {
         'receitas_vendas': float(total_vendas),
         'receitas_fiado': float(receitas_fiado),
         'receitas_extras': float(receitas_extras),
         'total_receber': total_receber,
         'total_pagar': total_pagar,
-        'saldo': round(total_receber - total_pagar, 2),
+        'custo_mercadorias': custo_mercadorias_val,
+        'saldo': lucro_liquido,
+        'lucro_liquido': lucro_liquido,
     }
 
 
@@ -394,7 +420,8 @@ def _formatar_itens_venda(venda):
     partes = []
     for item in venda.itens.select_related('produto__item_estoque').all():
         qtd = item.quantidade
-        unidade = item.produto.item_estoque.unidade_medida
+        ie = getattr(item.produto, 'item_estoque', None) if item.produto_id else None
+        unidade = (ie.unidade_medida if ie else None) or 'UN'
         if unidade == 'UN':
             qtd_fmt = f"{int(qtd)}"
         else:

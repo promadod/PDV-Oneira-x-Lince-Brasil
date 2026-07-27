@@ -43,7 +43,7 @@ import unicodedata
 
 # Imports de Models e Forms 
 from .models import (
-    Venda, ItemVenda, Produto, Cliente, Fornecedor, Loja, 
+    Venda, ItemVenda, Produto, Cliente, Fornecedor, Loja, GrupoProduto,
     CategoriaTransacao, Transacao, Caixa, Motoboy, Moto, 
     EntradaEstoque, ItemEstoque, PerfilUsuario, LogTransferenciaEstoque,
     LogFechamentoEstoqueDiario,
@@ -53,9 +53,11 @@ from .models import (
     montar_relatorio_pagamentos, get_nome_forma_pagamento, criar_formas_pagamento_padrao,
     validar_meio_liquidacao, montar_resumo_liquidacao_loja, calcular_entradas_gaveta,
     get_nome_meio_liquidacao, validar_liquidacoes_payload, persistir_liquidacoes_venda,
-    ORIGEM_VENDA_CHOICES, STATUS_COMPROMETIDOS, MEIO_LIQUIDACAO_VENDA_CHOICES,
+    ORIGEM_VENDA_CHOICES, STATUS_COMPROMETIDOS, STATUS_VENDA_FATURADA, STATUS_GERA_LIQUIDACAO,
+    MEIO_LIQUIDACAO_VENDA_CHOICES,
     produtos_disponiveis_pdv, validar_estoque_item_venda, estoque_diario_ativo,
-    produto_baixa_apenas_vasilhame_vazio,
+    produto_baixa_apenas_vasilhame_vazio, ComponenteKit, recalcular_custo_kit,
+    custo_unitario_produto_venda,
 )
 from .filtros_venda import FILTROS_STATUS_HISTORICO, filtrar_vendas_historico
 from .fiado_helpers import (
@@ -81,7 +83,7 @@ from rest_framework.decorators import api_view, authentication_classes, permissi
 from app_pdv.authentication import SessaoUnicaTokenAuthentication as TokenAuthentication
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from .serializers import UserSerializer, ProdutoCatalogoSerializer
-from .gestor_api import usuario_pode_acessar_gestor
+from .gestor_api import usuario_pode_acessar_gestor, calcular_custo_mercadorias_periodo
 from .recompra_service import montar_ranking_recompra
 from .clientes_service import montar_estatisticas_clientes, montar_links_campanha
 from .fidelidade_service import (
@@ -89,6 +91,7 @@ from .fidelidade_service import (
     listar_acompanhamento_fidelidade,
 )
 from .audit_log import registrar_log
+from .seguranca import usuario_pode_configurar_loja
 from .whatsapp_service import (
     notificar_novo_pedido_empresa, notificar_cliente_saiu_entrega,
     notificar_cliente_entrega_concluida,
@@ -119,6 +122,147 @@ def check_loja(request):
         return None
     return loja
 
+
+@login_required
+def api_status_caixa_pdv(request):
+    """Status do turno de caixa para sincronizar o rodapé da tela de vendas."""
+    loja = check_loja(request)
+    if not loja:
+        return JsonResponse({'status': 'erro', 'mensagem': 'Usuário sem loja vinculada.'}, status=403)
+
+    caixa = _caixa_turno_aberto(loja)
+    primeiro_nome, sobrenome = _dados_operador_pdv(request)
+    hora_abertura = _hora_exibicao_caixa(caixa.data_hora_abertura if caixa else None)
+    data_abertura = _data_exibicao_caixa(caixa.data_hora_abertura if caixa else None)
+
+    return JsonResponse({
+        'status': 'ok',
+        'caixa_aberto': bool(caixa),
+        'hora_abertura': hora_abertura,
+        'data_abertura': data_abertura,
+        'primeiro_nome': primeiro_nome,
+        'sobrenome': sobrenome,
+        'nome_loja': loja.marca_pdv_exibicao(),
+        'cnpj_loja': (loja.cnpj or '').strip(),
+    })
+
+
+@login_required
+def api_salvar_nome_marca_pdv(request):
+    from .models import Loja as LojaModel
+    loja = check_loja(request)
+    if not loja:
+        return JsonResponse({'status': 'erro', 'mensagem': 'Usuário sem loja vinculada.'}, status=403)
+    if request.method != 'POST':
+        return JsonResponse({'status': 'erro', 'mensagem': 'Método inválido.'}, status=405)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'erro', 'mensagem': 'Dados inválidos.'}, status=400)
+    nome = (data.get('nome') or '').strip()
+    if not nome:
+        return JsonResponse({'status': 'erro', 'mensagem': 'Informe um nome.'}, status=400)
+    if len(nome) > LojaModel.NOME_MARCA_PDV_MAX:
+        return JsonResponse({
+            'status': 'erro',
+            'mensagem': f'Máximo de {LojaModel.NOME_MARCA_PDV_MAX} caracteres.',
+        }, status=400)
+    loja.nome_marca_pdv = nome
+    loja.save(update_fields=['nome_marca_pdv'])
+    return JsonResponse({'status': 'ok', 'nome': loja.marca_pdv_exibicao()})
+
+
+@login_required
+def api_config_loja_pdv(request):
+    """Lê/salva flags de operação da loja (modal engrenagem)."""
+    loja = check_loja(request)
+    if not loja:
+        return JsonResponse({'status': 'erro', 'mensagem': 'Usuário sem loja vinculada.'}, status=403)
+    if not usuario_pode_configurar_loja(request.user):
+        return JsonResponse({'status': 'erro', 'mensagem': 'Sem permissão para configurar a loja.'}, status=403)
+
+    # Instância fresca do banco (evita objeto antigo via perfil/relacionamento).
+    loja = Loja.objects.get(pk=loja.pk)
+
+    if request.method == 'GET':
+        campos_meta = []
+        for nome in CAMPOS_CONFIG_LOJA_PDV:
+            field = Loja._meta.get_field(nome)
+            tipo_interno = field.get_internal_type()
+            if tipo_interno == 'BooleanField':
+                tipo = 'bool'
+            elif tipo_interno in ('DecimalField', 'FloatField', 'IntegerField', 'PositiveIntegerField'):
+                tipo = 'decimal'
+            else:
+                tipo = 'choice' if field.choices else 'text'
+            item = {
+                'nome': nome,
+                'label': str(field.verbose_name),
+                'help': str(field.help_text or ''),
+                'tipo': tipo,
+                'valor': _serializar_valor_campo_loja(field, getattr(loja, nome)),
+            }
+            if field.choices:
+                item['opcoes'] = [{'value': str(c[0]), 'label': str(c[1])} for c in field.choices]
+            campos_meta.append(item)
+        return JsonResponse({
+            'status': 'ok',
+            'loja_id': loja.id,
+            'loja_nome': loja.nome,
+            'campos': campos_meta,
+        })
+
+    if request.method != 'POST':
+        return JsonResponse({'status': 'erro', 'mensagem': 'Método inválido.'}, status=405)
+
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'status': 'erro', 'mensagem': 'Dados inválidos.'}, status=400)
+
+    if not isinstance(data, dict):
+        return JsonResponse({'status': 'erro', 'mensagem': 'Payload inválido.'}, status=400)
+
+    alterados = []
+    campos_para_salvar = []
+    for nome in CAMPOS_CONFIG_LOJA_PDV:
+        if nome not in data:
+            continue
+        field = Loja._meta.get_field(nome)
+        try:
+            valor_novo = _parse_valor_campo_loja(field, data[nome])
+        except Exception:
+            return JsonResponse({
+                'status': 'erro',
+                'mensagem': f'Valor inválido para "{field.verbose_name}".',
+            }, status=400)
+        valor_antigo = getattr(loja, nome)
+        if valor_antigo != valor_novo:
+            setattr(loja, nome, valor_novo)
+            campos_para_salvar.append(nome)
+            alterados.append(f'{field.verbose_name}: {valor_antigo} → {valor_novo}')
+
+    if campos_para_salvar:
+        loja.save(update_fields=campos_para_salvar)
+        loja.refresh_from_db(fields=campos_para_salvar)
+        registrar_log(
+            request, 'CONFIG',
+            'Configurações da loja alteradas: ' + '; '.join(alterados),
+            modelo='Loja', objeto_id=loja.id, loja=loja,
+        )
+
+    valores = {
+        nome: _serializar_valor_campo_loja(Loja._meta.get_field(nome), getattr(loja, nome))
+        for nome in CAMPOS_CONFIG_LOJA_PDV
+    }
+    return JsonResponse({
+        'status': 'ok',
+        'alterados': len(campos_para_salvar),
+        'loja_id': loja.id,
+        'valores': valores,
+    })
+
+
 # --------------------------- PRODUTOS (ESTOQUE) ------------------------------------
 
 
@@ -127,8 +271,78 @@ def lista_produtos(request):
     loja = check_loja(request)
     if not loja: return redirect('admin:index')
     
-    produtos = Produto.objects.filter(loja=loja).order_by('item_estoque__nome') 
-    return render(request, 'app_pdv/lista_produtos.html', {'produtos': produtos})
+    produtos = Produto.objects.filter(loja=loja).select_related('grupo', 'item_estoque').prefetch_related(
+        'componentes_kit__item_estoque'
+    ).order_by('nome_venda')
+    return render(request, 'app_pdv/lista_produtos.html', {
+        'produtos': produtos,
+        'loja': loja,
+    })
+
+@login_required
+def gerenciar_grupos_produto(request):
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+    if not loja.divide_produtos_por_grupos:
+        messages.warning(request, 'Grupos de produtos não estão habilitados para esta loja.')
+        return redirect('lista_produtos')
+
+    if request.method == 'POST':
+        nome = (request.POST.get('nome') or '').strip()
+        if nome:
+            GrupoProduto.objects.get_or_create(loja=loja, nome=nome)
+            registrar_log(
+                request, 'CRIAR',
+                f'Grupo de produto "{nome}" cadastrado',
+                modelo='GrupoProduto', loja=loja,
+            )
+            messages.success(request, f'Grupo "{nome}" cadastrado.')
+        return redirect('gerenciar_grupos_produto')
+
+    grupos = GrupoProduto.objects.filter(loja=loja).order_by('ordem', 'nome')
+    return render(request, 'app_pdv/grupos_produto.html', {'grupos': grupos, 'loja': loja})
+
+@login_required
+def deletar_grupo_produto(request, id):
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+    grupo = get_object_or_404(GrupoProduto, pk=id, loja=loja)
+    nome = grupo.nome
+    gid = grupo.id
+    Produto.objects.filter(loja=loja, grupo=grupo).update(grupo=None)
+    grupo.delete()
+    registrar_log(
+        request, 'EXCLUIR',
+        f'Grupo de produto "{nome}" removido',
+        modelo='GrupoProduto', objeto_id=gid, loja=loja,
+    )
+    messages.success(request, 'Grupo removido.')
+    return redirect('gerenciar_grupos_produto')
+
+def _salvar_componentes_kit(produto, loja, post):
+    ComponenteKit.objects.filter(produto_kit=produto).delete()
+    if not produto.eh_kit:
+        return
+    itens_ids = post.getlist('kit_item_estoque')
+    qtds = post.getlist('kit_quantidade')
+    for ordem, (item_id, qtd_str) in enumerate(zip(itens_ids, qtds)):
+        item_id = (item_id or '').strip()
+        qtd_str = (qtd_str or '').strip().replace(',', '.')
+        if not item_id or not qtd_str:
+            continue
+        try:
+            item = ItemEstoque.objects.get(pk=int(item_id), loja=loja)
+            qtd = Decimal(qtd_str)
+            if qtd <= 0:
+                continue
+        except (ValueError, ItemEstoque.DoesNotExist):
+            continue
+        ComponenteKit.objects.create(
+            produto_kit=produto, item_estoque=item, quantidade=qtd, ordem=ordem,
+        )
+    recalcular_custo_kit(produto)
 
 @login_required
 def gerenciar_produto(request, id=None):
@@ -150,39 +364,64 @@ def gerenciar_produto(request, id=None):
     if request.method == 'POST':
         form = ProdutoForm(request.POST, request.FILES, instance=produto, loja=loja)
         if form.is_valid():
-            obj = form.save(commit=False)
-            obj.loja = loja
-            obj.save()
+            try:
+                obj = form.save(commit=False)
+                obj.loja = loja
+                if obj.eh_kit:
+                    obj.item_estoque = None
+                    obj.quantidade_baixa = Decimal('1')
+                obj.save()
+                _salvar_componentes_kit(obj, loja, request.POST)
+                if obj.eh_kit and not obj.componentes_kit.exists():
+                    messages.error(request, 'Kit deve ter ao menos um componente de estoque.')
+                    return redirect('editar_produto', id=obj.id)
 
-            item_estoque = obj.item_estoque
-            data_val = (request.POST.get('item_data_validade') or '').strip()
-            obs_val = (request.POST.get('item_observacao') or '').strip()
-            if data_val:
-                item_estoque.data_validade = data_val
-            elif request.POST.get('item_data_validade_limpar') == '1':
-                item_estoque.data_validade = None
-            item_estoque.observacao = obs_val
-            item_estoque.save(update_fields=['data_validade', 'observacao'])
+                if not obj.eh_kit and obj.item_estoque_id:
+                    item_estoque = obj.item_estoque
+                    data_val = (request.POST.get('item_data_validade') or '').strip()
+                    obs_val = (request.POST.get('item_observacao') or '').strip()
+                    if data_val:
+                        item_estoque.data_validade = data_val
+                    elif request.POST.get('item_data_validade_limpar') == '1':
+                        item_estoque.data_validade = None
+                    item_estoque.observacao = obs_val
+                    item_estoque.save(update_fields=['data_validade', 'observacao'])
 
-            for forn in fornecedores:
-                campo = f'preco_forn_{forn.id}'
-                valor_str = (request.POST.get(campo) or '').strip().replace(',', '.')
-                if not valor_str:
-                    PrecoFornecedorItem.objects.filter(
-                        loja=loja, item_estoque=item_estoque, fornecedor=forn
-                    ).delete()
-                    continue
-                try:
-                    preco = Decimal(valor_str)
-                except Exception:
-                    continue
-                PrecoFornecedorItem.objects.update_or_create(
-                    loja=loja,
-                    item_estoque=item_estoque,
-                    fornecedor=forn,
-                    defaults={'preco_compra': preco, 'ativo': True},
+                    for forn in fornecedores:
+                        campo = f'preco_forn_{forn.id}'
+                        valor_str = (request.POST.get(campo) or '').strip().replace(',', '.')
+                        if not valor_str:
+                            PrecoFornecedorItem.objects.filter(
+                                loja=loja, item_estoque=item_estoque, fornecedor=forn
+                            ).delete()
+                            continue
+                        try:
+                            preco = Decimal(valor_str)
+                        except Exception:
+                            continue
+                        PrecoFornecedorItem.objects.update_or_create(
+                            loja=loja,
+                            item_estoque=item_estoque,
+                            fornecedor=forn,
+                            defaults={'preco_compra': preco, 'ativo': True},
+                        )
+                registrar_log(
+                    request,
+                    'EDITAR' if id else 'CRIAR',
+                    f'Produto "{obj.nome_venda}" {"atualizado" if id else "criado"}',
+                    modelo='Produto', objeto_id=obj.id, loja=loja,
                 )
-            return redirect('lista_produtos')
+                messages.success(request, f'Produto "{obj.nome_venda}" salvo com sucesso.')
+                return redirect('lista_produtos')
+            except IntegrityError:
+                messages.error(
+                    request,
+                    'Não foi possível salvar: conflito de dados (ex.: código de barras já usado).',
+                )
+            except Exception as exc:
+                messages.error(request, f'Erro ao salvar produto: {exc}')
+        else:
+            messages.error(request, 'Não foi possível salvar. Corrija os campos destacados abaixo.')
     else:
         form = ProdutoForm(instance=produto, loja=loja)
 
@@ -214,6 +453,13 @@ def gerenciar_produto(request, id=None):
         for i in ItemEstoque.objects.filter(loja=loja).only('id', 'data_validade', 'observacao')
     }
 
+    componentes_kit = []
+    if produto and produto.eh_kit:
+        componentes_kit = list(
+            produto.componentes_kit.select_related('item_estoque').order_by('ordem', 'id')
+        )
+    itens_estoque_loja = ItemEstoque.objects.filter(loja=loja).order_by('nome')
+
     return render(request, 'app_pdv/form_produto.html', {
         'form': form,
         'titulo': 'Cadastro de Produto',
@@ -222,13 +468,23 @@ def gerenciar_produto(request, id=None):
         'item_validade': item_validade,
         'item_observacao': item_observacao,
         'itens_meta_json': json.dumps(itens_meta, cls=DjangoJSONEncoder),
+        'loja': loja,
+        'componentes_kit': componentes_kit,
+        'itens_estoque_loja': itens_estoque_loja,
     })
 
 @login_required
 def deletar_produto(request, id):
     loja = check_loja(request)
     produto = get_object_or_404(Produto, pk=id, loja=loja)
+    nome = produto.nome_venda
+    pid = produto.id
     produto.delete()
+    registrar_log(
+        request, 'EXCLUIR',
+        f'Produto "{nome}" excluído',
+        modelo='Produto', objeto_id=pid, loja=loja,
+    )
     return redirect('lista_produtos')
 
 @login_required
@@ -280,7 +536,16 @@ def lista_clientes(request):
     if not loja:
         return redirect('admin:index')
 
-    stats = montar_estatisticas_clientes(Loja.objects.filter(id=loja.id))
+    filtros = {
+        'nome': (request.GET.get('nome') or '').strip(),
+        'bairro': (request.GET.get('bairro') or '').strip(),
+        'whatsapp': (request.GET.get('whatsapp') or '').strip(),
+        'dias_sem_comprar': (request.GET.get('dias_sem_comprar') or '').strip(),
+        'ultima_compra': (request.GET.get('ultima_compra') or '').strip(),
+    }
+    filtros_ativos = any(filtros.values())
+
+    stats = montar_estatisticas_clientes(Loja.objects.filter(id=loja.id), filtros=filtros)
     publico = request.GET.get('campanha', '')
     links_campanha = []
     if publico in ('ativos', 'inativos'):
@@ -291,6 +556,8 @@ def lista_clientes(request):
     return render(request, 'app_pdv/lista_clientes.html', {
         'stats': stats,
         'loja': loja,
+        'filtros': filtros,
+        'filtros_ativos': filtros_ativos,
         'publico_campanha': publico,
         'links_campanha': links_campanha,
         'desconto_campanha': loja.campanha_desconto_pct,
@@ -408,6 +675,7 @@ def detalhes_venda(request, id):
         'impressao_automatica': loja.impressao_automatica,
         'auto_print': auto_print,
         'subtotal_consumo': subtotal_consumo,
+        'modo_taxa_servico': loja_usa_taxa_servico(loja),
     })
 
 
@@ -449,25 +717,17 @@ def nova_venda(request):
 
     produtos = produtos_disponiveis_pdv(loja)
     clientes = Cliente.objects.filter(loja=loja)
-    
-    context = {
-        'produtos': produtos, 
-        'clientes': clientes,
-        'taxa_padrao': loja.taxa_entrega_pdv,
-        'formas_pagamento': loja.get_formas_pagamento_ativas(),
-        'usa_fiado': loja.usa_fiado,
-        'permite_pagamento_dividido': loja.permite_pagamento_dividido,
-        'controla_vasilhame_vazio': loja.controla_vasilhame_vazio,
-        'permite_venda_completa': loja.permite_venda_completa,
-        'fidelidade_ativa': loja.fidelidade_ativa,
-        'estoque_diario': estoque_diario_ativo(loja),
-        'liquidacoes_json': '[]',
-        'trabalha_com_entregas': loja.trabalha_com_entregas,
-        'impressao_automatica': loja.impressao_automatica,
-        'modo_taxa_servico': loja_usa_taxa_servico(loja),
-        'taxa_servico_pct': loja.taxa_servico_pct,
-    }
+
+    context = _context_tela_vendas(
+        loja, produtos, clientes, request=request, liquidacoes_json='[]',
+    )
     return render(request, 'app_pdv/vendas.html', context)
+
+
+@login_required
+def teste_venda(request):
+    """Redireciona para a tela oficial de vendas (protótipo migrado)."""
+    return redirect('nova_venda')
 
 @login_required
 def excluir_venda(request, id):
@@ -476,6 +736,11 @@ def excluir_venda(request, id):
     
     
     if venda.status in ['ABERTO', 'ORCAMENTO', 'AGUARDANDO_FINALIZAR']:
+        registrar_log(
+            request, 'EXCLUIR',
+            f'Venda #{venda.id} excluída (status {venda.status})',
+            modelo='Venda', objeto_id=venda.id, loja=loja,
+        )
         venda.delete()
     
     return redirect('lista_vendas')
@@ -494,6 +759,193 @@ def loja_usa_taxa_servico(loja):
     return not loja.trabalha_com_entregas and loja.cobra_taxa_servico
 
 
+def _mapa_codigos_barras_pdv(loja, produtos_pdv=None):
+    """Mapa código de barras / ID interno → nome para busca no PDV."""
+    qs = Produto.objects.filter(loja=loja).only('id', 'nome_venda', 'codigo_barras')
+    mapa = {}
+    for p in qs:
+        mapa[str(p.id)] = p.nome_venda
+        codigo = (p.codigo_barras or '').strip()
+        if codigo:
+            mapa[codigo] = p.nome_venda
+    return mapa
+
+
+def _lista_codigos_produtos_pdv(loja):
+    """Lista para modal gabarito de códigos no PDV."""
+    qs = Produto.objects.filter(loja=loja).only('id', 'nome_venda', 'codigo_barras').order_by('nome_venda')
+    return [
+        {
+            'id': p.id,
+            'nome': p.nome_venda,
+            'codigo_barras': (p.codigo_barras or '').strip(),
+        }
+        for p in qs
+    ]
+
+
+MEIOS_LIQUIDACAO_CODIGOS = frozenset({'DINHEIRO', 'PIX', 'CREDITO', 'DEBITO'})
+
+
+def _caixa_turno_aberto(loja):
+    return Caixa.objects.filter(loja=loja, status=True).first()
+
+
+def _localtime_caixa(dt):
+    if not dt:
+        return None
+    if timezone.is_naive(dt):
+        dt = timezone.make_aware(dt, timezone.get_current_timezone())
+    return timezone.localtime(dt)
+
+
+def _hora_exibicao_caixa(dt):
+    """Hora local (Brasil) para exibição no PDV e tela de caixa."""
+    local = _localtime_caixa(dt)
+    return local.strftime('%H:%M') if local else None
+
+
+def _data_exibicao_caixa(dt):
+    local = _localtime_caixa(dt)
+    return local.strftime('%d/%m/%Y') if local else None
+
+
+def _dados_operador_pdv(request):
+    primeiro_nome = ''
+    sobrenome = ''
+    if request and getattr(request, 'user', None) and request.user.is_authenticated:
+        nome_usuario = (request.user.get_full_name() or request.user.username or '').strip()
+        partes_nome = nome_usuario.split(None, 1)
+        primeiro_nome = partes_nome[0] if partes_nome else request.user.username
+        sobrenome = partes_nome[1] if len(partes_nome) > 1 else ''
+    return primeiro_nome, sobrenome
+
+
+CAMPOS_CONFIG_LOJA_PDV = [
+    # Entregas
+    'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon',
+    'taxa_entrega_pdv',
+    # PDV
+    'impressao_automatica', 'trabalha_com_leitor_codigo_barras',
+    'cobra_taxa_servico', 'taxa_servico_pct',
+    # Depósito / Fiado
+    'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio',
+    'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos',
+    # Fidelidade
+    'fidelidade_ativa', 'fidelidade_tipo_meta', 'fidelidade_meta', 'fidelidade_desconto_pct',
+]
+
+
+def _serializar_valor_campo_loja(field, valor):
+    """Normaliza valor do modelo Loja para JSON/API."""
+    if field.get_internal_type() == 'BooleanField':
+        return bool(valor)
+    if field.get_internal_type() in ('DecimalField', 'FloatField', 'IntegerField', 'PositiveIntegerField'):
+        if valor is None:
+            return None
+        return float(valor)
+    return '' if valor is None else str(valor)
+
+
+def _parse_valor_campo_loja(field, bruto):
+    """Converte payload JSON para o tipo do campo (bool/decimal/char)."""
+    tipo = field.get_internal_type()
+    if tipo == 'BooleanField':
+        if isinstance(bruto, bool):
+            return bruto
+        if isinstance(bruto, (int, float)):
+            return bool(bruto)
+        if isinstance(bruto, str):
+            return bruto.strip().lower() in ('1', 'true', 't', 'yes', 'y', 'on', 'sim')
+        return False
+    if tipo in ('DecimalField', 'FloatField'):
+        return Decimal(str(bruto).strip().replace(',', '.'))
+    if tipo in ('IntegerField', 'PositiveIntegerField'):
+        return int(Decimal(str(bruto).strip().replace(',', '.')))
+    texto = '' if bruto is None else str(bruto).strip()
+    if field.choices:
+        validos = {str(c[0]) for c in field.choices}
+        if texto not in validos:
+            raise ValueError(f'Valor inválido para {field.name}')
+    return texto
+
+
+def formas_lancamento_avulsas(loja):
+    """Formas de tipo de lançamento sem duplicar meios de liquidação padrão."""
+    avulsas = []
+    for forma in loja.get_formas_pagamento_ativas():
+        if forma.codigo.upper() in MEIOS_LIQUIDACAO_CODIGOS:
+            continue
+        avulsas.append({
+            'codigo': forma.codigo,
+            'nome': forma.nome,
+            'cor': forma.cor,
+            'icone': forma.icone,
+        })
+    codigos = {f['codigo'].upper() for f in avulsas}
+    if 'AVARIA' not in codigos:
+        avulsas.append({
+            'codigo': 'AVARIA',
+            'nome': 'Avaria',
+            'cor': '#cf6679',
+            'icone': 'fa-box-open',
+        })
+    return avulsas
+
+
+def _context_tela_vendas(loja, produtos, clientes, request=None, **extra):
+    from .models import MEIOS_LIQUIDACAO_PADRAO
+
+    caixa_aberto = _caixa_turno_aberto(loja)
+    primeiro_nome, sobrenome = _dados_operador_pdv(request)
+    formas_avulsas = formas_lancamento_avulsas(loja)
+
+    ctx = {
+        'produtos': produtos,
+        'clientes': clientes,
+        'taxa_padrao': loja.taxa_entrega_pdv,
+        'formas_pagamento': loja.get_formas_pagamento_ativas(),
+        'usa_fiado': loja.usa_fiado,
+        'permite_pagamento_dividido': loja.permite_pagamento_dividido,
+        'controla_vasilhame_vazio': loja.controla_vasilhame_vazio,
+        'permite_venda_completa': loja.permite_venda_completa,
+        'fidelidade_ativa': loja.fidelidade_ativa,
+        'estoque_diario': estoque_diario_ativo(loja),
+        'trabalha_com_entregas': loja.trabalha_com_entregas,
+        'impressao_automatica': loja.impressao_automatica,
+        'modo_taxa_servico': loja_usa_taxa_servico(loja),
+        'taxa_servico_pct': loja.taxa_servico_pct,
+        'leitor_codigo_barras': loja.trabalha_com_leitor_codigo_barras,
+        'mapa_codigos_barras_json': json.dumps(
+            _mapa_codigos_barras_pdv(loja),
+            cls=DjangoJSONEncoder,
+        ),
+        'lista_codigos_produtos_json': json.dumps(
+            _lista_codigos_produtos_pdv(loja),
+            cls=DjangoJSONEncoder,
+        ),
+        'meios_pagamento_cards': [
+            m for m in MEIOS_LIQUIDACAO_PADRAO if m['codigo'] != 'CORTESIA'
+        ],
+        'formas_lancamento_avulsas': formas_avulsas,
+        'formas_lancamento_avulsas_json': json.dumps(formas_avulsas, cls=DjangoJSONEncoder),
+    }
+    ctx.update(extra)
+    # Rodapé do PDV: sempre recalculado após extra para não ser sobrescrito.
+    dt_abertura = caixa_aberto.data_hora_abertura if caixa_aberto else None
+    ctx.update({
+        'caixa_aberto': bool(caixa_aberto),
+        'caixa_turno': caixa_aberto,
+        'hora_abertura_caixa': _hora_exibicao_caixa(dt_abertura),
+        'data_abertura_caixa': _data_exibicao_caixa(dt_abertura),
+        'nome_loja': loja.marca_pdv_exibicao(),
+        'cnpj_loja': (loja.cnpj or '').strip(),
+        'primeiro_nome': primeiro_nome,
+        'sobrenome': sobrenome,
+    })
+    return ctx
+
+
 def _subtotal_itens_payload(data):
     return sum(
         _valor_decimal_payload(it.get('preco')) * _valor_decimal_payload(it.get('quantidade'))
@@ -508,20 +960,26 @@ def vendas_turno_caixa(caixa):
     fim = caixa.data_hora_fechamento or timezone.now()
     return Venda.objects.filter(
         loja=caixa.loja,
-        status='FINALIZADO',
+        status__in=STATUS_VENDA_FATURADA,
         data_venda__gte=inicio,
         data_venda__lte=fim,
     )
 
 
-def agregar_produtos_vendas(vendas_qs):
+def agregar_produtos_vendas(vendas_qs, loja=None):
     rows = ItemVenda.objects.filter(
         venda__in=vendas_qs,
-    ).values('produto__nome_venda').annotate(
+    ).select_related('produto__grupo').values(
+        'produto__nome_venda',
+        'produto__grupo__nome',
+        'produto__grupo__ordem',
+        'produto__grupo_id',
+    ).annotate(
         qtd=Sum('quantidade'),
         total=Sum(F('quantidade') * F('preco_unitario')),
-    ).order_by('produto__nome_venda')
-    return [
+    ).order_by('produto__grupo__ordem', 'produto__grupo__nome', 'produto__nome_venda')
+
+    flat = [
         {
             'nome': r['produto__nome_venda'],
             'qtd': float(r['qtd'] or 0),
@@ -529,6 +987,28 @@ def agregar_produtos_vendas(vendas_qs):
         }
         for r in rows
     ]
+
+    if not (loja and loja.divide_produtos_por_grupos):
+        return flat, None
+
+    grupos_map = {}
+    for r in rows:
+        gid = r['produto__grupo_id']
+        key = gid or 0
+        if key not in grupos_map:
+            grupos_map[key] = {
+                'grupo': r['produto__grupo__nome'] or 'Sem grupo',
+                'ordem': r['produto__grupo__ordem'] if gid else 9999,
+                'itens': [],
+            }
+        grupos_map[key]['itens'].append({
+            'nome': r['produto__nome_venda'],
+            'qtd': float(r['qtd'] or 0),
+            'total': float(r['total'] or 0),
+        })
+
+    por_grupo = sorted(grupos_map.values(), key=lambda g: (g['ordem'], g['grupo']))
+    return flat, por_grupo
 
 
 @transaction.atomic 
@@ -568,12 +1048,28 @@ def _processar_salvar_venda(request, loja, data):
         meio_liquidacao = None
         forma_pagamento = None
         eh_cortesia = False
+        eh_avaria = False
         tipo_venda = data.get('tipo_venda', 'FINALIZADO')
         if tipo_venda == 'CORTESIA' or data.get('eh_cortesia'):
             eh_cortesia = True
+        if tipo_venda == 'AVARIA' or data.get('eh_avaria'):
+            eh_avaria = True
+        eh_sem_receita = eh_cortesia or eh_avaria
+        status_request = data.get('status', 'FINALIZADO')
+        pendente_liquidacao = (
+            not eh_fiado
+            and not eh_sem_receita
+            and (status_request == 'AGUARDANDO_FINALIZAR' or tipo_venda == 'ORCAMENTO')
+        )
 
         cliente_id = data.get('cliente_id')
+        eh_retirada_loja = (
+            tipo_venda == 'RETIRADO_NA_LOJA'
+            or data.get('status') == 'RETIRADO_NA_LOJA'
+        )
         if eh_fiado:
+            eh_entrega = False
+        elif eh_retirada_loja:
             eh_entrega = False
         elif cliente_id and loja.trabalha_com_entregas:
             eh_entrega = True
@@ -595,29 +1091,38 @@ def _processar_salvar_venda(request, loja, data):
             forma_pagamento = data.get('forma_pagamento')
             if eh_cortesia:
                 forma_pagamento = 'CORTESIA'
-            if eh_cortesia and eh_fiado:
-                return JsonResponse({'status': 'erro', 'mensagem': 'Cortesia não pode ser usada com venda consignada.'}, status=400)
-            if not validar_forma_pagamento(loja, forma_pagamento):
-                return JsonResponse({'status': 'erro', 'mensagem': 'Tipo de lançamento inválido para esta loja.'}, status=400)
-
-            pagamento_dividido = bool(data.get('pagamento_dividido')) and loja.permite_pagamento_dividido and not eh_cortesia
-            if pagamento_dividido and data.get('eh_fiado'):
-                return JsonResponse({'status': 'erro', 'mensagem': 'Pagamento dividido não pode ser usado com venda consignada.'}, status=400)
-
-            if eh_cortesia:
-                meio_liquidacao = 'CORTESIA'
+            elif eh_avaria:
+                forma_pagamento = 'AVARIA'
+            if eh_sem_receita and eh_fiado:
+                return JsonResponse({'status': 'erro', 'mensagem': 'Cortesia e avaria não podem ser usadas com venda consignada.'}, status=400)
+            if pendente_liquidacao:
+                forma_pagamento = None
+                meio_liquidacao = None
                 pagamento_dividido = False
-            elif pagamento_dividido:
-                meio_liquidacao = 'MISTO'
+            elif not eh_sem_receita and not validar_forma_pagamento(loja, forma_pagamento):
+                return JsonResponse({'status': 'erro', 'mensagem': 'Tipo de lançamento inválido para esta loja.'}, status=400)
             else:
-                meio_liquidacao = data.get('meio_liquidacao')
-                if not validar_meio_liquidacao(meio_liquidacao):
-                    return JsonResponse({'status': 'erro', 'mensagem': 'Meio de liquidação inválido.'}, status=400)
+                pagamento_dividido = bool(data.get('pagamento_dividido')) and loja.permite_pagamento_dividido and not eh_sem_receita
+                if pagamento_dividido and data.get('eh_fiado'):
+                    return JsonResponse({'status': 'erro', 'mensagem': 'Pagamento dividido não pode ser usado com venda consignada.'}, status=400)
+
+                if eh_cortesia:
+                    meio_liquidacao = 'CORTESIA'
+                    pagamento_dividido = False
+                elif eh_avaria:
+                    meio_liquidacao = None
+                    pagamento_dividido = False
+                elif pagamento_dividido:
+                    meio_liquidacao = 'MISTO'
+                else:
+                    meio_liquidacao = data.get('meio_liquidacao')
+                    if not validar_meio_liquidacao(meio_liquidacao):
+                        return JsonResponse({'status': 'erro', 'mensagem': 'Meio de liquidação inválido.'}, status=400)
 
         subtotal_itens = _subtotal_itens_payload(data)
-        usa_taxa_servico = loja_usa_taxa_servico(loja) and not eh_cortesia
+        usa_taxa_servico = loja_usa_taxa_servico(loja) and not eh_sem_receita
 
-        if usar_fidelidade and cliente_id and not eh_fiado and not eh_cortesia:
+        if usar_fidelidade and cliente_id and not eh_fiado and not eh_sem_receita:
             try:
                 cliente_fid = Cliente.objects.get(id=cliente_id, loja=loja)
             except Cliente.DoesNotExist:
@@ -641,13 +1146,23 @@ def _processar_salvar_venda(request, loja, data):
             if data.get('atualizar_padrao') is True:
                 loja.taxa_servico_pct = taxa_servico_pct_val
                 loja.save(update_fields=['taxa_servico_pct'])
-        elif eh_entrega:
-            nova_taxa_entrega = _valor_decimal_payload(data.get('taxa_entrega'))
-            if data.get('atualizar_padrao') is True:
-                loja.taxa_entrega_pdv = nova_taxa_entrega
-                loja.save(update_fields=['taxa_entrega_pdv'])
+        else:
+            taxa_entrega_payload = _valor_decimal_payload(data.get('taxa_entrega'))
+            if taxa_entrega_payload > 0 and not eh_entrega:
+                return JsonResponse({
+                    'status': 'erro',
+                    'mensagem': (
+                        'Taxa de entrega só pode ser aplicada em vendas com entrega. '
+                        'Selecione um cliente para entrega.'
+                    ),
+                }, status=400)
+            if eh_entrega:
+                nova_taxa_entrega = taxa_entrega_payload
+                if data.get('atualizar_padrao') is True:
+                    loja.taxa_entrega_pdv = nova_taxa_entrega
+                    loja.save(update_fields=['taxa_entrega_pdv'])
 
-        if eh_cortesia:
+        if eh_sem_receita:
             total_final_venda = Decimal('0')
             taxa_servico_valor = Decimal('0')
             taxa_servico_pct_val = Decimal('0')
@@ -666,7 +1181,7 @@ def _processar_salvar_venda(request, loja, data):
                 status=400,
             )
 
-        if not eh_cortesia and total_final_venda <= 0:
+        if not eh_sem_receita and total_final_venda <= 0:
             return JsonResponse({'status': 'erro', 'mensagem': 'Total da venda inválido.'}, status=400)
 
         endereco_entrega = ""
@@ -700,8 +1215,15 @@ def _processar_salvar_venda(request, loja, data):
         status_venda = 'FIADO' if eh_fiado else data.get('status', 'FINALIZADO')
         if not eh_fiado and tipo_venda == 'ORCAMENTO':
             status_venda = 'ORCAMENTO'
+        elif not eh_fiado and eh_retirada_loja:
+            status_venda = 'RETIRADO_NA_LOJA'
+            eh_entrega = False
         elif not eh_fiado and eh_cortesia and status_venda not in ('AGUARDANDO_FINALIZAR', 'EM_PREPARACAO'):
             status_venda = 'FINALIZADO'
+            eh_entrega = False
+        elif not eh_fiado and eh_avaria:
+            status_venda = 'FINALIZADO'
+            eh_entrega = False
         if eh_entrega and not eh_fiado and status_venda == 'FINALIZADO':
             status_venda = 'EM_PREPARACAO'
 
@@ -722,6 +1244,7 @@ def _processar_salvar_venda(request, loja, data):
                 venda.endereco_entrega = endereco_entrega
                 venda.pagamento_dividido = pagamento_dividido
                 venda.eh_cortesia = eh_cortesia
+                venda.eh_avaria = eh_avaria
                 venda.desconto_fidelidade = desconto_fidelidade
                 
                 if eh_entrega:
@@ -735,7 +1258,7 @@ def _processar_salvar_venda(request, loja, data):
                 LiquidacaoVenda.objects.filter(venda=venda).delete()
                 nova_venda = venda 
                 
-                if venda.status in ['FINALIZADO', 'FIADO']:
+                if venda.status in ['FINALIZADO', 'RETIRADO_NA_LOJA', 'FIADO']:
                     dar_baixa_estoque = True
 
             except Venda.DoesNotExist:
@@ -759,10 +1282,11 @@ def _processar_salvar_venda(request, loja, data):
                 troco_para=valor_troco if not pagamento_dividido else None,
                 eh_fiado=eh_fiado,
                 eh_cortesia=eh_cortesia,
+                eh_avaria=eh_avaria,
                 desconto_fidelidade=desconto_fidelidade,
                 conferencia_ok=False,
             )
-            if nova_venda.status in ['FINALIZADO', 'FIADO']:
+            if nova_venda.status in ['FINALIZADO', 'RETIRADO_NA_LOJA', 'FIADO']:
                 dar_baixa_estoque = True
 
         if status_venda in STATUS_COMPROMETIDOS:
@@ -795,7 +1319,7 @@ def _processar_salvar_venda(request, loja, data):
                     produto=produto,
                     quantidade=quantidade_vendida,
                     preco_unitario=item['preco'],
-                    custo_unitario=produto.preco_compra or 0,
+                    custo_unitario=custo_unitario_produto_venda(produto),
                     baixa_vasilhame_vazio=baixa_vazio and not item_venda_completa,
                     venda_completa=item_venda_completa,
                 )
@@ -804,7 +1328,7 @@ def _processar_salvar_venda(request, loja, data):
             except Produto.DoesNotExist:
                 pass 
 
-        status_gera_liquidacao = (not eh_fiado) and (not eh_cortesia) and status_venda in ('FINALIZADO', 'EM_PREPARACAO')
+        status_gera_liquidacao = (not eh_fiado) and (not eh_sem_receita) and status_venda in STATUS_GERA_LIQUIDACAO
         if status_gera_liquidacao:
             caixa_aberto = Caixa.objects.filter(loja=loja, status=True).first()
             total_final = total_final_venda
@@ -833,15 +1357,32 @@ def _processar_salvar_venda(request, loja, data):
 
         if eh_fiado and valor_pago_inicial > 0:
             caixa_aberto = Caixa.objects.filter(loja=loja, status=True).first()
-            PagamentoFiado.objects.create(
-                loja=loja,
-                venda=nova_venda,
-                valor=valor_pago_inicial,
-                meio_liquidacao=meio_liquidacao or 'DINHEIRO',
-                observacao='Pagamento parcial na venda',
-                registrado_por=request.user,
-                caixa=caixa_aberto,
-            )
+            liquidacoes_entrada = data.get('liquidacoes') or []
+            if len(liquidacoes_entrada) > 1:
+                for liq in liquidacoes_entrada:
+                    meio_ent = liq.get('meio_liquidacao')
+                    val_ent = _valor_decimal_payload(liq.get('valor'))
+                    if val_ent <= 0 or not validar_meio_liquidacao(meio_ent):
+                        continue
+                    PagamentoFiado.objects.create(
+                        loja=loja,
+                        venda=nova_venda,
+                        valor=val_ent,
+                        meio_liquidacao=meio_ent,
+                        observacao='Pagamento parcial na venda',
+                        registrado_por=request.user,
+                        caixa=caixa_aberto,
+                    )
+            else:
+                PagamentoFiado.objects.create(
+                    loja=loja,
+                    venda=nova_venda,
+                    valor=valor_pago_inicial,
+                    meio_liquidacao=meio_liquidacao or 'DINHEIRO',
+                    observacao='Pagamento parcial na venda',
+                    registrado_por=request.user,
+                    caixa=caixa_aberto,
+                )
             if nova_venda.saldo_devedor <= 0:
                 nova_venda.status = 'FINALIZADO'
                 nova_venda.save(update_fields=['status'])
@@ -894,6 +1435,11 @@ def cancelar_venda_pdv(request, id):
     # O SISTEMA VAI LER ESSA MUDANÇA E DEVOLVER OS ITENS MAGIGAMENTE PELO SIGNALS DO MODEL!
     venda.status = 'CANCELADO'
     venda.save()
+    registrar_log(
+        request, 'VENDA',
+        f'Venda #{venda.id} cancelada — estoque estornado',
+        modelo='Venda', objeto_id=venda.id, loja=loja,
+    )
     
     messages.success(request, f'Venda #{venda.id} cancelada e estoque estornado com sucesso!')
     return redirect('detalhes_venda', id=id)
@@ -905,7 +1451,7 @@ def retomar_venda(request, id):
     venda = get_object_or_404(Venda, pk=id, loja=loja)
     
     # Se já estiver finalizada, não deixa editar, joga pra lista
-    if venda.status == 'FINALIZADO' or venda.status == 'CANCELADO':
+    if venda.status in ('FINALIZADO', 'RETIRADO_NA_LOJA', 'CANCELADO'):
         messages.warning(request, "Esta venda já foi finalizada ou cancelada.")
         return redirect('lista_vendas')
 
@@ -950,25 +1496,14 @@ def retomar_venda(request, id):
             for liq in venda.liquidacoes.all()
         ], cls=DjangoJSONEncoder)
 
-    context = {
-        'venda_aberta': venda,
-        'itens_json': itens_json,
-        'liquidacoes_json': liquidacoes_json,
-        'produtos': produtos,
-        'clientes': clientes,
-        'taxa_padrao': loja.taxa_entrega_pdv,
-        'formas_pagamento': loja.get_formas_pagamento_ativas(),
-        'usa_fiado': loja.usa_fiado,
-        'permite_pagamento_dividido': loja.permite_pagamento_dividido,
-        'controla_vasilhame_vazio': loja.controla_vasilhame_vazio,
-        'permite_venda_completa': loja.permite_venda_completa,
-        'fidelidade_ativa': loja.fidelidade_ativa,
-        'estoque_diario': estoque_diario_ativo(loja),
-        'trabalha_com_entregas': loja.trabalha_com_entregas,
-        'impressao_automatica': loja.impressao_automatica,
-        'modo_taxa_servico': loja_usa_taxa_servico(loja),
-        'taxa_servico_pct': venda.taxa_servico_pct if venda.taxa_servico_pct else loja.taxa_servico_pct,
-    }
+    context = _context_tela_vendas(
+        loja, produtos, clientes,
+        request=request,
+        venda_aberta=venda,
+        itens_json=itens_json,
+        liquidacoes_json=liquidacoes_json,
+        taxa_servico_pct=venda.taxa_servico_pct if venda.taxa_servico_pct else loja.taxa_servico_pct,
+    )
     return render(request, 'app_pdv/vendas.html', context)
 
 
@@ -1011,7 +1546,7 @@ def dashboard(request):
         loja__in=lojas_alvo,
         data_venda__year=ano, 
         data_venda__month=mes,
-        status='FINALIZADO'
+        status__in=STATUS_VENDA_FATURADA,
     )
 
     faturamento_total = vendas_mes_qs.aggregate(Sum('total'))['total__sum'] or 0
@@ -1024,7 +1559,7 @@ def dashboard(request):
         venda__loja__in=lojas_alvo,
         venda__data_venda__year=ano,
         venda__data_venda__month=mes,
-        venda__status='FINALIZADO'
+        venda__status__in=STATUS_VENDA_FATURADA,
     ).values('produto__nome_venda').annotate(
         lucro_total=Sum(
             (F('preco_unitario') - Coalesce(F('custo_unitario'), F('produto__preco_compra'), DECIMAL_ZERO))
@@ -1043,7 +1578,7 @@ def dashboard(request):
     vendas_diarias = Venda.objects.filter(
         loja__in=lojas_alvo,
         data_venda__date__gte=data_inicio_grafico,
-        status='FINALIZADO'
+        status__in=STATUS_VENDA_FATURADA,
     ).annotate(
         data_formatada=TruncDate('data_venda')
     ).values('data_formatada').annotate(
@@ -1184,10 +1719,15 @@ def fluxo_caixa(request):
     if request.method == 'POST' and not caixa_aberto:
         saldo_inicial = request.POST.get('saldo_inicial')
         if loja:
-            Caixa.objects.create(
+            caixa_novo = Caixa.objects.create(
                 loja=loja, 
                 saldo_inicial=saldo_inicial,
-                data_hora_abertura=datetime.now()
+                data_hora_abertura=timezone.now()
+            )
+            registrar_log(
+                request, 'CAIXA',
+                f'Caixa aberto — saldo inicial R$ {saldo_inicial}',
+                modelo='Caixa', objeto_id=caixa_novo.id, loja=loja,
             )
             messages.success(request, "Novo turno aberto com sucesso!")
             return redirect('fluxo_caixa')
@@ -1205,7 +1745,7 @@ def fluxo_caixa(request):
         
         vendas_turno = Venda.objects.filter(
             loja=loja, 
-            status='FINALIZADO',
+            status__in=STATUS_VENDA_FATURADA,
             data_venda__gte=inicio_turno  
         )
 
@@ -1278,19 +1818,24 @@ def fechar_caixa(request):
         saldo_final_calculado = (caixa.saldo_inicial + dinheiro_vendas + entradas_dinheiro) - saidas_dinheiro
         
         caixa.saldo_final = saldo_final_calculado
-        caixa.data_hora_fechamento = datetime.now()
+        caixa.data_hora_fechamento = timezone.now()
         caixa.status = False
         caixa.save()
+        registrar_log(
+            request, 'CAIXA',
+            f'Caixa fechado — saldo final R$ {saldo_final_calculado}',
+            modelo='Caixa', objeto_id=caixa.id, loja=loja,
+        )
 
         resumo_pgto = montar_resumo_liquidacao_loja(vendas, pagamentos_fiado)
-        produtos_vendidos = agregar_produtos_vendas(vendas)
+        produtos_vendidos, produtos_por_grupo = agregar_produtos_vendas(vendas, loja)
         total_produtos_qtd = sum(p['qtd'] for p in produtos_vendidos)
         total_produtos_valor = sum(p['total'] for p in produtos_vendidos)
 
         context = {
             'caixa': caixa,
             'operador': request.user,
-            'data_fechamento': datetime.now(),
+            'data_fechamento': timezone.localtime(timezone.now()),
             'total_vendas': total_vendas,
             'total_fiado': total_fiado,
             'total_recebido': total_vendas + total_fiado,
@@ -1299,6 +1844,8 @@ def fechar_caixa(request):
             'saidas': saidas_dinheiro,     
             'resumo_pgto': resumo_pgto,
             'produtos_vendidos': produtos_vendidos,
+            'produtos_por_grupo': produtos_por_grupo,
+            'divide_produtos_por_grupos': loja.divide_produtos_por_grupos,
             'total_produtos_qtd': total_produtos_qtd,
             'total_produtos_valor': total_produtos_valor,
         }
@@ -1610,6 +2157,11 @@ def adicionar_estoque(request):
             obj = form.save(commit=False)
             obj.loja = loja
             obj.save()
+            registrar_log(
+                request, 'ESTOQUE',
+                f'Entrada estoque: {obj.item.nome} +{obj.quantidade}',
+                modelo='EntradaEstoque', objeto_id=obj.id, loja=loja,
+            )
             return redirect('lista_estoque')
     else:
         form = EntradaEstoqueForm(loja=loja)
@@ -1671,6 +2223,12 @@ def transferir_estoque(request, item_id):
             messages.error(request, err)
             return redirect('transferir_estoque', item_id=item_id)
 
+        registrar_log(
+            request, 'TRANSFERIR',
+            f"Transferiu {qtd_transferir} {item_origem.unidade_medida} de '{item_origem.nome}' "
+            f'para {loja_destino.nome}',
+            modelo='ItemEstoque', objeto_id=item_origem.id, loja=loja_origem,
+        )
         messages.success(
             request,
             f"Sucesso! {qtd_transferir} {item_origem.unidade_medida} de '{item_origem.nome}' "
@@ -1815,6 +2373,11 @@ def transferir_estoque_lote(request):
             return redirect('transferir_estoque_lote')
 
         n = len(linhas)
+        registrar_log(
+            request, 'TRANSFERIR',
+            f'Transferência em lote: {n} item(ns) para {loja_destino.nome}',
+            modelo='ItemEstoque', loja=loja_origem,
+        )
         messages.success(
             request,
             f'{n} item(ns) transferido(s) com sucesso para {loja_destino.nome}.',
@@ -1911,7 +2474,14 @@ def lista_categorias(request):
 def deletar_categoria(request, id):
     loja = check_loja(request)
     cat = get_object_or_404(CategoriaTransacao, pk=id, loja=loja)
+    nome = cat.nome
+    cid = cat.id
     cat.delete()
+    registrar_log(
+        request, 'EXCLUIR',
+        f'Tipo de lançamento "{nome}" excluído',
+        modelo='CategoriaTransacao', objeto_id=cid, loja=loja,
+    )
     return redirect('lista_categorias')
 
 
@@ -1972,7 +2542,7 @@ def excluir_transacao(request, id):
 
 @login_required
 def central_logs(request):
-    """Central de auditoria — rota interna (não exposta no menu)."""
+    """Central de auditoria — disponível no menu (Relatórios)."""
     loja = check_loja(request)
     if not loja and not request.user.is_superuser:
         return redirect('admin:index')
@@ -2047,7 +2617,7 @@ def relatorios(request):
         total_vendas = Venda.objects.filter(
             loja__in=lojas_alvo,
             data_venda__date__range=[data_inicio, data_fim], 
-            status='FINALIZADO',
+            status__in=STATUS_VENDA_FATURADA,
             eh_fiado=False,
             eh_cortesia=False,
         ).aggregate(Sum('total'))['total__sum'] or 0
@@ -2061,6 +2631,10 @@ def relatorios(request):
         receitas_extras = transacoes.filter(categoria__tipo='RECEITA').aggregate(Sum('valor'))['valor__sum'] or 0
         despesas = transacoes.filter(categoria__tipo='DESPESA').aggregate(Sum('valor'))['valor__sum'] or 0
 
+        custo_mercadorias = calcular_custo_mercadorias_periodo(lojas_alvo, data_inicio, data_fim)
+        total_receitas = total_vendas + receitas_fiado + receitas_extras
+        saldo_periodo = total_receitas - despesas - custo_mercadorias
+
         lista_transacoes = list(transacoes)
         for t in lista_transacoes:
             t.nome_forma_display = get_nome_forma_pagamento(t.loja, t.forma_pagamento)
@@ -2069,15 +2643,16 @@ def relatorios(request):
             'vendas': total_vendas,
             'receitas_fiado': receitas_fiado,
             'receitas_extras': receitas_extras,
-            'total_receitas': total_vendas + receitas_fiado + receitas_extras,
+            'total_receitas': total_receitas,
             'despesas': despesas,
-            'saldo_periodo': (total_vendas + receitas_fiado + receitas_extras) - despesas,
+            'custo_mercadorias': custo_mercadorias,
+            'saldo_periodo': saldo_periodo,
             'lista_transacoes': lista_transacoes
         }
 
     # --- 2. RELATÓRIO DE ORIGEM (APP x PDV) ---
     elif tipo_relatorio == 'origem':
-        vendas_periodo = Venda.objects.filter(loja__in=lojas_alvo, data_venda__date__range=[data_inicio, data_fim], status='FINALIZADO')
+        vendas_periodo = Venda.objects.filter(loja__in=lojas_alvo, data_venda__date__range=[data_inicio, data_fim], status__in=STATUS_VENDA_FATURADA)
         
         total_app = vendas_periodo.filter(origem='APP').aggregate(Sum('total'))['total__sum'] or 0
         total_pdv = vendas_periodo.filter(origem='PDV').aggregate(Sum('total'))['total__sum'] or 0
@@ -2092,7 +2667,7 @@ def relatorios(request):
 
     # --- 3. RELATÓRIO: FORMA DE PAGAMENTO ---
     elif tipo_relatorio == 'pagamento':
-        vendas_periodo = Venda.objects.filter(loja__in=lojas_alvo, data_venda__date__range=[data_inicio, data_fim], status='FINALIZADO')
+        vendas_periodo = Venda.objects.filter(loja__in=lojas_alvo, data_venda__date__range=[data_inicio, data_fim], status__in=STATUS_VENDA_FATURADA)
         multi_loja = lojas_alvo.count() > 1
         lista_pagamento, total_geral = montar_relatorio_pagamentos(lojas_alvo, vendas_periodo, multi_loja=multi_loja)
 
@@ -2106,29 +2681,58 @@ def relatorios(request):
         custo_efetivo = Coalesce(F('custo_unitario'), F('produto__preco_compra'), DECIMAL_ZERO)
         itens_vendidos = ItemVenda.objects.filter(
             venda__loja__in=lojas_alvo,
-            venda__data_venda__date__range=[data_inicio, data_fim], venda__status='FINALIZADO'
-        ).values('produto__nome_venda').annotate(
+            venda__data_venda__date__range=[data_inicio, data_fim], venda__status__in=STATUS_VENDA_FATURADA
+        ).values(
+            'produto__nome_venda',
+            'produto__item_estoque__unidade_medida',
+        ).annotate(
             qtd_total=Sum('quantidade'),
             valor_total_vendido=Sum(F('quantidade') * F('preco_unitario'), output_field=DecimalField(max_digits=12, decimal_places=2)),
             custo_total=Sum(F('quantidade') * custo_efetivo, output_field=DecimalField(max_digits=12, decimal_places=2)),
         ).order_by('-valor_total_vendido')
 
         lista_produtos = []
+        total_qtd_un = Decimal('0')
+        total_qtd_kg = Decimal('0')
+        total_custo = Decimal('0')
+        total_venda = Decimal('0')
         for item in itens_vendidos:
-            custo = item['custo_total'] or 0
-            venda_tot = item['valor_total_vendido'] or 0
+            custo = item['custo_total'] or Decimal('0')
+            venda_tot = item['valor_total_vendido'] or Decimal('0')
+            qtd = item['qtd_total'] or Decimal('0')
+            unidade = item.get('produto__item_estoque__unidade_medida') or 'UN'
+            if unidade == 'UN':
+                qtd_display = str(int(qtd))
+                total_qtd_un += qtd
+            else:
+                qtd_display = f"{qtd:.3f}".replace('.', ',')
+                total_qtd_kg += qtd
             lista_produtos.append({
-                'nome': item['produto__nome_venda'], 'qtd': item['qtd_total'],
-                'custo_total': custo, 'venda_total': venda_tot,
-                'lucro': venda_tot - custo
+                'nome': item['produto__nome_venda'],
+                'qtd': qtd,
+                'qtd_display': qtd_display,
+                'unidade': unidade,
+                'custo_total': custo,
+                'venda_total': venda_tot,
+                'lucro': venda_tot - custo,
             })
+            total_custo += custo
+            total_venda += venda_tot
         context['produtos'] = lista_produtos
+        context['totais_produtos'] = {
+            'qtd_un': int(total_qtd_un),
+            'qtd_kg': total_qtd_kg,
+            'tem_kg': total_qtd_kg > 0,
+            'custo_total': total_custo,
+            'venda_total': total_venda,
+            'lucro': total_venda - total_custo,
+        }
 
     # --- 5. RELATÓRIO DE CLIENTES ---
     elif tipo_relatorio == 'clientes':
         ranking = Venda.objects.filter(
             loja__in=lojas_alvo,
-            data_venda__date__range=[data_inicio, data_fim], status='FINALIZADO', cliente__isnull=False 
+            data_venda__date__range=[data_inicio, data_fim], status__in=STATUS_VENDA_FATURADA, cliente__isnull=False 
         ).values('cliente__nome').annotate(
             total_gasto=Sum('total'), qtd_compras=Count('id')
         ).order_by('-total_gasto')
@@ -2483,7 +3087,6 @@ def ver_recibo_fechamento(request, id):
 
     vendas = vendas_turno_caixa(caixa)
     total_vendas = vendas.aggregate(Sum('total'))['total__sum'] or 0
-    total_fiado = pagamentos_fiado.aggregate(Sum('valor'))['valor__sum'] or 0
     inicio_turno = caixa.data_hora_abertura or datetime.combine(caixa.data, datetime.min.time())
     fim_turno = caixa.data_hora_fechamento or timezone.now()
     pagamentos_fiado = PagamentoFiado.objects.filter(
@@ -2491,6 +3094,7 @@ def ver_recibo_fechamento(request, id):
         data_pagamento__gte=inicio_turno,
         data_pagamento__lte=fim_turno,
     )
+    total_fiado = pagamentos_fiado.aggregate(Sum('valor'))['valor__sum'] or 0
     dinheiro_vendas = calcular_entradas_gaveta(vendas, pagamentos_fiado)
 
     transacoes = Transacao.objects.filter(caixa=caixa)
@@ -2500,7 +3104,7 @@ def ver_recibo_fechamento(request, id):
     saidas = transacoes.filter(categoria__tipo='DESPESA').aggregate(Sum('valor'))['valor__sum'] or 0
 
     resumo_pgto = montar_resumo_liquidacao_loja(vendas, pagamentos_fiado)
-    produtos_vendidos = agregar_produtos_vendas(vendas)
+    produtos_vendidos, produtos_por_grupo = agregar_produtos_vendas(vendas, loja)
     total_produtos_qtd = sum(p['qtd'] for p in produtos_vendidos)
     total_produtos_valor = sum(p['total'] for p in produtos_vendidos)
 
@@ -2517,6 +3121,8 @@ def ver_recibo_fechamento(request, id):
         'saidas': saidas,
         'resumo_pgto': resumo_pgto,
         'produtos_vendidos': produtos_vendidos,
+        'produtos_por_grupo': produtos_por_grupo,
+        'divide_produtos_por_grupos': loja.divide_produtos_por_grupos,
         'total_produtos_qtd': total_produtos_qtd,
         'total_produtos_valor': total_produtos_valor,
     }
@@ -2578,42 +3184,53 @@ def importar_clientes(request):
             arquivo = request.FILES['arquivo_excel']
             try:
                 df = pd.read_excel(arquivo, engine='openpyxl')
-                df.columns = (df.columns.str.strip().str.lower().str.replace('ç', 'c').str.replace('ã', 'a').str.replace('é', 'e'))
+                df.columns = (df.columns.str.strip().str.lower()
+                              .str.replace('ç', 'c').str.replace('ã', 'a')
+                              .str.replace('é', 'e').str.replace('ó', 'o'))
 
                 contador_criados = 0
                 contador_atualizados = 0
 
                 for index, row in df.iterrows():
                     nome_cliente = row.get('nome')
-                    if not nome_cliente or pd.isna(nome_cliente): continue
+                    if not nome_cliente or pd.isna(nome_cliente):
+                        continue
 
                     endereco = str(row.get('endereco', ''))
-                    if endereco == 'nan': endereco = '' 
-
-                    telefone = str(row.get('telefone', ''))
-                    if telefone == 'nan': telefone = ''
+                    if endereco == 'nan':
+                        endereco = ''
 
                     whatsapp = str(row.get('whatsapp', ''))
-                    if whatsapp == 'nan': whatsapp = ''
+                    if whatsapp == 'nan':
+                        whatsapp = ''
+
+                    bairro = str(row.get('bairro', ''))
+                    if bairro == 'nan':
+                        bairro = ''
 
                     obj, created = Cliente.objects.update_or_create(
                         nome=nome_cliente,
-                        loja=loja, 
-                        defaults={         
+                        loja=loja,
+                        defaults={
                             'endereco': endereco,
-                            'telefone': telefone,
-                            'whatsapp': whatsapp
+                            'whatsapp': whatsapp,
+                            'bairro': bairro or None,
                         }
                     )
 
-                    if created: contador_criados += 1
-                    else: contador_atualizados += 1
-                
-                messages.success(request, f"Sucesso! {contador_criados} clientes criados e {contador_atualizados} atualizados.")
+                    if created:
+                        contador_criados += 1
+                    else:
+                        contador_atualizados += 1
+
+                messages.success(
+                    request,
+                    f"Sucesso! {contador_criados} clientes criados e {contador_atualizados} atualizados."
+                )
 
             except Exception as e:
                 messages.error(request, f"Erro ao processar arquivo: {str(e)}")
-                
+
     return redirect('menu_importacao')
 
 
@@ -2635,7 +3252,11 @@ def importar_produtos(request):
                 # Tratamento avançado de nomes de colunas
                 df.columns = (df.columns.str.lower().str.strip()
                               .str.replace(' ', '_')
-                              .str.replace('ç', 'c').str.replace('ã', 'a'))
+                              .str.replace('ç', 'c').str.replace('ã', 'a')
+                              .str.replace('á', 'a').str.replace('à', 'a')
+                              .str.replace('é', 'e').str.replace('ê', 'e')
+                              .str.replace('í', 'i').str.replace('ó', 'o')
+                              .str.replace('ô', 'o').str.replace('ú', 'u'))
 
                 contador = 0
                 
@@ -2664,7 +3285,19 @@ def importar_produtos(request):
                     
                     custo = limpar_preco(row.get('preco_custo', 0))
                     venda = limpar_preco(row.get('preco_venda', 0))
-                    
+
+                    codigo_barras = str(row.get('codigo_barras', '') or '').strip()
+                    if codigo_barras.lower() == 'nan':
+                        codigo_barras = ''
+
+                    grupo_nome = row.get('grupo')
+                    grupo_obj = None
+                    if pd.notna(grupo_nome) and str(grupo_nome).strip() and str(grupo_nome).strip().lower() != 'nan':
+                        grupo_obj, _ = GrupoProduto.objects.get_or_create(
+                            loja=loja,
+                            nome=str(grupo_nome).strip(),
+                        )
+
                     # --- NOVA LEITURA: VALIDADE E OBSERVAÇÃO ---
                     validade_raw = row.get('data_validade')
                     observacao_raw = row.get('observacao')
@@ -2712,17 +3345,35 @@ def importar_produtos(request):
                         item.quantidade_estoque = estoque_atual + estoque_novo
                         item.save()
 
+                    if codigo_barras:
+                        conflito = Produto.objects.filter(
+                            loja=loja, codigo_barras=codigo_barras
+                        ).exclude(nome_venda=nome_venda, item_estoque=item).exists()
+                        if conflito:
+                            messages.warning(
+                                request,
+                                f"Código de barras '{codigo_barras}' já usado em outro produto "
+                                f"(linha {index + 2}). Produto '{nome_venda}' importado sem o código."
+                            )
+                            codigo_barras = ''
+
+                    defaults_produto = {
+                        'quantidade_baixa': Decimal(str(qtd_baixa)),
+                        'preco_compra': Decimal(str(custo)),
+                        'preco_venda': Decimal(str(venda)),
+                        'ativo': True,
+                    }
+                    if codigo_barras:
+                        defaults_produto['codigo_barras'] = codigo_barras
+                    if grupo_obj is not None:
+                        defaults_produto['grupo'] = grupo_obj
+
                     # 2. Cria ou Atualiza o Produto da Prateleira
                     produto, created_prod = Produto.objects.update_or_create(
                         loja=loja,
                         nome_venda=nome_venda,
                         item_estoque=item,
-                        defaults={
-                            'quantidade_baixa': Decimal(str(qtd_baixa)),
-                            'preco_compra': Decimal(str(custo)),
-                            'preco_venda': Decimal(str(venda)),
-                            'ativo': True
-                        }
+                        defaults=defaults_produto,
                     )
                     if created_prod:
                         contador += 1
@@ -2744,12 +3395,11 @@ def baixar_modelo_excel(request, tipo):
     output = io.BytesIO()
     
     if tipo == 'clientes':
-        # Cria a tabela de exemplo para Clientes
         df = pd.DataFrame({
             'Nome': ['João da Silva (Exemplo)'],
-            'Telefone': ['21988887777'],
             'WhatsApp': ['21988887777'],
-            'Endereco': ['Rua das Flores, 123 - Centro, RJ']
+            'Endereco': ['Rua das Flores, 123 - Centro, RJ'],
+            'Bairro': ['Centro'],
         })
         nome_arquivo = 'Modelo_Importacao_Clientes.xlsx'
         
@@ -2757,13 +3407,15 @@ def baixar_modelo_excel(request, tipo):
         df = pd.DataFrame({
             'Item Pai': ['Special Dog', 'Special Dog', 'Coca Cola Lata'],
             'Unidade': ['KG', 'KG', 'UN'],
-            'Estoque Total': [500, 0, 120],  
-            'Data Validade': ['2026-12-31', '', '2025-06-01'], # NOVO
-            'Observacao': ['Lote A1', '', 'Lote B2'],          # NOVO
+            'Estoque Total': [500, 0, 120],
+            'Data Validade': ['2026-12-31', '', '2025-06-01'],
+            'Observacao': ['Lote A1', '', 'Lote B2'],
             'Nome Venda': ['Special Dog Granel 1KG', 'Special Dog Saco 10KG', 'Coca Cola Lata Gelada'],
-            'Qtd Baixa': [1, 10, 1], 
+            'Codigo Barras': ['7891000100103', '', '7894900011517'],
+            'Grupo': ['Ração', 'Ração', 'Bebidas'],
+            'Qtd Baixa': [1, 10, 1],
             'Preco Custo': [5.00, 50.00, 2.50],
-            'Preco Venda': [10.00, 95.00, 5.00]
+            'Preco Venda': [10.00, 95.00, 5.00],
         })
         nome_arquivo = 'Modelo_Importacao_Produtos.xlsx'
     else:
@@ -2809,6 +3461,11 @@ def cadastrar_vendedor(request):
                 user.perfil.loja = loja_selecionada
                 user.perfil.save()
 
+            registrar_log(
+                request, 'SENHA',
+                f'Usuário {user.username} cadastrado na {loja_selecionada.nome}',
+                modelo='User', objeto_id=user.id, loja=loja_selecionada,
+            )
             messages.success(request, f"Usuário {user.first_name} cadastrado com sucesso na {loja_selecionada.nome}!")
             return redirect('lista_vendedores') 
         else:
@@ -2837,6 +3494,11 @@ def gerenciar_permissoes(request, id):
         form = PermissoesUsuarioForm(request.POST, instance=vendedor.perfil)
         if form.is_valid():
             form.save()
+            registrar_log(
+                request, 'SENHA',
+                f'Permissões de {vendedor.username} atualizadas',
+                modelo='User', objeto_id=vendedor.id, loja=loja,
+            )
             messages.success(request, f"Permissões de {vendedor.first_name} atualizadas com sucesso!")
             return redirect('lista_vendedores')
     else:
@@ -2863,6 +3525,12 @@ def editar_vendedor(request, id):
                 user.set_password(nova_senha) # Criptografa e salva a nova senha
                 
             user.save()
+            detalhe = ' (senha alterada)' if nova_senha else ''
+            registrar_log(
+                request, 'SENHA',
+                f'Dados do usuário {user.username} atualizados{detalhe}',
+                modelo='User', objeto_id=user.id, loja=loja,
+            )
             messages.success(request, f"Dados do usuário {user.first_name} atualizados com sucesso!")
             return redirect('lista_vendedores')
     else:
@@ -3203,12 +3871,17 @@ class CustomAuthToken(ObtainAuthToken):
         from rest_framework.exceptions import ValidationError
         from app_pdv.seguranca import (
             conta_congelada_user,
+            conta_congelada_username,
             encerrar_outras_sessoes_web,
             invalidar_sessao_web,
+            ip_bloqueado,
             limpar_falhas_apos_sucesso,
+            minutos_restantes_bloqueio_ip,
+            obter_ip_cliente,
             registrar_falha_login,
             registrar_token_ativo,
             invalidar_tokens_api,
+            usuario_eh_superuser,
         )
 
         username = (request.data.get('username') or '').strip()
@@ -3217,7 +3890,26 @@ class CustomAuthToken(ObtainAuthToken):
             serializer.is_valid(raise_exception=True)
         except ValidationError:
             registrar_falha_login(request, username)
-            raise
+            if not usuario_eh_superuser(username):
+                ip = obter_ip_cliente(request)
+                if ip_bloqueado(ip):
+                    mins = minutos_restantes_bloqueio_ip(ip)
+                    return Response({
+                        'erro': (
+                            f'Muitas tentativas de login. IP bloqueado por {mins} minuto(s). '
+                            'Contate o administrador se precisar de acesso imediato.'
+                        ),
+                        'bloqueio_ip': True,
+                    }, status=429)
+                if conta_congelada_username(username):
+                    return Response({
+                        'erro': (
+                            'Conta congelada por segurança. '
+                            'Solicite ao administrador do sistema para descongelar.'
+                        ),
+                        'conta_congelada': True,
+                    }, status=403)
+            return Response({'erro': 'Usuário ou senha inválidos.'}, status=400)
 
         user = serializer.validated_data['user']
         if conta_congelada_user(user):
@@ -3700,7 +4392,7 @@ def api_criar_pedido(request):
                     produto=produto,
                     quantidade=item['quantidade'],
                     preco_unitario=produto.preco_venda,
-                    custo_unitario=produto.preco_compra or 0,
+                    custo_unitario=custo_unitario_produto_venda(produto),
                     baixa_vasilhame_vazio=baixa_vazio,
                 )
 
@@ -3919,6 +4611,12 @@ class ReceberLeadTrafficHub(APIView):
 
 
 def fazer_logout(request):
+        if getattr(request, 'user', None) and request.user.is_authenticated:
+            registrar_log(
+                request, 'LOGOUT',
+                f'Logout: {request.user.username}',
+                modelo='User', objeto_id=request.user.id,
+            )
         logout(request)
         return redirect('login')
 

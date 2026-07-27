@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load tz %}
 {% block title %}Fluxo de Caixa{% endblock %}
 
 {% block content %}
@@ -44,8 +45,8 @@
                     {% for turno in historico_turnos %}
                     <tr>
                         <td>#{{ turno.id }}</td>
-                        <td>{{ turno.data_hora_abertura|date:"H:i" }}</td>
-                        <td>{{ turno.data_hora_fechamento|date:"H:i" }}</td>
+                        <td>{{ turno.data_hora_abertura|localtime|date:"H:i" }}</td>
+                        <td>{{ turno.data_hora_fechamento|localtime|date:"H:i" }}</td>
                         <td>R$ {{ turno.saldo_inicial }}</td>
                         <td>R$ {{ turno.saldo_final }}</td>
                         <td>
@@ -63,7 +64,7 @@
 
 {% else %}
     <div class="alert alert-success" style="background-color: #1e3a2f; border-color: #235c44; color: #fff;">
-        <i class="fas fa-clock"></i> <strong>Turno Aberto às:</strong> {{ caixa.data_hora_abertura|date:"H:i" }}
+        <i class="fas fa-clock"></i> <strong>Turno Aberto às:</strong> {{ caixa.data_hora_abertura|localtime|date:"H:i" }}
     </div>
 
     <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 30px;">
