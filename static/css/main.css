@@ -73,9 +73,14 @@ body {
 }
 
 .sidebar a:hover {
-    background-color: #333;
+    background-color: rgba(21, 160, 165, 0.22);
     color: #fff;
-    border-left-color: var(--accent);
+    border-left-color: #15A0A5;
+}
+
+.sidebar a:focus-visible {
+    outline: 2px solid rgba(21, 160, 165, 0.55);
+    outline-offset: -2px;
 }
 
 .sidebar hr {

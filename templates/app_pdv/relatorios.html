@@ -37,6 +37,9 @@
                 <option value="fiado" {% if tipo_relatorio == 'fiado' %}selected{% endif %}>Vendas Fiado (Pendentes)</option>
                 <option value="fiado_agendamento" {% if tipo_relatorio == 'fiado_agendamento' %}selected{% endif %}>Agendamento Parcelas Fiado</option>
                 <option value="fiado_quitado" {% if tipo_relatorio == 'fiado_quitado' %}selected{% endif %}>Vendas Fiado Quitadas</option>
+                {% if tem_cmv_pagamento %}
+                <option value="cmv" {% if tipo_relatorio == 'cmv' %}selected{% endif %}>CMV / Pagamento de mercadorias</option>
+                {% endif %}
             </select>
         </div>
 
@@ -898,6 +901,154 @@ function adicionarLinhaParcela() {
         </tbody>
     </table>
 </div>
+{% endif %}
+{% endif %}
+
+{% if tipo_relatorio == 'cmv' %}
+{% if not tem_cmv_pagamento %}
+<div class="card" style="text-align: center; padding: 30px;">
+    <i class="fas fa-store-slash" style="font-size: 2em; color: #888; margin-bottom: 10px;"></i>
+    <p style="color: #aaa;">Nenhuma loja selecionada gerencia <strong>pagamento de mercadorias (CMV)</strong>.</p>
+    <small style="color: #666;">Ative em Admin → Lojas ou na engrenagem (settings) → "Gerenciar pagamento de mercadorias (CMV)?"</small>
+</div>
+{% else %}
+<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
+    <div class="card" style="border-top: 4px solid #cf6679; text-align: center;">
+        <small>CMV vendido (período)</small>
+        <h3 style="color: #cf6679;">R$ {{ cmv.cmv_vendido|floatformat:2 }}</h3>
+    </div>
+    <div class="card" style="border-top: 4px solid #15a0a5; text-align: center;">
+        <small>Compras no período</small>
+        <h3>R$ {{ cmv.total_compras|floatformat:2 }}</h3>
+    </div>
+    <div class="card" style="border-top: 4px solid #ff9800; text-align: center;">
+        <small>A pagar (saldo aberto)</small>
+        <h3 style="color: #ff9800;">R$ {{ cmv.total_a_pagar|floatformat:2 }}</h3>
+    </div>
+    <div class="card" style="border-top: 4px solid #03dac6; text-align: center;">
+        <small>Pago no período</small>
+        <h3 style="color: #03dac6;">R$ {{ cmv.pago_periodo|floatformat:2 }}</h3>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+    <h3><i class="fas fa-file-invoice-dollar"></i> Contas a pagar — mercadorias</h3>
+    <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
+        Entradas consignadas com saldo. A baixa desconta o meio (Pix/Dinheiro etc.) no caixa aberto do dia.
+    </p>
+    <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
+        <thead>
+            <tr style="border-bottom: 2px solid #444; text-align: left;">
+                <th>Data</th>
+                <th>Item</th>
+                <th>Fornecedor</th>
+                <th>Qtd</th>
+                <th>Total</th>
+                <th>Pago</th>
+                <th>Saldo</th>
+                <th>Status</th>
+                <th>Pagar</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in cmv.entradas_abertas %}
+            <tr style="border-bottom: 1px solid #333;">
+                <td>{{ e.data_entrada|date:"d/m/Y" }}</td>
+                <td><strong>{{ e.item.nome }}</strong></td>
+                <td>{{ e.fornecedor.nome|default:"—" }}</td>
+                <td>{{ e.quantidade }}</td>
+                <td>R$ {{ e.valor_total|floatformat:2 }}</td>
+                <td style="color: #03dac6;">R$ {{ e.valor_pago|floatformat:2 }}</td>
+                <td style="color: #cf6679; font-weight: bold;">R$ {{ e.saldo_a_pagar|floatformat:2 }}</td>
+                <td>{{ e.get_status_pagamento_display }}</td>
+                <td>
+                    <form method="POST" action="{% url 'registrar_pagamento_mercadoria' e.id %}"
+                          style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
+                        {% csrf_token %}
+                        <input type="hidden" name="tipo_relatorio" value="cmv">
+                        <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                        <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                        <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                        <input type="number" name="valor" step="0.01" min="0.01" max="{{ e.saldo_a_pagar }}"
+                               value="{{ e.saldo_a_pagar }}" required class="form-control" style="width: 90px; padding: 4px;">
+                        <select name="meio_liquidacao" class="form-control" style="width: 95px; padding: 4px;">
+                            <option value="PIX" selected>Pix</option>
+                            <option value="DINHEIRO">Dinheiro</option>
+                            <option value="CREDITO">Crédito</option>
+                            <option value="DEBITO">Débito</option>
+                        </select>
+                        <button type="submit" class="btn" style="background: #ff9800; color: #000; padding: 4px 8px; font-size: 0.85em;">
+                            <i class="fas fa-check"></i>
+                        </button>
+                    </form>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="9" style="text-align:center; color:#888; padding:20px;">Nenhuma mercadoria a pagar.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+{% if cmv.pagamentos_periodo %}
+<div class="card" style="margin-bottom: 20px;">
+    <h3><i class="fas fa-history"></i> Baixas no período</h3>
+    <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
+        <thead>
+            <tr style="border-bottom: 2px solid #444; text-align: left;">
+                <th>Data</th>
+                <th>Item</th>
+                <th>Fornecedor</th>
+                <th>Meio</th>
+                <th>Valor</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in cmv.pagamentos_periodo %}
+            <tr style="border-bottom: 1px solid #333;">
+                <td>{{ p.data_pagamento|date:"d/m/Y H:i" }}</td>
+                <td>{{ p.entrada.item.nome }}</td>
+                <td>{{ p.entrada.fornecedor.nome|default:"—" }}</td>
+                <td>{{ p.get_meio_liquidacao_display }}</td>
+                <td style="color: #cf6679;">R$ {{ p.valor|floatformat:2 }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% if cmv.entradas_periodo %}
+<div class="card">
+    <h3><i class="fas fa-boxes"></i> Entradas de estoque no período</h3>
+    <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
+        <thead>
+            <tr style="border-bottom: 2px solid #444; text-align: left;">
+                <th>Data</th>
+                <th>Item</th>
+                <th>Qtd</th>
+                <th>Custo unit.</th>
+                <th>Total</th>
+                <th>Consignado</th>
+                <th>Status pgto</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for e in cmv.entradas_periodo %}
+            <tr style="border-bottom: 1px solid #333;">
+                <td>{{ e.data_entrada|date:"d/m/Y" }}</td>
+                <td>{{ e.item.nome }}</td>
+                <td>{{ e.quantidade }}</td>
+                <td>R$ {{ e.preco_unitario_compra|default:0|floatformat:2 }}</td>
+                <td>R$ {{ e.valor_total|floatformat:2 }}</td>
+                <td>{% if e.eh_consignado %}Sim{% else %}Não{% endif %}</td>
+                <td>{{ e.get_status_pagamento_display }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
 {% endif %}
 {% endif %}
 

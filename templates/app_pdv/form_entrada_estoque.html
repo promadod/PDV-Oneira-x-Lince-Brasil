@@ -40,6 +40,9 @@
             {% if field.name == 'preco_unitario_compra' %}
             <p class="hint">Preenchido automaticamente ao selecionar o fornecedor (se houver preço cadastrado). Recalcula o custo médio dos produtos.</p>
             {% endif %}
+            {% if field.name == 'eh_consignado' %}
+            <p class="hint">Marque se a compra será paga depois. A baixa fica no relatório CMV / Pagamento de mercadorias.</p>
+            {% endif %}
             {% if field.errors %}
                 <small style="color: #ff5555;">{{ field.errors }}</small>
             {% endif %}

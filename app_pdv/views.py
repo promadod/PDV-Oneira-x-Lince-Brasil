@@ -47,8 +47,8 @@ from .models import (
     CategoriaTransacao, Transacao, Caixa, Motoboy, Moto, 
     EntradaEstoque, ItemEstoque, PerfilUsuario, LogTransferenciaEstoque,
     LogFechamentoEstoqueDiario,
-    FormaPagamentoLoja, PrecoFornecedorItem, PagamentoFiado, LiquidacaoVenda,
-    ParcelaFiadoAgendada, saldo_agendavel_venda, LogAuditoria,
+    FormaPagamentoLoja, PrecoFornecedorItem, PagamentoFiado, PagamentoMercadoria,
+    LiquidacaoVenda, ParcelaFiadoAgendada, saldo_agendavel_venda, LogAuditoria,
     validar_forma_pagamento, montar_resumo_pagamentos_loja,
     montar_relatorio_pagamentos, get_nome_forma_pagamento, criar_formas_pagamento_padrao,
     validar_meio_liquidacao, montar_resumo_liquidacao_loja, calcular_entradas_gaveta,
@@ -831,6 +831,7 @@ CAMPOS_CONFIG_LOJA_PDV = [
     # Depósito / Fiado
     'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio',
     'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos',
+    'gerencia_pagamento_mercadorias',
     # Fidelidade
     'fidelidade_ativa', 'fidelidade_tipo_meta', 'fidelidade_meta', 'fidelidade_desconto_pct',
 ]
@@ -1753,11 +1754,19 @@ def fluxo_caixa(request):
             loja=loja,
             data_pagamento__gte=inicio_turno,
         )
+        pagamentos_mercadoria_turno = PagamentoMercadoria.objects.filter(
+            loja=loja,
+            data_pagamento__gte=inicio_turno,
+        )
         
         total_vendas = vendas_turno.aggregate(Sum('total'))['total__sum'] or 0
         total_fiado_turno = pagamentos_fiado_turno.aggregate(Sum('valor'))['valor__sum'] or 0
-        total_dinheiro = calcular_entradas_gaveta(vendas_turno, pagamentos_fiado_turno)
-        resumo_pagamentos = montar_resumo_liquidacao_loja(vendas_turno, pagamentos_fiado_turno)
+        total_dinheiro = calcular_entradas_gaveta(
+            vendas_turno, pagamentos_fiado_turno, pagamentos_mercadoria_turno,
+        )
+        resumo_pagamentos = montar_resumo_liquidacao_loja(
+            vendas_turno, pagamentos_fiado_turno, pagamentos_mercadoria_turno,
+        )
 
         # --- BUSCA APENAS TRANSAÇÕES AMARRADAS NESTE TURNO ---
         transacoes_caixa = Transacao.objects.filter(caixa=caixa_aberto)
@@ -1804,10 +1813,15 @@ def fechar_caixa(request):
             loja=loja,
             data_pagamento__gte=inicio_turno,
         )
+        pagamentos_mercadoria = PagamentoMercadoria.objects.filter(
+            loja=loja,
+            data_pagamento__gte=inicio_turno,
+        ).select_related('entrada__item', 'entrada__fornecedor')
         
         total_vendas = vendas.aggregate(Sum('total'))['total__sum'] or 0
         total_fiado = pagamentos_fiado.aggregate(Sum('valor'))['valor__sum'] or 0
-        dinheiro_vendas = calcular_entradas_gaveta(vendas, pagamentos_fiado)
+        total_pag_mercadoria = pagamentos_mercadoria.aggregate(Sum('valor'))['valor__sum'] or 0
+        dinheiro_vendas = calcular_entradas_gaveta(vendas, pagamentos_fiado, pagamentos_mercadoria)
         
         # --- USA APENAS AS TRANSAÇÕES DESTE TURNO NA NOTA ---
         transacoes_caixa = Transacao.objects.filter(caixa=caixa)
@@ -1827,7 +1841,7 @@ def fechar_caixa(request):
             modelo='Caixa', objeto_id=caixa.id, loja=loja,
         )
 
-        resumo_pgto = montar_resumo_liquidacao_loja(vendas, pagamentos_fiado)
+        resumo_pgto = montar_resumo_liquidacao_loja(vendas, pagamentos_fiado, pagamentos_mercadoria)
         produtos_vendidos, produtos_por_grupo = agregar_produtos_vendas(vendas, loja)
         total_produtos_qtd = sum(p['qtd'] for p in produtos_vendidos)
         total_produtos_valor = sum(p['total'] for p in produtos_vendidos)
@@ -1839,6 +1853,8 @@ def fechar_caixa(request):
             'total_vendas': total_vendas,
             'total_fiado': total_fiado,
             'total_recebido': total_vendas + total_fiado,
+            'total_pag_mercadoria': total_pag_mercadoria,
+            'pagamentos_mercadoria': pagamentos_mercadoria,
             'dinheiro_vendas': dinheiro_vendas, 
             'entradas': entradas_dinheiro, 
             'saidas': saidas_dinheiro,     
@@ -2609,7 +2625,8 @@ def relatorios(request):
         # Variáveis enviadas para o HTML montar o dropdown de lojas
         'lojas_permitidas': lojas_permitidas,
         'loja_selecionada_id': loja_selecionada_id,
-        'mostrar_filtro_lojas': lojas_permitidas.count() > 1
+        'mostrar_filtro_lojas': lojas_permitidas.count() > 1,
+        'tem_cmv_pagamento': lojas_permitidas.filter(gerencia_pagamento_mercadorias=True).exists(),
     }
 
     # --- 1. RELATÓRIO FINANCEIRO ---
@@ -2856,6 +2873,37 @@ def relatorios(request):
             'total_recebido': total_recebido,
         }
 
+    # --- 10. CMV / PAGAMENTO DE MERCADORIAS ---
+    elif tipo_relatorio == 'cmv':
+        lojas_cmv = lojas_alvo.filter(gerencia_pagamento_mercadorias=True)
+        context['tem_cmv_pagamento'] = lojas_cmv.exists()
+        if lojas_cmv.exists():
+            cmv_vendido = calcular_custo_mercadorias_periodo(lojas_cmv, data_inicio, data_fim)
+            entradas_periodo = EntradaEstoque.objects.filter(
+                loja__in=lojas_cmv,
+                data_entrada__date__range=[data_inicio, data_fim],
+            ).select_related('item', 'fornecedor', 'loja')
+            total_compras = entradas_periodo.aggregate(Sum('valor_total'))['valor_total__sum'] or Decimal('0')
+            pagamentos_periodo = PagamentoMercadoria.objects.filter(
+                loja__in=lojas_cmv,
+                data_pagamento__date__range=[data_inicio, data_fim],
+            ).select_related('entrada__item', 'entrada__fornecedor')
+            pago_periodo = pagamentos_periodo.aggregate(Sum('valor'))['valor__sum'] or Decimal('0')
+            a_pagar_qs = EntradaEstoque.objects.filter(
+                loja__in=lojas_cmv,
+                status_pagamento__in=['PENDENTE', 'PARCIAL'],
+            ).select_related('item', 'fornecedor', 'loja').order_by('data_entrada')
+            total_a_pagar = sum((e.saldo_a_pagar for e in a_pagar_qs), Decimal('0'))
+            context['cmv'] = {
+                'cmv_vendido': cmv_vendido,
+                'total_compras': total_compras,
+                'pago_periodo': pago_periodo,
+                'total_a_pagar': total_a_pagar,
+                'entradas_abertas': a_pagar_qs,
+                'entradas_periodo': entradas_periodo.order_by('-data_entrada'),
+                'pagamentos_periodo': pagamentos_periodo.order_by('-data_pagamento'),
+            }
+
     return render(request, 'app_pdv/relatorios.html', context)
 
 
@@ -2867,6 +2915,36 @@ def _redirect_relatorio_fiado(request, tipo='fiado'):
         f"{reverse('relatorios')}?tipo_relatorio={tipo}"
         f"&data_inicio={data_inicio}&data_fim={data_fim}&loja_id={loja_id}"
     )
+
+
+@login_required
+@transaction.atomic
+def registrar_pagamento_mercadoria(request, entrada_id):
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+    if not getattr(loja, 'gerencia_pagamento_mercadorias', False):
+        messages.error(request, 'Esta loja não gerencia pagamento de mercadorias.')
+        return _redirect_relatorio_fiado(request, 'cmv')
+
+    entrada = get_object_or_404(EntradaEstoque, pk=entrada_id, loja=loja)
+
+    if request.method == 'POST':
+        valor_str = (request.POST.get('valor') or '').replace(',', '.')
+        meio = request.POST.get('meio_liquidacao', 'PIX')
+        observacao = request.POST.get('observacao', '')
+        try:
+            valor = Decimal(valor_str)
+            caixa_aberto = Caixa.objects.filter(loja=loja, status=True).first()
+            entrada.registrar_pagamento(valor, meio, observacao, request.user, caixa=caixa_aberto)
+            messages.success(
+                request,
+                f'Pagamento de R$ {valor:.2f} registrado. Saldo restante: R$ {entrada.saldo_a_pagar:.2f}',
+            )
+        except Exception as e:
+            messages.error(request, str(e))
+
+    return _redirect_relatorio_fiado(request, 'cmv')
 
 
 @login_required
@@ -3094,8 +3172,14 @@ def ver_recibo_fechamento(request, id):
         data_pagamento__gte=inicio_turno,
         data_pagamento__lte=fim_turno,
     )
+    pagamentos_mercadoria = PagamentoMercadoria.objects.filter(
+        loja=loja,
+        data_pagamento__gte=inicio_turno,
+        data_pagamento__lte=fim_turno,
+    ).select_related('entrada__item', 'entrada__fornecedor')
     total_fiado = pagamentos_fiado.aggregate(Sum('valor'))['valor__sum'] or 0
-    dinheiro_vendas = calcular_entradas_gaveta(vendas, pagamentos_fiado)
+    total_pag_mercadoria = pagamentos_mercadoria.aggregate(Sum('valor'))['valor__sum'] or 0
+    dinheiro_vendas = calcular_entradas_gaveta(vendas, pagamentos_fiado, pagamentos_mercadoria)
 
     transacoes = Transacao.objects.filter(caixa=caixa)
     if not transacoes.exists():
@@ -3103,7 +3187,7 @@ def ver_recibo_fechamento(request, id):
     entradas = transacoes.filter(categoria__tipo='RECEITA').aggregate(Sum('valor'))['valor__sum'] or 0
     saidas = transacoes.filter(categoria__tipo='DESPESA').aggregate(Sum('valor'))['valor__sum'] or 0
 
-    resumo_pgto = montar_resumo_liquidacao_loja(vendas, pagamentos_fiado)
+    resumo_pgto = montar_resumo_liquidacao_loja(vendas, pagamentos_fiado, pagamentos_mercadoria)
     produtos_vendidos, produtos_por_grupo = agregar_produtos_vendas(vendas, loja)
     total_produtos_qtd = sum(p['qtd'] for p in produtos_vendidos)
     total_produtos_valor = sum(p['total'] for p in produtos_vendidos)
@@ -3116,6 +3200,8 @@ def ver_recibo_fechamento(request, id):
         'data_fechamento': data_fechamento,
         'total_vendas': total_vendas,
         'total_fiado': total_fiado,
+        'total_pag_mercadoria': total_pag_mercadoria,
+        'pagamentos_mercadoria': pagamentos_mercadoria,
         'dinheiro_vendas': dinheiro_vendas,
         'entradas': entradas,
         'saidas': saidas,

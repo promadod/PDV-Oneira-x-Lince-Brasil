@@ -203,6 +203,13 @@ class Loja(models.Model):
                    "Recibo de fechamento de caixa agrupa as saídas por grupo.",
     )
 
+    gerencia_pagamento_mercadorias = models.BooleanField(
+        default=False,
+        verbose_name="Gerenciar pagamento de mercadorias (CMV)?",
+        help_text="Ativo: entradas consignadas ficam a pagar; baixas no relatório CMV "
+                   "descontam o meio (Pix/Dinheiro etc.) no caixa do dia.",
+    )
+
     # --- PLANO DE FIDELIDADE ---
     fidelidade_ativa = models.BooleanField(
         default=False,
@@ -1156,8 +1163,16 @@ def _totais_liquidacao_por_meio(vendas_qs, pagamentos_fiado_qs=None):
     return totais
 
 
-def montar_resumo_liquidacao_loja(vendas_qs, pagamentos_fiado_qs=None):
+def montar_resumo_liquidacao_loja(vendas_qs, pagamentos_fiado_qs=None, pagamentos_mercadoria_qs=None):
     totais = _totais_liquidacao_por_meio(vendas_qs, pagamentos_fiado_qs)
+    if pagamentos_mercadoria_qs is not None:
+        from django.db.models import Sum
+        for meio in MEIOS_LIQUIDACAO_PADRAO:
+            codigo = meio['codigo']
+            saida = pagamentos_mercadoria_qs.filter(
+                meio_liquidacao=codigo
+            ).aggregate(Sum('valor'))['valor__sum'] or Decimal('0')
+            totais[codigo] = totais.get(codigo, Decimal('0')) - Decimal(str(saida))
     return [
         {
             'nome': meio['nome'],
@@ -1170,7 +1185,7 @@ def montar_resumo_liquidacao_loja(vendas_qs, pagamentos_fiado_qs=None):
     ]
 
 
-def calcular_entradas_gaveta(vendas_qs, pagamentos_fiado_qs=None):
+def calcular_entradas_gaveta(vendas_qs, pagamentos_fiado_qs=None, pagamentos_mercadoria_qs=None):
     from django.db.models import Sum
 
     venda_ids = list(vendas_qs.values_list('id', flat=True))
@@ -1193,6 +1208,11 @@ def calcular_entradas_gaveta(vendas_qs, pagamentos_fiado_qs=None):
 
     if pagamentos_fiado_qs is not None:
         dinheiro += pagamentos_fiado_qs.filter(
+            meio_liquidacao='DINHEIRO'
+        ).aggregate(Sum('valor'))['valor__sum'] or Decimal('0')
+
+    if pagamentos_mercadoria_qs is not None:
+        dinheiro -= pagamentos_mercadoria_qs.filter(
             meio_liquidacao='DINHEIRO'
         ).aggregate(Sum('valor'))['valor__sum'] or Decimal('0')
 
@@ -1564,8 +1584,14 @@ class Caixa(models.Model):
 
 # 7. ----------------------------------Estoque -------------------------------
 class EntradaEstoque(models.Model):
-    loja = models.ForeignKey(Loja, on_delete=models.CASCADE) 
-    item = models.ForeignKey(ItemEstoque, on_delete=models.CASCADE) 
+    STATUS_PAGAMENTO_CHOICES = [
+        ('QUITADO', 'Quitado'),
+        ('PENDENTE', 'A pagar'),
+        ('PARCIAL', 'Pago parcial'),
+    ]
+
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
+    item = models.ForeignKey(ItemEstoque, on_delete=models.CASCADE)
     fornecedor = models.ForeignKey(
         Fornecedor, on_delete=models.SET_NULL, null=True, blank=True,
         verbose_name="Fornecedor"
@@ -1577,9 +1603,55 @@ class EntradaEstoque(models.Model):
     )
     data_entrada = models.DateTimeField(auto_now_add=True)
     observacao = models.CharField(max_length=200, blank=True, null=True)
-    
+    eh_consignado = models.BooleanField(
+        default=False,
+        verbose_name="Compra consignada (pagar depois)?",
+        help_text="Se marcado e a loja gerencia CMV, a entrada fica a pagar até as baixas.",
+    )
+    valor_total = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name="Valor total da compra",
+    )
+    valor_pago = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+        verbose_name="Valor já pago",
+    )
+    status_pagamento = models.CharField(
+        max_length=10, choices=STATUS_PAGAMENTO_CHOICES, default='QUITADO',
+        verbose_name="Status do pagamento",
+    )
+
+    @property
+    def saldo_a_pagar(self):
+        saldo = Decimal(str(self.valor_total or 0)) - Decimal(str(self.valor_pago or 0))
+        return saldo if saldo > 0 else Decimal('0')
+
+    def recalcular_status_pagamento(self):
+        total = Decimal(str(self.valor_total or 0))
+        pago = Decimal(str(self.valor_pago or 0))
+        if total <= 0 or pago >= total:
+            self.status_pagamento = 'QUITADO'
+            if pago > total:
+                self.valor_pago = total
+        elif pago > 0:
+            self.status_pagamento = 'PARCIAL'
+        else:
+            self.status_pagamento = 'PENDENTE'
+
     def save(self, *args, **kwargs):
         if not self.pk:
+            qtd = Decimal(str(self.quantidade or 0))
+            preco = Decimal(str(self.preco_unitario_compra or 0))
+            self.valor_total = (qtd * preco).quantize(Decimal('0.01'))
+            loja = self.loja
+            if getattr(loja, 'gerencia_pagamento_mercadorias', False) and self.eh_consignado:
+                self.valor_pago = Decimal('0')
+                self.status_pagamento = 'PENDENTE' if self.valor_total > 0 else 'QUITADO'
+            else:
+                self.valor_pago = self.valor_total
+                self.status_pagamento = 'QUITADO'
+                self.eh_consignado = False
+
             estoque_anterior = self.item.quantidade_estoque
             vazios_antes = self.item.quantidade_vazios
             self.item.quantidade_estoque += self.quantidade
@@ -1596,8 +1668,64 @@ class EntradaEstoque(models.Model):
                 )
         else:
             super().save(*args, **kwargs)
-        
-    def __str__(self): return f"{self.item.nome} - +{self.quantidade}"
+
+    def registrar_pagamento(self, valor, meio_liquidacao='PIX', observacao='', usuario=None, caixa=None):
+        valor = Decimal(str(valor or 0)).quantize(Decimal('0.01'))
+        if valor <= 0:
+            raise ValueError('Valor do pagamento deve ser maior que zero.')
+        saldo = self.saldo_a_pagar
+        if valor > saldo:
+            raise ValueError(f'Valor maior que o saldo a pagar (R$ {saldo:.2f}).')
+        if not validar_meio_liquidacao(meio_liquidacao):
+            raise ValueError('Meio de pagamento inválido.')
+        pagamento = PagamentoMercadoria.objects.create(
+            loja=self.loja,
+            entrada=self,
+            valor=valor,
+            meio_liquidacao=meio_liquidacao,
+            observacao=observacao or '',
+            registrado_por=usuario,
+            caixa=caixa,
+        )
+        self.valor_pago = (Decimal(str(self.valor_pago or 0)) + valor).quantize(Decimal('0.01'))
+        self.recalcular_status_pagamento()
+        self.save(update_fields=['valor_pago', 'status_pagamento'])
+        return pagamento
+
+    def __str__(self):
+        return f"{self.item.nome} - +{self.quantidade}"
+
+
+class PagamentoMercadoria(models.Model):
+    """Baixa de pagamento de entrada de estoque (consignado / a pagar)."""
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='pagamentos_mercadoria')
+    entrada = models.ForeignKey(
+        EntradaEstoque, on_delete=models.CASCADE, related_name='pagamentos'
+    )
+    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    meio_liquidacao = models.CharField(
+        max_length=20, choices=MEIO_LIQUIDACAO_CHOICES, default='PIX',
+        verbose_name="Meio de pagamento",
+    )
+    data_pagamento = models.DateTimeField(default=timezone.now)
+    observacao = models.CharField(max_length=200, blank=True, default='')
+    registrado_por = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='pagamentos_mercadoria',
+    )
+    caixa = models.ForeignKey(
+        'Caixa', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='pagamentos_mercadoria', verbose_name='Turno de caixa',
+    )
+
+    class Meta:
+        verbose_name = 'Pagamento de mercadoria'
+        verbose_name_plural = 'Pagamentos de mercadorias'
+        ordering = ['-data_pagamento']
+
+    def __str__(self):
+        return f"R$ {self.valor} — {self.entrada.item.nome} ({self.meio_liquidacao})"
+
 
 class LogTransferenciaEstoque(models.Model):
     loja_origem = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='transferencias_enviadas')

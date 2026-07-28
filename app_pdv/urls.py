@@ -96,6 +96,7 @@ urlpatterns = [
     # ------------------------------Relatórios e Financeiro------------------------------
 
     path('relatorios/', views.relatorios, name='relatorios'),
+    path('mercadorias/pagamento/<int:entrada_id>/', views.registrar_pagamento_mercadoria, name='registrar_pagamento_mercadoria'),
     path('fiado/pagamento/<int:venda_id>/', views.registrar_pagamento_fiado, name='registrar_pagamento_fiado'),
     path('fiado/pagamento-unificado/', views.registrar_pagamento_fiado_unificado, name='registrar_pagamento_fiado_unificado'),
     path('fiado/agendar/', views.criar_parcelas_fiado_agendadas, name='criar_parcelas_fiado_agendadas'),

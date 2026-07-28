@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from .models import (
     Loja, PerfilUsuario, Fornecedor, ItemEstoque, Produto, Cliente, GrupoProduto, ComponenteKit,
     Venda, ItemVenda, Caixa, EntradaEstoque, PrecoFornecedorItem, PagamentoFiado, LiquidacaoVenda,
-    ParcelaFiadoAgendada, BloqueioIPLogin,
+    PagamentoMercadoria, ParcelaFiadoAgendada, BloqueioIPLogin,
     CategoriaTransacao, Transacao, Receita, Despesa, Moto, Motoboy, Rede,
     FormaPagamentoLoja, LogFechamentoEstoqueDiario
 )
@@ -104,8 +104,8 @@ class SaasAdmin(admin.ModelAdmin):
 
 @admin.register(Loja)
 class LojaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'impressao_automatica', 'data_criacao') 
-    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario')
+    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'impressao_automatica', 'data_criacao') 
+    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias')
     fieldsets = (
         (None, {
             'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta')
@@ -118,8 +118,8 @@ class LojaAdmin(admin.ModelAdmin):
             'description': 'Taxa de serviço só vale com "Trabalha com entregas" desmarcado.',
         }),
         ('Depósito / Fiado', {
-            'fields': ('usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos'),
-            'description': 'Habilite fiado para venda a prazo. Estoque diário exige controle de vasilhame ativo.',
+            'fields': ('usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos', 'gerencia_pagamento_mercadorias'),
+            'description': 'Habilite fiado para venda a prazo. Estoque diário exige controle de vasilhame ativo. CMV controla pagamentos de compras consignadas.',
         }),
         ('Fidelidade', {
             'fields': ('fidelidade_ativa', 'fidelidade_tipo_meta', 'fidelidade_meta', 'fidelidade_desconto_pct'),
@@ -277,9 +277,19 @@ class ItemVendaInline(admin.TabularInline):
 
 @admin.register(EntradaEstoque)
 class EntradaEstoqueAdmin(SaasAdmin):
-    list_display = ('id', 'item', 'fornecedor', 'quantidade', 'preco_unitario_compra', 'data_entrada', 'observacao')
-    list_filter = ('data_entrada',)
+    list_display = (
+        'id', 'item', 'fornecedor', 'quantidade', 'preco_unitario_compra',
+        'eh_consignado', 'valor_total', 'valor_pago', 'status_pagamento', 'data_entrada',
+    )
+    list_filter = ('data_entrada', 'eh_consignado', 'status_pagamento')
     search_fields = ('item__nome',)
+
+
+@admin.register(PagamentoMercadoria)
+class PagamentoMercadoriaAdmin(SaasAdmin):
+    list_display = ('id', 'entrada', 'valor', 'meio_liquidacao', 'data_pagamento', 'caixa', 'loja')
+    list_filter = ('meio_liquidacao', 'data_pagamento')
+    search_fields = ('entrada__item__nome',)
 
 
 @admin.register(Venda)

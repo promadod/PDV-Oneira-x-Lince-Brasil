@@ -224,12 +224,16 @@ class LojaForm(forms.ModelForm):
 class EntradaEstoqueForm(forms.ModelForm):
     class Meta:
         model = EntradaEstoque
-        fields = ['item', 'fornecedor', 'quantidade', 'preco_unitario_compra', 'observacao']
+        fields = [
+            'item', 'fornecedor', 'quantidade', 'preco_unitario_compra',
+            'eh_consignado', 'observacao',
+        ]
         labels = {
             'item': 'Item do Estoque',
             'fornecedor': 'Fornecedor',
             'quantidade': 'Quantidade',
             'preco_unitario_compra': 'Preço unitário de compra',
+            'eh_consignado': 'Compra consignada (pagar depois)',
             'observacao': 'Observação (NF, lote, etc.)',
         }
         widgets = {
@@ -239,6 +243,7 @@ class EntradaEstoqueForm(forms.ModelForm):
             'preco_unitario_compra': forms.NumberInput(attrs={
                 'class': 'form-control', 'step': '0.01', 'id': 'id_preco_unitario'
             }),
+            'eh_consignado': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'observacao': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional (ex: NF de compra)'}),
         }
 
@@ -252,6 +257,8 @@ class EntradaEstoqueForm(forms.ModelForm):
                 self.fields['fornecedor'].queryset = self.fields['fornecedor'].queryset.filter(loja=loja).order_by('nome')
                 self.fields['fornecedor'].required = False
         self.fields['preco_unitario_compra'].required = False
+        if not (loja and getattr(loja, 'gerencia_pagamento_mercadorias', False)):
+            self.fields.pop('eh_consignado', None)
 
 class CategoriaTransacaoForm(forms.ModelForm):
     class Meta:

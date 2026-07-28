@@ -83,6 +83,12 @@
                 <td style="text-align: right;">R$ {{ total_fiado|floatformat:2 }}</td>
             </tr>
             {% endif %}
+            {% if total_pag_mercadoria %}
+            <tr>
+                <td>(-) Pag. Mercadorias:</td>
+                <td style="text-align: right;">R$ {{ total_pag_mercadoria|floatformat:2 }}</td>
+            </tr>
+            {% endif %}
             <tr>
                 <td>(+) Receitas Extras:</td>
                 <td style="text-align: right;">R$ {{ entradas|floatformat:2 }}</td>
@@ -111,6 +117,20 @@
             </li>
             {% endfor %}
         </ul>
+
+        {% if pagamentos_mercadoria %}
+        <div style="border-top: 1px dashed #000; margin-top: 10px; padding-top: 8px;">
+            <p style="margin-bottom: 5px; font-weight: bold;">Pagamentos de mercadoria:</p>
+            <ul style="list-style: none; padding: 0; font-size: 12px;">
+                {% for pm in pagamentos_mercadoria %}
+                <li style="margin-bottom: 4px;">
+                    {{ pm.entrada.item.nome }}{% if pm.entrada.fornecedor %} / {{ pm.entrada.fornecedor.nome }}{% endif %}
+                    — {{ pm.get_meio_liquidacao_display }} R$ {{ pm.valor|floatformat:2 }}
+                </li>
+                {% endfor %}
+            </ul>
+        </div>
+        {% endif %}
 
         {% if produtos_vendidos %}
         <div style="border-top: 1px dashed #000; margin-top: 12px; padding-top: 8px;">
