@@ -5,8 +5,10 @@ services:
   web:
     environment:
       DEBUG: "False"
-      SECURE_SSL_REDIRECT: "False"
+      # Em produção com HTTPS, defina no .env: SECURE_SSL_REDIRECT=True
+      SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
 
   nginx:
     ports:
       - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
