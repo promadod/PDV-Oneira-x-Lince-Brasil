@@ -1,0 +1,63 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main, develop]
+  push:
+    branches: [main, develop]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: pdv
+          POSTGRES_USER: pdv
+          POSTGRES_PASSWORD: ci_password
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U pdv -d pdv"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SECRET_KEY: ci-only-not-for-production-change-me-32chars
+      DEBUG: "True"
+      ALLOWED_HOSTS: localhost,127.0.0.1
+      POSTGRES_DB: pdv
+      POSTGRES_USER: pdv
+      POSTGRES_PASSWORD: ci_password
+      POSTGRES_HOST: localhost
+      POSTGRES_PORT: "5432"
+      SECURE_SSL_REDIRECT: "False"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Django check
+        run: python manage.py check
+
+      - name: Apply migrations
+        run: python manage.py migrate --noinput
+
+      - name: Collect static
+        run: python manage.py collectstatic --noinput
+
+      - name: Build Docker image
+        run: docker build -t pdv-oneira:ci .

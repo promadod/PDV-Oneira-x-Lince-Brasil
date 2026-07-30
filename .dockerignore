@@ -1,0 +1,26 @@
+# syntax=docker/dockerfile:1
+# Ignorado pelo contexto de build para acelerar e evitar vazamento.
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+venv
+env
+__pycache__
+*.pyc
+db.sqlite3
+db.sqlite3.*
+backups
+data/exports
+staticfiles
+media
+painel_gestor
+painel_gestor_temp
+.dart_tool
+build
+*.md
+DEPLOY_PYTHONANYWHERE.md
+screenshots
+.vscode
+.idea

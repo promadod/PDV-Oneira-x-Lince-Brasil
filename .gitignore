@@ -1,18 +1,44 @@
 # Python / Django
 *.pyc
 __pycache__/
+*.py[cod]
+*$py.class
 db.sqlite3
+db.sqlite3.*
+*.dump
+*.sql.gz
 .env
+.env.local
+.env.production
 venv/
 env/
 .idea/
 .vscode/
+*.egg-info/
+.eggs/
+dist/
+build/
+staticfiles/
+
+# Backups e dumps de migração
+backups/*
+!backups/.gitkeep
+data/exports/*
+!data/exports/.gitkeep
+*.sqlite3.bak
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
 
 # Flutter
-build/
 .dart_tool/
 .flutter-plugins
 .flutter-plugins-dependencies
 .packages
 .pub-cache/
 .pub/
+
+# Docker volumes locais (se montados na pasta)
+postgres_data/

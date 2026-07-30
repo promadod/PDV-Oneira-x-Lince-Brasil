@@ -1,0 +1,12 @@
+# Produção Contabo — Postgres só na rede interna Docker.
+# docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
+
+services:
+  web:
+    environment:
+      DEBUG: "False"
+      SECURE_SSL_REDIRECT: "False"
+
+  nginx:
+    ports:
+      - "${HTTP_PORT:-80}:80"

@@ -1,0 +1,28 @@
+# Uso local — app + Postgres, porta 8000, sem nginx.
+# docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+
+services:
+  nginx:
+    profiles: ["disabled"]
+
+  db:
+    ports:
+      - "${POSTGRES_PUBLISH_PORT:-5432}:5432"
+
+  web:
+    ports:
+      - "${WEB_PUBLISH_PORT:-8000}:8000"
+    entrypoint: ["/bin/sh", "/app/scripts/entrypoint.sh"]
+    command: >
+      gunicorn setup.wsgi:application
+      --bind 0.0.0.0:8000
+      --workers 2
+      --reload
+      --timeout 120
+    volumes:
+      - .:/app
+      - media_data:/app/media
+      - static_data:/app/staticfiles
+    environment:
+      DEBUG: ${DEBUG:-True}
+      SECURE_SSL_REDIRECT: "False"
