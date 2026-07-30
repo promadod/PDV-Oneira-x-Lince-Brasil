@@ -32,6 +32,7 @@ from django.db.models.functions import Coalesce, TruncDate
 
 DECIMAL_ZERO = Value(Decimal('0'), output_field=DecimalField(max_digits=12, decimal_places=2))
 from django.core.serializers.json import DjangoJSONEncoder
+from django.core.paginator import Paginator
 from django.utils.timezone import make_aware, localtime
 from django.utils import timezone
 from datetime import datetime, date, timedelta
@@ -59,7 +60,11 @@ from .models import (
     produto_baixa_apenas_vasilhame_vazio, ComponenteKit, recalcular_custo_kit,
     custo_unitario_produto_venda,
 )
-from .filtros_venda import FILTROS_STATUS_HISTORICO, filtrar_vendas_historico
+from .filtros_venda import (
+    FILTROS_STATUS_HISTORICO,
+    HISTORICO_POR_PAGINA,
+    filtrar_vendas_historico,
+)
 from .fiado_helpers import (
     listar_vendas_fiado_abertas, agrupar_fiado_por_cliente,
     listar_parcelas_agendadas, distribuir_pagamento_fiado,
@@ -641,20 +646,36 @@ def lista_vendas(request):
         'cliente', 'entregador', 'quem_recebeu'
     ).order_by('-data_venda')
 
-    vendas, filtros, filtros_ativos = filtrar_vendas_historico(vendas, request.GET)
+    vendas, filtros, filtros_ativos, meta = filtrar_vendas_historico(vendas, request.GET)
 
-    total_geral = vendas.aggregate(total=Sum('total'))['total'] or 0
+    if meta.get('erro_periodo'):
+        total_geral = Decimal('0')
+        total_resultados = 0
+        page_obj = None
+    else:
+        total_geral = vendas.aggregate(total=Sum('total'))['total'] or 0
+        total_resultados = vendas.count()
+        paginator = Paginator(vendas, HISTORICO_POR_PAGINA)
+        page_obj = paginator.get_page(request.GET.get('page'))
+
+    qs_params = request.GET.copy()
+    qs_params.pop('page', None)
+    querystring = qs_params.urlencode()
 
     return render(request, 'app_pdv/lista_vendas.html', {
-        'vendas': vendas,
+        'vendas': page_obj,
+        'page_obj': page_obj,
         'filtros': filtros,
         'filtros_ativos': filtros_ativos,
+        'meta_historico': meta,
+        'querystring': querystring,
         'opcoes_status': FILTROS_STATUS_HISTORICO,
         'opcoes_origem': ORIGEM_VENDA_CHOICES,
         'opcoes_meio_liquidacao': MEIO_LIQUIDACAO_VENDA_CHOICES,
         'opcoes_forma_pagamento': loja.get_formas_pagamento_ativas(),
-        'total_resultados': vendas.count(),
+        'total_resultados': total_resultados,
         'total_geral': total_geral,
+        'por_pagina': HISTORICO_POR_PAGINA,
     })
 
 @login_required
