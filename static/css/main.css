@@ -98,6 +98,8 @@ body {
     flex: 1;
     min-width: 0;
     max-width: 100%;
+    display: flex;
+    flex-direction: column;
     transition: margin-left 0.25s ease, width 0.25s ease, padding 0.25s ease;
 }
 
@@ -874,8 +876,9 @@ tr:hover td {
 
 .vendas-filtros-contagem {
     margin-left: auto;
-    font-size: 0.82rem;
-    color: #888;
+    font-size: 1.05rem;
+    font-weight: 700;
+    color: #03dac6;
 }
 
 @media (max-width: 640px) {
@@ -883,6 +886,106 @@ tr:hover td {
         margin-left: 0;
         width: 100%;
     }
+}
+
+.vendas-historico-rodape {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    position: relative;
+    gap: 12px;
+    padding: 14px 12px;
+    margin-top: 4px;
+    border-top: 2px solid #03dac6;
+    min-height: 52px;
+    flex-wrap: nowrap;
+}
+
+.vendas-historico-rodape-centro {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    text-align: center;
+    font-weight: 700;
+    color: #03dac6;
+    font-size: 1.05rem;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.vendas-historico-rodape-centro .valor {
+    font-size: 1.15rem;
+    margin-left: 6px;
+}
+
+.vendas-historico-rodape-direita {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: nowrap;
+    white-space: nowrap;
+    z-index: 1;
+    margin-left: auto;
+}
+
+.vendas-historico-rodape-direita .pagina-info {
+    color: #ccc;
+    font-size: 0.92rem;
+}
+
+.vendas-historico-rodape-direita .btn-pagina {
+    background: #333;
+    color: #fff;
+    text-decoration: none;
+    padding: 8px 14px;
+    border-radius: 6px;
+    font-size: 0.9rem;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    flex-shrink: 0;
+}
+
+@media (max-width: 640px) {
+    .vendas-historico-rodape {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 10px;
+    }
+
+    .vendas-historico-rodape-centro {
+        position: static;
+        transform: none;
+        white-space: normal;
+        pointer-events: auto;
+    }
+
+    .vendas-historico-rodape-direita {
+        justify-content: center;
+        margin-left: 0;
+        flex-wrap: wrap;
+        white-space: normal;
+    }
+}
+
+.site-footer {
+    margin-top: auto;
+    padding: 18px 10px 6px;
+    text-align: center;
+    color: #888;
+    font-size: 0.85rem;
+    letter-spacing: 0.02em;
+    border-top: 1px solid #333;
+}
+
+.site-footer span {
+    color: #aaa;
+}
+
+.content:has(.pdv-page) .site-footer {
+    padding-top: 10px;
+    font-size: 0.78rem;
 }
 
 .check-container label {
@@ -1052,12 +1155,32 @@ body.login-page .content {
     width: 100% !important;
     min-height: 100vh;
     display: flex;
+    flex-direction: column;
     justify-content: center;
     align-items: center;
     padding: 0 !important;
     background: transparent !important;
     border: none !important;
     box-shadow: none !important;
+}
+
+body.login-page .site-footer {
+    margin-top: auto;
+    width: 100%;
+    border-top: 1px solid rgba(255, 255, 255, 0.12);
+    background: transparent;
+    color: #ccc;
+}
+
+body.login-page .site-footer span {
+    color: #ddd;
+}
+
+body.login-page .header-top {
+    width: 100%;
+    min-height: 0;
+    padding: 0;
+    margin: 0;
 }
 
 /* 3. MATA A TARJA FANTASMA: Torna qualquer div que envolva o card 100% transparente */

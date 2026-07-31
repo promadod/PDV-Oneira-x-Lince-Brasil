@@ -14,7 +14,7 @@
 <div class="card" style="border-left: 4px solid #03dac6; margin-bottom: 16px; padding: 14px 18px;">
     <strong style="color: #03dac6;"><i class="fas fa-info-circle"></i> Exibindo os últimos {{ meta_historico.dias_padrao }} dias</strong>
     <p style="margin: 8px 0 0; color: #bbb; font-size: 0.95em;">
-        Para proteger o servidor, a consulta inicial é limitada.
+        A consulta inicial é limitada.
         Use os filtros de data para outro período (máximo {{ meta_historico.dias_max }} dias) ou busque pelo ID da venda.
     </p>
 </div>
@@ -278,36 +278,32 @@
             </td></tr>
             {% endfor %}
         </tbody>
-        {% if page_obj %}
-        <tfoot>
-            <tr style="border-top: 2px solid #03dac6; font-weight: bold;">
-                <td colspan="5" style="padding: 12px 10px; text-align: right; color: #03dac6;">
-                    Total geral (filtros aplicados):
-                </td>
-                <td style="padding: 12px 10px; color: #03dac6; font-size: 1.1em;">
-                    R$ {{ total_geral|floatformat:2 }}
-                </td>
-                <td colspan="2"></td>
-            </tr>
-        </tfoot>
-        {% endif %}
     </table>
 
-    {% if page_obj and page_obj.paginator.num_pages > 1 %}
-    <div style="display:flex; justify-content:center; align-items:center; gap:12px; padding: 16px 10px; flex-wrap: wrap;">
-        {% if page_obj.has_previous %}
-        <a class="btn" style="background:#333; color:#fff; text-decoration:none; padding:8px 14px; border-radius:6px;"
-           href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.previous_page_number }}">
-            <i class="fas fa-chevron-left"></i> Anterior
-        </a>
-        {% endif %}
-        <span style="color:#bbb;">Página {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} ({{ por_pagina }} por página)</span>
-        {% if page_obj.has_next %}
-        <a class="btn" style="background:#333; color:#fff; text-decoration:none; padding:8px 14px; border-radius:6px;"
-           href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.next_page_number }}">
-            Próxima <i class="fas fa-chevron-right"></i>
-        </a>
-        {% endif %}
+    {% if page_obj %}
+    <div class="vendas-historico-rodape">
+        <div class="vendas-historico-rodape-centro">
+            Total geral (filtros aplicados):
+            <span class="valor">R$ {{ total_geral|floatformat:2 }}</span>
+        </div>
+        <div class="vendas-historico-rodape-direita">
+            {% if page_obj.has_previous %}
+            <a class="btn-pagina"
+               href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.previous_page_number }}">
+                <i class="fas fa-chevron-left"></i> Anterior
+            </a>
+            {% endif %}
+            <span class="pagina-info">
+                Página {{ page_obj.number }} / {{ page_obj.paginator.num_pages }}
+                {% if page_obj.paginator.num_pages > 1 %}({{ por_pagina }} por página){% endif %}
+            </span>
+            {% if page_obj.has_next %}
+            <a class="btn-pagina"
+               href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.next_page_number }}">
+                Próxima <i class="fas fa-chevron-right"></i>
+            </a>
+            {% endif %}
+        </div>
     </div>
     {% endif %}
 </div>
