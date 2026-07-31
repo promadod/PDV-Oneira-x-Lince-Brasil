@@ -77,6 +77,7 @@ def listar_parcelas_mercadoria(lojas_cmv, data_inicio, data_fim, status=None):
             'fornecedor': fornecedor,
             'entrada': localtime(p.data_entrada).strftime('%d/%m/%Y %H:%M'),
             'vencimento': p.data_vencimento.strftime('%d/%m/%Y'),
+            'vencimento_iso': p.data_vencimento.isoformat(),
             'valor': p.valor,
             'atrasada': atrasada,
             'loja': p.loja.nome,

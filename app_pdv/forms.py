@@ -243,7 +243,10 @@ class EntradaEstoqueForm(forms.ModelForm):
             'preco_unitario_compra': forms.NumberInput(attrs={
                 'class': 'form-control', 'step': '0.01', 'id': 'id_preco_unitario'
             }),
-            'eh_consignado': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'eh_consignado': forms.CheckboxInput(attrs={
+                'class': 'form-check-input',
+                'id': 'id_eh_consignado',
+            }),
             'observacao': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional (ex: NF de compra)'}),
         }
 

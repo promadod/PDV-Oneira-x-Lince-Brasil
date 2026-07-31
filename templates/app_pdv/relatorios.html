@@ -922,6 +922,29 @@ function adicionarLinhaParcela() {
 }
 .cmv-agendar-parcela label { font-size: 0.8em; color: #aaa; display: block; margin-bottom: 4px; }
 .cmv-parcelas-wrap { margin-top: 10px; }
+.cmv-status {
+    display: inline-block;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.82em;
+    font-weight: 700;
+    white-space: nowrap;
+}
+.cmv-status-quitado { background: rgba(3, 218, 198, 0.18); color: #03dac6; border: 1px solid rgba(3, 218, 198, 0.45); }
+.cmv-status-pendente { background: rgba(255, 193, 7, 0.16); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.45); }
+.cmv-status-parcial { background: rgba(255, 152, 0, 0.16); color: #ff9800; border: 1px solid rgba(255, 152, 0, 0.45); }
+.cmv-status-agendado { background: rgba(21, 160, 165, 0.16); color: #15a0a5; border: 1px solid rgba(21, 160, 165, 0.45); }
+.cmv-status-atrasada { background: rgba(207, 102, 121, 0.18); color: #cf6679; border: 1px solid rgba(207, 102, 121, 0.5); }
+.cmv-status-pago { background: rgba(3, 218, 198, 0.18); color: #03dac6; border: 1px solid rgba(3, 218, 198, 0.45); }
+.cmv-status-cancelado { background: rgba(136, 136, 136, 0.18); color: #aaa; border: 1px solid rgba(136, 136, 136, 0.4); }
+.cmv-edit-form {
+    display: none;
+    margin-top: 8px;
+    gap: 6px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+.cmv-edit-form.aberto { display: inline-flex; }
 @media (max-width: 700px) {
     .cmv-agendar-parcela { grid-template-columns: 1fr; }
 }
@@ -1021,42 +1044,76 @@ function adicionarLinhaParcela() {
             <tr style="border-bottom: 1px solid #333; {% if p.atrasada %}background: rgba(207,102,121,0.08);{% endif %}">
                 <td>
                     {{ p.vencimento }}
-                    {% if p.atrasada %}<span style="color:#cf6679; font-size:0.8em;"> (atrasada)</span>{% endif %}
                 </td>
                 <td><strong>{{ p.item }}</strong> <small style="color:#888;">#{{ p.entrada_id }}</small></td>
                 <td>{{ p.fornecedor }}</td>
                 <td style="font-weight:bold;">R$ {{ p.valor|floatformat:2 }}</td>
-                <td>{{ p.status_label }}</td>
+                <td>
+                    {% if p.atrasada %}
+                    <span class="cmv-status cmv-status-atrasada">Atrasada</span>
+                    {% elif p.status == 'AGENDADO' %}
+                    <span class="cmv-status cmv-status-agendado">{{ p.status_label }}</span>
+                    {% elif p.status == 'PAGO' %}
+                    <span class="cmv-status cmv-status-pago">{{ p.status_label }}</span>
+                    {% else %}
+                    <span class="cmv-status cmv-status-cancelado">{{ p.status_label }}</span>
+                    {% endif %}
+                </td>
                 <td>
                     {% if p.status == 'AGENDADO' %}
-                    <form method="POST" action="{% url 'pagar_parcela_mercadoria' p.id %}"
-                          style="display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center;">
-                        {% csrf_token %}
-                        <input type="hidden" name="tipo_relatorio" value="cmv">
-                        <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
-                        <input type="hidden" name="data_fim" value="{{ data_fim }}">
-                        <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
-                        <select name="meio_liquidacao" class="form-control" style="width:95px; padding:4px;">
-                            <option value="PIX" selected>Pix</option>
-                            <option value="DINHEIRO">Dinheiro</option>
-                            <option value="CREDITO">Crédito</option>
-                            <option value="DEBITO">Débito</option>
-                        </select>
-                        <button type="submit" class="btn" style="background:#03dac6;color:#000;padding:4px 8px;font-size:0.85em;">
-                            <i class="fas fa-check"></i> Pagar
-                        </button>
-                    </form>
-                    <form method="POST" action="{% url 'cancelar_parcela_mercadoria' p.id %}"
-                          style="display:inline;" onsubmit="return confirm('Cancelar esta parcela?');">
-                        {% csrf_token %}
-                        <input type="hidden" name="tipo_relatorio" value="cmv">
-                        <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
-                        <input type="hidden" name="data_fim" value="{{ data_fim }}">
-                        <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
-                        <button type="submit" class="btn" style="background:#444;color:#fff;padding:4px 8px;font-size:0.85em;">
-                            Cancelar
-                        </button>
-                    </form>
+                    <div style="display:flex; flex-direction:column; gap:8px; align-items:flex-start;">
+                        <div style="display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                            <form method="POST" action="{% url 'pagar_parcela_mercadoria' p.id %}"
+                                  style="display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                                {% csrf_token %}
+                                <input type="hidden" name="tipo_relatorio" value="cmv">
+                                <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                                <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                                <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                                <select name="meio_liquidacao" class="form-control" style="width:95px; padding:4px;">
+                                    <option value="PIX" selected>Pix</option>
+                                    <option value="DINHEIRO">Dinheiro</option>
+                                    <option value="CREDITO">Crédito</option>
+                                    <option value="DEBITO">Débito</option>
+                                </select>
+                                <button type="submit" class="btn" style="background:#03dac6;color:#000;padding:4px 8px;font-size:0.85em;">
+                                    <i class="fas fa-check"></i> Pagar
+                                </button>
+                            </form>
+                            <button type="button" class="btn" style="background:#15a0a5;color:#fff;padding:4px 8px;font-size:0.85em;"
+                                    onclick="toggleEditarParcelaCmv({{ p.id }})">
+                                <i class="fas fa-pen"></i> Editar
+                            </button>
+                            <form method="POST" action="{% url 'cancelar_parcela_mercadoria' p.id %}"
+                                  style="display:inline;" onsubmit="return confirm('Cancelar esta parcela?');">
+                                {% csrf_token %}
+                                <input type="hidden" name="tipo_relatorio" value="cmv">
+                                <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                                <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                                <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                                <button type="submit" class="btn" style="background:#444;color:#fff;padding:4px 8px;font-size:0.85em;">
+                                    Cancelar
+                                </button>
+                            </form>
+                        </div>
+                        <form method="POST" action="{% url 'editar_parcela_mercadoria' p.id %}"
+                              id="cmv-edit-{{ p.id }}" class="cmv-edit-form">
+                            {% csrf_token %}
+                            <input type="hidden" name="tipo_relatorio" value="cmv">
+                            <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                            <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                            <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                            <input type="number" name="valor" step="0.01" min="0.01" value="{{ p.valor }}"
+                                   required class="form-control" style="width:100px; padding:4px;" title="Valor">
+                            <input type="date" name="data_vencimento" value="{{ p.vencimento_iso }}"
+                                   required class="form-control" style="width:145px; padding:4px;" title="Data de pagamento">
+                            <button type="submit" class="btn" style="background:#03dac6;color:#000;padding:4px 8px;font-size:0.85em;">
+                                <i class="fas fa-save"></i> Salvar
+                            </button>
+                            <button type="button" class="btn" style="background:#555;color:#fff;padding:4px 8px;font-size:0.85em;"
+                                    onclick="toggleEditarParcelaCmv({{ p.id }})">Fechar</button>
+                        </form>
+                    </div>
                     {% else %}
                     —
                     {% endif %}
@@ -1085,7 +1142,7 @@ function adicionarLinhaParcela() {
                 <th>Pago</th>
                 <th>Saldo</th>
                 <th>Agendável</th>
-                <th>Status</th>
+                <th>Status pgto</th>
                 <th>Pagar agora</th>
             </tr>
         </thead>
@@ -1100,7 +1157,15 @@ function adicionarLinhaParcela() {
                 <td style="color: #03dac6;">R$ {{ e.valor_pago|floatformat:2 }}</td>
                 <td style="color: #cf6679; font-weight: bold;">R$ {{ e.saldo_a_pagar|floatformat:2 }}</td>
                 <td style="color: #bb86fc;">R$ {{ e.saldo_agendavel|floatformat:2 }}</td>
-                <td>{{ e.status_label }}</td>
+                <td>
+                    {% if e.status == 'QUITADO' %}
+                    <span class="cmv-status cmv-status-quitado">{{ e.status_label }}</span>
+                    {% elif e.status == 'PARCIAL' %}
+                    <span class="cmv-status cmv-status-parcial">{{ e.status_label }}</span>
+                    {% else %}
+                    <span class="cmv-status cmv-status-pendente">{{ e.status_label }}</span>
+                    {% endif %}
+                </td>
                 <td>
                     <form method="POST" action="{% url 'registrar_pagamento_mercadoria' e.id %}"
                           style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
@@ -1182,7 +1247,15 @@ function adicionarLinhaParcela() {
                 <td>R$ {{ e.preco_unitario_compra|default:0|floatformat:2 }}</td>
                 <td>R$ {{ e.valor_total|floatformat:2 }}</td>
                 <td>{% if e.eh_consignado %}Sim{% else %}Não{% endif %}</td>
-                <td>{{ e.get_status_pagamento_display }}</td>
+                <td>
+                    {% if e.status_pagamento == 'QUITADO' %}
+                    <span class="cmv-status cmv-status-quitado">{{ e.get_status_pagamento_display }}</span>
+                    {% elif e.status_pagamento == 'PARCIAL' %}
+                    <span class="cmv-status cmv-status-parcial">{{ e.get_status_pagamento_display }}</span>
+                    {% else %}
+                    <span class="cmv-status cmv-status-pendente">{{ e.get_status_pagamento_display }}</span>
+                    {% endif %}
+                </td>
             </tr>
             {% endfor %}
         </tbody>
@@ -1203,6 +1276,11 @@ function adicionarParcelaCmv() {
         + '<div><button type="button" class="btn" style="background:#555;color:#fff;" onclick="this.closest(\'.cmv-agendar-parcela\').remove()">'
         + '<i class="fas fa-times"></i></button></div>';
     wrap.appendChild(linha);
+}
+function toggleEditarParcelaCmv(id) {
+    const form = document.getElementById('cmv-edit-' + id);
+    if (!form) return;
+    form.classList.toggle('aberto');
 }
 </script>
 {% endif %}

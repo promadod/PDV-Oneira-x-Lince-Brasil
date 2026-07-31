@@ -25,6 +25,42 @@
         background-color: #28a745; color: white;
     }
     .hint { color: #aaa; font-size: 0.9em; margin-top: 5px; }
+    .entrada-check-item {
+        display: flex;
+        align-items: flex-start;
+        gap: 12px;
+        padding: 12px 0;
+        border-bottom: 1px solid #333;
+        text-align: left;
+    }
+    .entrada-check-item input[type="checkbox"] {
+        width: 18px !important;
+        height: 18px;
+        min-width: 18px;
+        margin: 2px 0 0;
+        flex: 0 0 18px;
+        accent-color: #03dac6;
+        cursor: pointer;
+    }
+    .entrada-check-item label {
+        flex: 1 1 auto;
+        min-width: 0;
+        width: auto;
+        margin: 0;
+        cursor: pointer;
+        text-align: left;
+        font-weight: 600;
+        color: #eee;
+        line-height: 1.35;
+    }
+    .entrada-check-item small {
+        display: block;
+        color: #888;
+        font-size: 0.78em;
+        font-weight: 400;
+        margin-top: 4px;
+        line-height: 1.4;
+    }
 </style>
 
 <h2 style="margin-bottom:20px;">{{ titulo }}</h2>
@@ -34,19 +70,29 @@
         {% csrf_token %}
 
         {% for field in form %}
+        {% if field.name == 'eh_consignado' %}
+        <div class="entrada-check-item">
+            {{ field }}
+            <label for="{{ field.id_for_label }}">
+                {{ field.label }}
+                <small>Marque se a compra será paga depois. A baixa fica no relatório CMV / Pagamento de mercadorias.</small>
+            </label>
+            {% if field.errors %}
+                <small style="color: #ff5555;">{{ field.errors }}</small>
+            {% endif %}
+        </div>
+        {% else %}
         <div style="margin-bottom: 15px;">
             <label style="display:block; margin-bottom:5px;">{{ field.label }}</label>
             {{ field }}
             {% if field.name == 'preco_unitario_compra' %}
             <p class="hint">Preenchido automaticamente ao selecionar o fornecedor (se houver preço cadastrado). Recalcula o custo médio dos produtos.</p>
             {% endif %}
-            {% if field.name == 'eh_consignado' %}
-            <p class="hint">Marque se a compra será paga depois. A baixa fica no relatório CMV / Pagamento de mercadorias.</p>
-            {% endif %}
             {% if field.errors %}
                 <small style="color: #ff5555;">{{ field.errors }}</small>
             {% endif %}
         </div>
+        {% endif %}
         {% endfor %}
 
         <div style="margin-top: 20px;">

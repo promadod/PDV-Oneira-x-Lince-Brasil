@@ -3051,6 +3051,50 @@ def cancelar_parcela_mercadoria(request, parcela_id):
 
 @login_required
 @transaction.atomic
+def editar_parcela_mercadoria(request, parcela_id):
+    loja = check_loja(request)
+    if not loja or request.method != 'POST':
+        return redirect('relatorios')
+    if not getattr(loja, 'gerencia_pagamento_mercadorias', False):
+        messages.error(request, 'Esta loja não gerencia pagamento de mercadorias.')
+        return _redirect_relatorio_fiado(request, 'cmv')
+
+    parcela = get_object_or_404(
+        ParcelaMercadoriaAgendada.objects.select_related('entrada'),
+        pk=parcela_id, loja=loja,
+    )
+    if parcela.status != 'AGENDADO':
+        messages.error(request, 'Só é possível editar parcelas agendadas.')
+        return _redirect_relatorio_fiado(request, 'cmv')
+
+    valor_str = (request.POST.get('valor') or '').replace(',', '.')
+    venc_str = request.POST.get('data_vencimento') or ''
+    try:
+        valor = Decimal(valor_str).quantize(Decimal('0.01'))
+        if valor <= 0:
+            raise ValueError('Valor da parcela deve ser maior que zero.')
+        data_venc = datetime.strptime(venc_str, '%Y-%m-%d').date()
+        # Saldo agendável libera o valor atual desta parcela antes de revalidar.
+        saldo_disp = saldo_agendavel_entrada(parcela.entrada) + Decimal(str(parcela.valor))
+        if valor > saldo_disp:
+            raise ValueError(
+                f'Parcela R$ {valor:.2f} excede saldo agendável R$ {saldo_disp:.2f}.'
+            )
+        parcela.valor = valor
+        parcela.data_vencimento = data_venc
+        parcela.save(update_fields=['valor', 'data_vencimento'])
+        messages.success(
+            request,
+            f'Parcela #{parcela.id} atualizada: R$ {valor:.2f} em {data_venc.strftime("%d/%m/%Y")}.',
+        )
+    except Exception as e:
+        messages.error(request, str(e))
+
+    return _redirect_relatorio_fiado(request, 'cmv')
+
+
+@login_required
+@transaction.atomic
 def pagar_parcela_mercadoria(request, parcela_id):
     loja = check_loja(request)
     if not loja or request.method != 'POST':
