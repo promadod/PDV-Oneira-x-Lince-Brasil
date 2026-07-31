@@ -1,100 +1,79 @@
-# 🛒 Magno Distribuidora - Sistema PDV & Delivery (SaaS)
+# Magno Distribuidora / PDV Oneira — Sistema PDV & Delivery (SaaS)
 
-> Uma solução completa Full-Stack para gestão de distribuidoras, mercados e delivery, integrando Back-office web, PDV e Aplicativos Móveis.
+> Solução Full-Stack para gestão de distribuidoras, mercados e delivery: back-office web, PDV e apps móveis.
 
 ![Status do Projeto](https://img.shields.io/badge/Status-Em_Desenvolvimento-yellow)
 ![Python](https://img.shields.io/badge/Backend-Django-green)
 ![Flutter](https://img.shields.io/badge/Frontend-Flutter-blue)
 
-## 📖 Sobre o Projeto
+## Sobre o Projeto
 
-Este projeto é um sistema **SaaS (Software as a Service)** multi-lojas desenvolvido para gerenciar operações de varejo e atacado. O sistema centraliza o controle de estoque, financeiro e logística de entregas, oferecendo interfaces específicas para administradores, clientes finais e entregadores (motoboys).
-
-A arquitetura foi pensada para ser escalável, permitindo que múltiplos estabelecimentos (lojas) operem na mesma base de dados com isolamento de dados.
+Sistema **SaaS** multi-lojas para varejo e atacado: estoque, financeiro e logística de entregas, com isolamento de dados por estabelecimento.
 
 ---
 
-## 🚀 Funcionalidades Principais
+## Funcionalidades Principais
 
-### 🏢 Back-office & Gestão (Django Admin Customizado)
-* **Arquitetura Multi-Tenant:** Suporte a múltiplas lojas com gerentes e dados isolados.
-* **Controle de Estoque Inteligente:**
-    * Baixa automática de estoque na finalização da venda.
-    * **Logística Reversa:** Estorno automático de estoque ao cancelar uma venda.
-    * Alertas visuais de estoque baixo.
-* **Gestão Financeira:**
-    * Controle de Caixa (Abertura/Fechamento).
-    * Registro de Receitas e Despesas categorizadas.
-    * Relatórios de transações.
-* **Impressão de Notas:** Geração de cupons não-fiscais otimizados para impressoras térmicas via CSS media print.
+### Back-office & Gestão
+* Multi-tenant (várias lojas)
+* Estoque com baixa/estorno automático
+* Caixa, receitas, despesas e relatórios
+* Cupons não-fiscais (impressão térmica)
 
-### 📱 Aplicativos Frontend (Flutter)
-* **App do Cliente (Vitrine Virtual):**
-    * Catálogo de produtos em tempo real.
-    * Carrinho de compras e checkout.
-    * **Smart Image Service:** Sistema inteligente de fallback para carregamento de imagens de produtos (busca por ID com contingência para ícones nativos em caso de falha).
-* **App do Motoboy/Entregador:**
-    * Gestão de entregas (Pendente, Em Rota, Entregue).
-    * Conferência de recebimento de valores.
-* **App PDV (Ponto de Venda):**
-    * Interface ágil para vendas no balcão.
+### Apps Frontend (Flutter)
+* App Cliente (vitrine)
+* App Motoboy/Entregador
+* App PDV
 
 ---
 
-## 🛠️ Tecnologias Utilizadas
+## Tecnologias
 
 ### Backend
-* **Linguagem:** Python 3.10+
-* **Framework:** Django 5.x
-* **Banco de Dados:** SQLite (Dev) / PostgreSQL (Prod)
-* **Infraestrutura:** PythonAnywhere (WSGI/Nginx)
-* **Autenticação:** Sistema de usuários do Django extendido (PerfilUsuario).
+* Python 3.12+ / Django 6.x
+* PostgreSQL 16 (Docker) — SQLite só para exportação de legado
+* Docker Compose + Gunicorn + Nginx (Contabo)
+* Autenticação Django + PerfilUsuario
 
 ### Frontend
-* **Framework:** Flutter (Dart)
-* **Plataformas:** Web (SPA), Android.
-* **Gerenciamento de Estado:** `setState` (com arquitetura limpa e services isolados).
-* **Integração:** Consumo de API RESTful (JSON).
+* Flutter (Web / Android)
+* API REST (JSON)
 
 ---
 
-## 📸 Screenshots
+## Como executar
 
-*(Espaço reservado para as imagens do projeto - Recomendo colocar aqui prints do Dashboard, da Tela de Vendas e do App Mobile)*
+Guia completo (Contabo, DNS Registro.br, migração SQLite → Postgres, CI/CD):
 
-| Dashboard Admin | Vitrine Cliente | Detalhes da Venda |
-|:---:|:---:|:---:|
-| ![Dashboard](screenshots/dashboard_exemplo.png) | ![Vitrine](screenshots/vitrine_exemplo.png) | ![Venda](screenshots/venda_exemplo.png) |
-
----
-
-## ⚙️ Como Executar o Projeto
+**[DEPLOY_CONTABO.md](DEPLOY_CONTABO.md)**
 
 ### Pré-requisitos
-* Python 3.10+
-* Flutter SDK
+* Docker Desktop (recomendado) **ou** Python 3.12+ + PostgreSQL
 * Git
+* Flutter SDK (apps)
 
-### 1. Backend (Django)
+### Docker local (igual à Contabo)
+
+```powershell
+copy .env.example .env
+# Edite SECRET_KEY e POSTGRES_PASSWORD em .env
+
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
+# http://127.0.0.1:8000/health/
+```
+
+### Venv
 
 ```bash
-# Clone o repositório
-git clone [https://github.com/promadod/app-magno.git](https://github.com/promadod/app-magno.git)
-cd app-magno
-
-# Crie e ative o ambiente virtual
+git clone https://github.com/promadod/PDV-Oneira-x-Lince-Brasil.git
+cd PDV-Oneira-x-Lince-Brasil
 python -m venv venv
-source venv/bin/activate  # Linux/Mac
-venv\Scripts\activate     # Windows
-
-# Instale as dependências
+venv\Scripts\activate
 pip install -r requirements.txt
-
-# Execute as migrações
+copy .env.example .env
 python manage.py migrate
-
-# Crie um superusuário
 python manage.py createsuperuser
-
-# Inicie o servidor
 python manage.py runserver
+```
+
+O banco padrão é **PostgreSQL**. Para migrar o `db.sqlite3` de produção: `scripts/export_sqlite.ps1` e depois `scripts/import_to_postgres.ps1`.

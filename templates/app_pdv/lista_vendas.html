@@ -5,9 +5,24 @@
 {% block content %}
 <h2 style="margin-bottom: 20px;">Histórico de Vendas</h2>
 
+{% if meta_historico.erro_periodo %}
+<div class="card" style="border-left: 4px solid #e53935; margin-bottom: 16px; padding: 14px 18px;">
+    <strong style="color: #e53935;"><i class="fas fa-exclamation-triangle"></i> Período inválido</strong>
+    <p style="margin: 8px 0 0; color: #ddd;">{{ meta_historico.erro_periodo }}</p>
+</div>
+{% elif meta_historico.periodo_padrao %}
+<div class="card" style="border-left: 4px solid #03dac6; margin-bottom: 16px; padding: 14px 18px;">
+    <strong style="color: #03dac6;"><i class="fas fa-info-circle"></i> Exibindo os últimos {{ meta_historico.dias_padrao }} dias</strong>
+    <p style="margin: 8px 0 0; color: #bbb; font-size: 0.95em;">
+        Para proteger o servidor, a consulta inicial é limitada.
+        Use os filtros de data para outro período (máximo {{ meta_historico.dias_max }} dias) ou busque pelo ID da venda.
+    </p>
+</div>
+{% endif %}
+
 <div class="card vendas-filtros-card">
     <h3 class="vendas-filtros-titulo"><i class="fas fa-search"></i> Consultar vendas</h3>
-    <p class="vendas-filtros-desc">Combine filtros para buscar em lote (ex.: status cancelada) ou use ID/valor para consulta avulsa.</p>
+    <p class="vendas-filtros-desc">Combine filtros para buscar em lote (ex.: status cancelada) ou use ID/valor para consulta avulsa. Máximo de {{ meta_historico.dias_max }} dias por consulta (exceto busca por ID).</p>
 
     <form method="get" action="{% url 'lista_vendas' %}" class="vendas-filtros-form">
         <div class="vendas-filtros-grid">
@@ -87,11 +102,10 @@
             <button type="submit" class="btn vendas-btn-filtrar">
                 <i class="fas fa-filter"></i> Filtrar
             </button>
-            {% if filtros_ativos %}
             <a href="{% url 'lista_vendas' %}" class="btn vendas-btn-limpar">Limpar filtros</a>
-            {% endif %}
             <span class="vendas-filtros-contagem">
                 {{ total_resultados }} venda{{ total_resultados|pluralize }} encontrada{{ total_resultados|pluralize }}
+                {% if page_obj %}(página {{ page_obj.number }} de {{ page_obj.paginator.num_pages }}){% endif %}
             </span>
         </div>
     </form>
@@ -102,7 +116,7 @@
         <thead>
             <tr style="text-align:left; border-bottom: 1px solid #444;">
                 <th style="padding:10px;">ID</th>
-                <th style="text-align: center;">Origem</th> 
+                <th style="text-align: center;">Origem</th>
                 <th>Data</th>
                 <th>Cliente</th>
                 <th>Status</th>
@@ -115,7 +129,7 @@
             {% for venda in vendas %}
             <tr style="border-bottom: 1px solid #333; {% if venda.status == 'CANCELADO' %}opacity: 0.7;{% endif %}">
                 <td style="padding:10px;">#{{ venda.id }}</td>
-                
+
                 <td style="text-align: center;">
                     {% if venda.origem == 'APP' %}
                         <span class="badge" style="background-color: #673ab7; color: white;" title="Venda pelo App">
@@ -129,7 +143,7 @@
                 </td>
                 <td>{{ venda.data_venda|date:"d/m/Y H:i" }}</td>
                 <td>{{ venda.cliente.nome|default:"Venda na loja" }}</td>
-                
+
                 <td>
                     {% if venda.status == 'CANCELADO' %}
                         <span style="background-color: #e53935; color: white; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
@@ -177,7 +191,7 @@
                                 <i class="fas fa-store"></i> RETIRADO NA LOJA
                             </span>
                         {% elif venda.status == 'FINALIZADO' %}
-                            
+
                             {% if venda.origem == 'APP' %}
                                 <span style="background-color: #ffc107; color: #000; padding: 4px 8px; border-radius: 4px; font-weight: bold; font-size: 0.8em;">
                                     <i class="fas fa-shopping-bag"></i> RETIRADA NA LOJA
@@ -194,7 +208,7 @@
                         {% else %}
                             <span style="background-color: #aaa; color: #000; padding: 4px 8px; border-radius: 4px; font-size: 0.8em;">{{ venda.get_status_display }}</span>
                         {% endif %}
-                        
+
                     {% endif %}
                 </td>
 
@@ -213,7 +227,7 @@
                                         <i class="fas fa-motorcycle"></i> Em Rota
                                     </span>
                                 {% else %}
-                                    <button onclick="confirmarDinheiro({{ venda.id }})" 
+                                    <button onclick="confirmarDinheiro({{ venda.id }})"
                                             style="border: none; background-color: #ff9800; color: #000; padding: 6px 12px; border-radius: 4px; font-weight: bold; font-size: 0.9em; cursor: pointer;"
                                             title="Confirmar Recebimento na Gaveta">
                                         <i class="fas fa-hand-holding-usd"></i> Receber
@@ -228,23 +242,23 @@
                     {% endif %}
                 </td>
                 <td class="text-end">
-                    <a href="{% url 'detalhes_venda' venda.id %}" 
-                       style="display: inline-block; background-color: #03dac6; color: #000; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em; margin-right: 5px;" 
+                    <a href="{% url 'detalhes_venda' venda.id %}"
+                       style="display: inline-block; background-color: #03dac6; color: #000; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em; margin-right: 5px;"
                        title="Ver Detalhes">
                         <i class="fas fa-eye"></i>
                     </a>
-                    
+
                     {% if venda.status == 'ABERTO' or venda.status == 'AGUARDANDO_FINALIZAR' %}
-                        <a href="{% url 'retomar_venda' venda.id %}" 
-                           style="display: inline-block; background-color: #ff9800; color: #000; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em; margin-right: 5px;" 
+                        <a href="{% url 'retomar_venda' venda.id %}"
+                           style="display: inline-block; background-color: #ff9800; color: #000; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em; margin-right: 5px;"
                            title="Retomar Venda">
                             <i class="fas fa-play"></i>
                         </a>
                     {% endif %}
 
                     {% if venda.status == 'ABERTO' %}
-                        <a href="{% url 'excluir_venda' venda.id %}" 
-                           style="display: inline-block; background-color: #cf6679; color: #fff; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em;" 
+                        <a href="{% url 'excluir_venda' venda.id %}"
+                           style="display: inline-block; background-color: #cf6679; color: #fff; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em;"
                            title="Cancelar/Excluir Venda"
                            onclick="return confirm('Tem certeza que deseja CANCELAR e EXCLUIR esta venda em aberto?');">
                             <i class="fas fa-trash"></i>
@@ -254,7 +268,9 @@
             </tr>
             {% empty %}
             <tr><td colspan="8" style="text-align:center; padding: 20px;">
-                {% if filtros_ativos %}
+                {% if meta_historico.erro_periodo %}
+                    Ajuste o período e filtre novamente.
+                {% elif filtros_ativos %}
                     Nenhuma venda encontrada com os filtros informados.
                 {% else %}
                     Nenhuma venda registrada.
@@ -262,7 +278,7 @@
             </td></tr>
             {% endfor %}
         </tbody>
-        {% if vendas %}
+        {% if page_obj %}
         <tfoot>
             <tr style="border-top: 2px solid #03dac6; font-weight: bold;">
                 <td colspan="5" style="padding: 12px 10px; text-align: right; color: #03dac6;">
@@ -276,6 +292,24 @@
         </tfoot>
         {% endif %}
     </table>
+
+    {% if page_obj and page_obj.paginator.num_pages > 1 %}
+    <div style="display:flex; justify-content:center; align-items:center; gap:12px; padding: 16px 10px; flex-wrap: wrap;">
+        {% if page_obj.has_previous %}
+        <a class="btn" style="background:#333; color:#fff; text-decoration:none; padding:8px 14px; border-radius:6px;"
+           href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.previous_page_number }}">
+            <i class="fas fa-chevron-left"></i> Anterior
+        </a>
+        {% endif %}
+        <span style="color:#bbb;">Página {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} ({{ por_pagina }} por página)</span>
+        {% if page_obj.has_next %}
+        <a class="btn" style="background:#333; color:#fff; text-decoration:none; padding:8px 14px; border-radius:6px;"
+           href="?{% if querystring %}{{ querystring }}&{% endif %}page={{ page_obj.next_page_number }}">
+            Próxima <i class="fas fa-chevron-right"></i>
+        </a>
+        {% endif %}
+    </div>
+    {% endif %}
 </div>
 
 <script>
