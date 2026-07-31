@@ -36,9 +36,11 @@ FILTROS_STATUS_HISTORICO = [
 
 _MAPA_STATUS = {
     'VENDA_NA_LOJA': Q(
-        status__in=['FINALIZADO', 'RETIRADO_NA_LOJA'],
+        status='FINALIZADO',
         origem='PDV',
         eh_entrega=False,
+        eh_avaria=False,
+        eh_cortesia=False,
     ),
     'RETIRADO_NA_LOJA': Q(status='RETIRADO_NA_LOJA'),
     'RETIRADA_APP': Q(status='FINALIZADO', origem='APP', eh_entrega=False),
