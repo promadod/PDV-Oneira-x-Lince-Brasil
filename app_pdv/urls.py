@@ -97,6 +97,9 @@ urlpatterns = [
 
     path('relatorios/', views.relatorios, name='relatorios'),
     path('mercadorias/pagamento/<int:entrada_id>/', views.registrar_pagamento_mercadoria, name='registrar_pagamento_mercadoria'),
+    path('mercadorias/agendar/', views.criar_parcelas_mercadoria_agendadas, name='criar_parcelas_mercadoria_agendadas'),
+    path('mercadorias/parcela/<int:parcela_id>/cancelar/', views.cancelar_parcela_mercadoria, name='cancelar_parcela_mercadoria'),
+    path('mercadorias/parcela/<int:parcela_id>/pagar/', views.pagar_parcela_mercadoria, name='pagar_parcela_mercadoria'),
     path('fiado/pagamento/<int:venda_id>/', views.registrar_pagamento_fiado, name='registrar_pagamento_fiado'),
     path('fiado/pagamento-unificado/', views.registrar_pagamento_fiado_unificado, name='registrar_pagamento_fiado_unificado'),
     path('fiado/agendar/', views.criar_parcelas_fiado_agendadas, name='criar_parcelas_fiado_agendadas'),

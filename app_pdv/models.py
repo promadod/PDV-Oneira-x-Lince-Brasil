@@ -1727,6 +1727,59 @@ class PagamentoMercadoria(models.Model):
         return f"R$ {self.valor} — {self.entrada.item.nome} ({self.meio_liquidacao})"
 
 
+class ParcelaMercadoriaAgendada(models.Model):
+    """Parcela de pagamento agendada para saldo a pagar de entrada consignada."""
+
+    STATUS_CHOICES = [
+        ('AGENDADO', 'Agendado'),
+        ('PAGO', 'Pago'),
+        ('CANCELADO', 'Cancelado'),
+    ]
+
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
+    entrada = models.ForeignKey(
+        EntradaEstoque, on_delete=models.CASCADE, related_name='parcelas_agendadas',
+    )
+    valor = models.DecimalField(max_digits=12, decimal_places=2)
+    data_vencimento = models.DateField(verbose_name='Vencimento')
+    data_entrada = models.DateTimeField(auto_now_add=True, verbose_name='Data de agendamento')
+    status = models.CharField(max_length=20, choices=STATUS_CHOICES, default='AGENDADO')
+    pagamento = models.ForeignKey(
+        PagamentoMercadoria, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='parcela_agendada',
+    )
+    observacao = models.CharField(max_length=200, blank=True, default='')
+    criado_por = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='parcelas_mercadoria_criadas',
+    )
+
+    class Meta:
+        verbose_name = 'Parcela mercadoria agendada'
+        verbose_name_plural = 'Parcelas mercadoria agendadas'
+        ordering = ['data_vencimento', 'id']
+
+    def __str__(self):
+        return f"Parcela #{self.id} — Entrada #{self.entrada_id} — R$ {self.valor}"
+
+    @property
+    def esta_atrasada(self):
+        if self.status != 'AGENDADO':
+            return False
+        return self.data_vencimento < timezone.localdate()
+
+
+def total_parcelas_agendadas_entrada(entrada):
+    from django.db.models import Sum
+    return entrada.parcelas_agendadas.filter(status='AGENDADO').aggregate(
+        total=Sum('valor')
+    )['total'] or Decimal('0')
+
+
+def saldo_agendavel_entrada(entrada):
+    return max(entrada.saldo_a_pagar - total_parcelas_agendadas_entrada(entrada), Decimal('0'))
+
+
 class LogTransferenciaEstoque(models.Model):
     loja_origem = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='transferencias_enviadas')
     loja_destino = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='transferencias_recebidas')

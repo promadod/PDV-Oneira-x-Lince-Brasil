@@ -49,7 +49,8 @@ from .models import (
     EntradaEstoque, ItemEstoque, PerfilUsuario, LogTransferenciaEstoque,
     LogFechamentoEstoqueDiario,
     FormaPagamentoLoja, PrecoFornecedorItem, PagamentoFiado, PagamentoMercadoria,
-    LiquidacaoVenda, ParcelaFiadoAgendada, saldo_agendavel_venda, LogAuditoria,
+    LiquidacaoVenda, ParcelaFiadoAgendada, ParcelaMercadoriaAgendada,
+    saldo_agendavel_venda, saldo_agendavel_entrada, LogAuditoria,
     validar_forma_pagamento, montar_resumo_pagamentos_loja,
     montar_relatorio_pagamentos, get_nome_forma_pagamento, criar_formas_pagamento_padrao,
     validar_meio_liquidacao, montar_resumo_liquidacao_loja, calcular_entradas_gaveta,
@@ -69,6 +70,7 @@ from .fiado_helpers import (
     listar_vendas_fiado_abertas, agrupar_fiado_por_cliente,
     listar_parcelas_agendadas, distribuir_pagamento_fiado,
 )
+from .mercadoria_helpers import listar_entradas_abertas_cmv, listar_parcelas_mercadoria
 from .forms import (
     ProdutoForm, ClienteForm, FornecedorForm, LojaForm, 
     CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, 
@@ -2910,19 +2912,21 @@ def relatorios(request):
                 data_pagamento__date__range=[data_inicio, data_fim],
             ).select_related('entrada__item', 'entrada__fornecedor')
             pago_periodo = pagamentos_periodo.aggregate(Sum('valor'))['valor__sum'] or Decimal('0')
-            a_pagar_qs = EntradaEstoque.objects.filter(
-                loja__in=lojas_cmv,
-                status_pagamento__in=['PENDENTE', 'PARCIAL'],
-            ).select_related('item', 'fornecedor', 'loja').order_by('data_entrada')
-            total_a_pagar = sum((e.saldo_a_pagar for e in a_pagar_qs), Decimal('0'))
+            entradas_abertas = listar_entradas_abertas_cmv(lojas_cmv)
+            total_a_pagar = sum((e['saldo_a_pagar'] for e in entradas_abertas), Decimal('0'))
+            parcelas, totais_parcelas = listar_parcelas_mercadoria(
+                lojas_cmv, data_inicio, data_fim,
+            )
             context['cmv'] = {
                 'cmv_vendido': cmv_vendido,
                 'total_compras': total_compras,
                 'pago_periodo': pago_periodo,
                 'total_a_pagar': total_a_pagar,
-                'entradas_abertas': a_pagar_qs,
+                'entradas_abertas': entradas_abertas,
                 'entradas_periodo': entradas_periodo.order_by('-data_entrada'),
                 'pagamentos_periodo': pagamentos_periodo.order_by('-data_pagamento'),
+                'parcelas': parcelas,
+                'totais_parcelas': totais_parcelas,
             }
 
     return render(request, 'app_pdv/relatorios.html', context)
@@ -2964,6 +2968,121 @@ def registrar_pagamento_mercadoria(request, entrada_id):
             )
         except Exception as e:
             messages.error(request, str(e))
+
+    return _redirect_relatorio_fiado(request, 'cmv')
+
+
+@login_required
+@transaction.atomic
+def criar_parcelas_mercadoria_agendadas(request):
+    loja = check_loja(request)
+    if not loja or request.method != 'POST':
+        return redirect('relatorios')
+    if not getattr(loja, 'gerencia_pagamento_mercadorias', False):
+        messages.error(request, 'Esta loja não gerencia pagamento de mercadorias.')
+        return _redirect_relatorio_fiado(request, 'cmv')
+
+    entrada_id = request.POST.get('entrada_id')
+    entrada = get_object_or_404(
+        EntradaEstoque, pk=entrada_id, loja=loja,
+        status_pagamento__in=['PENDENTE', 'PARCIAL'],
+    )
+
+    valores = request.POST.getlist('parcela_valor')
+    vencimentos = request.POST.getlist('parcela_vencimento')
+    criadas = 0
+
+    try:
+        saldo_disp = saldo_agendavel_entrada(entrada)
+        for val_str, ven_str in zip(valores, vencimentos):
+            if not val_str or not ven_str:
+                continue
+            valor = Decimal(str(val_str).replace(',', '.'))
+            if valor <= 0:
+                continue
+            if valor > saldo_disp:
+                raise ValueError(
+                    f'Parcela R$ {valor:.2f} excede saldo agendável R$ {saldo_disp:.2f}.'
+                )
+            data_venc = datetime.strptime(ven_str, '%Y-%m-%d').date()
+            ParcelaMercadoriaAgendada.objects.create(
+                loja=loja,
+                entrada=entrada,
+                valor=valor,
+                data_vencimento=data_venc,
+                criado_por=request.user,
+            )
+            saldo_disp -= valor
+            criadas += 1
+
+        if criadas:
+            messages.success(
+                request,
+                f'{criadas} parcela(s) agendada(s) para entrada #{entrada.id} ({entrada.item.nome}).',
+            )
+        else:
+            messages.warning(request, 'Informe ao menos uma parcela com valor e vencimento.')
+    except Exception as e:
+        messages.error(request, str(e))
+
+    return _redirect_relatorio_fiado(request, 'cmv')
+
+
+@login_required
+@transaction.atomic
+def cancelar_parcela_mercadoria(request, parcela_id):
+    loja = check_loja(request)
+    if not loja:
+        return redirect('relatorios')
+    if not getattr(loja, 'gerencia_pagamento_mercadorias', False):
+        messages.error(request, 'Esta loja não gerencia pagamento de mercadorias.')
+        return _redirect_relatorio_fiado(request, 'cmv')
+
+    parcela = get_object_or_404(ParcelaMercadoriaAgendada, pk=parcela_id, loja=loja)
+    if parcela.status != 'AGENDADO':
+        messages.error(request, 'Só é possível cancelar parcelas agendadas.')
+    else:
+        parcela.status = 'CANCELADO'
+        parcela.save(update_fields=['status'])
+        messages.success(request, f'Parcela #{parcela.id} cancelada.')
+
+    return _redirect_relatorio_fiado(request, 'cmv')
+
+
+@login_required
+@transaction.atomic
+def pagar_parcela_mercadoria(request, parcela_id):
+    loja = check_loja(request)
+    if not loja or request.method != 'POST':
+        return redirect('relatorios')
+    if not getattr(loja, 'gerencia_pagamento_mercadorias', False):
+        messages.error(request, 'Esta loja não gerencia pagamento de mercadorias.')
+        return _redirect_relatorio_fiado(request, 'cmv')
+
+    parcela = get_object_or_404(
+        ParcelaMercadoriaAgendada.objects.select_related('entrada'),
+        pk=parcela_id, loja=loja, status='AGENDADO',
+    )
+    entrada = parcela.entrada
+    meio = request.POST.get('meio_liquidacao', 'PIX')
+    observacao = request.POST.get('observacao', '') or f'Parcela agendada #{parcela.id}'
+
+    try:
+        if parcela.valor > entrada.saldo_a_pagar:
+            raise ValueError('Valor da parcela maior que o saldo a pagar da entrada.')
+        caixa_aberto = Caixa.objects.filter(loja=loja, status=True).first()
+        pag = entrada.registrar_pagamento(
+            parcela.valor, meio, observacao, request.user, caixa=caixa_aberto,
+        )
+        parcela.status = 'PAGO'
+        parcela.pagamento = pag
+        parcela.save(update_fields=['status', 'pagamento'])
+        messages.success(
+            request,
+            f'Parcela #{parcela.id} paga. Saldo restante: R$ {entrada.saldo_a_pagar:.2f}',
+        )
+    except Exception as e:
+        messages.error(request, str(e))
 
     return _redirect_relatorio_fiado(request, 'cmv')
 

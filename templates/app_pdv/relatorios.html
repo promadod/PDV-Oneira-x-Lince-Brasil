@@ -912,6 +912,21 @@ function adicionarLinhaParcela() {
     <small style="color: #666;">Ative em Admin → Lojas ou na engrenagem (settings) → "Gerenciar pagamento de mercadorias (CMV)?"</small>
 </div>
 {% else %}
+<style>
+.cmv-agendar-parcela {
+    display: grid;
+    grid-template-columns: 1fr 1fr auto;
+    gap: 8px 12px;
+    align-items: end;
+    margin-bottom: 10px;
+}
+.cmv-agendar-parcela label { font-size: 0.8em; color: #aaa; display: block; margin-bottom: 4px; }
+.cmv-parcelas-wrap { margin-top: 10px; }
+@media (max-width: 700px) {
+    .cmv-agendar-parcela { grid-template-columns: 1fr; }
+}
+</style>
+
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
     <div class="card" style="border-top: 4px solid #cf6679; text-align: center;">
         <small>CMV vendido (período)</small>
@@ -929,12 +944,135 @@ function adicionarLinhaParcela() {
         <small>Pago no período</small>
         <h3 style="color: #03dac6;">R$ {{ cmv.pago_periodo|floatformat:2 }}</h3>
     </div>
+    <div class="card" style="border-top: 4px solid #bb86fc; text-align: center;">
+        <small>Parcelas agendadas (período)</small>
+        <h3 style="color: #bb86fc;">R$ {{ cmv.totais_parcelas.total_agendado|floatformat:2 }}</h3>
+    </div>
+    <div class="card" style="border-top: 4px solid #cf6679; text-align: center;">
+        <small>Parcelas atrasadas</small>
+        <h3 style="color: #cf6679;">R$ {{ cmv.totais_parcelas.total_atrasado|floatformat:2 }}</h3>
+    </div>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+    <h3><i class="fas fa-calendar-plus"></i> Agendar parcelas de pagamento</h3>
+    <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
+        Defina data e valor por parcela. O meio de pagamento (Pix, Dinheiro etc.) é escolhido na hora da baixa.
+    </p>
+    <form method="POST" action="{% url 'criar_parcelas_mercadoria_agendadas' %}" id="form-agendar-cmv" style="margin-top: 14px;">
+        {% csrf_token %}
+        <input type="hidden" name="tipo_relatorio" value="cmv">
+        <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+        <input type="hidden" name="data_fim" value="{{ data_fim }}">
+        <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+
+        <label style="font-size: 0.85em; color: #aaa;">Entrada / mercadoria</label>
+        <select name="entrada_id" required class="form-control" style="max-width: 520px; margin-bottom: 12px;">
+            <option value="">Selecione…</option>
+            {% for e in cmv.entradas_abertas %}
+            <option value="{{ e.id }}">
+                #{{ e.id }} — {{ e.item }} — saldo R$ {{ e.saldo_a_pagar|floatformat:2 }}
+                (agendável R$ {{ e.saldo_agendavel|floatformat:2 }})
+            </option>
+            {% endfor %}
+        </select>
+
+        <div id="linhas-parcelas-cmv" class="cmv-parcelas-wrap">
+            <div class="cmv-agendar-parcela">
+                <div>
+                    <label>Valor (R$)</label>
+                    <input type="number" name="parcela_valor" step="0.01" min="0.01" placeholder="0,00" class="form-control">
+                </div>
+                <div>
+                    <label>Data de pagamento</label>
+                    <input type="date" name="parcela_vencimento" class="form-control">
+                </div>
+                <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                    <button type="button" class="btn" style="background:#333;color:#fff;" onclick="adicionarParcelaCmv()">
+                        <i class="fas fa-plus"></i> Parcela
+                    </button>
+                    <button type="submit" class="btn" style="background:#15a0a5;color:#fff;">
+                        <i class="fas fa-calendar-check"></i> Agendar
+                    </button>
+                </div>
+            </div>
+        </div>
+    </form>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+    <h3><i class="fas fa-calendar-alt"></i> Parcelas agendadas no período</h3>
+    <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
+        Filtradas pela data de vencimento. Na baixa, escolha o meio — o valor desconta no caixa do turno.
+    </p>
+    <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
+        <thead>
+            <tr style="border-bottom: 2px solid #444; text-align: left;">
+                <th>Vencimento</th>
+                <th>Item</th>
+                <th>Fornecedor</th>
+                <th>Valor</th>
+                <th>Status</th>
+                <th>Ações</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in cmv.parcelas %}
+            <tr style="border-bottom: 1px solid #333; {% if p.atrasada %}background: rgba(207,102,121,0.08);{% endif %}">
+                <td>
+                    {{ p.vencimento }}
+                    {% if p.atrasada %}<span style="color:#cf6679; font-size:0.8em;"> (atrasada)</span>{% endif %}
+                </td>
+                <td><strong>{{ p.item }}</strong> <small style="color:#888;">#{{ p.entrada_id }}</small></td>
+                <td>{{ p.fornecedor }}</td>
+                <td style="font-weight:bold;">R$ {{ p.valor|floatformat:2 }}</td>
+                <td>{{ p.status_label }}</td>
+                <td>
+                    {% if p.status == 'AGENDADO' %}
+                    <form method="POST" action="{% url 'pagar_parcela_mercadoria' p.id %}"
+                          style="display:inline-flex; gap:6px; flex-wrap:wrap; align-items:center;">
+                        {% csrf_token %}
+                        <input type="hidden" name="tipo_relatorio" value="cmv">
+                        <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                        <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                        <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                        <select name="meio_liquidacao" class="form-control" style="width:95px; padding:4px;">
+                            <option value="PIX" selected>Pix</option>
+                            <option value="DINHEIRO">Dinheiro</option>
+                            <option value="CREDITO">Crédito</option>
+                            <option value="DEBITO">Débito</option>
+                        </select>
+                        <button type="submit" class="btn" style="background:#03dac6;color:#000;padding:4px 8px;font-size:0.85em;">
+                            <i class="fas fa-check"></i> Pagar
+                        </button>
+                    </form>
+                    <form method="POST" action="{% url 'cancelar_parcela_mercadoria' p.id %}"
+                          style="display:inline;" onsubmit="return confirm('Cancelar esta parcela?');">
+                        {% csrf_token %}
+                        <input type="hidden" name="tipo_relatorio" value="cmv">
+                        <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
+                        <input type="hidden" name="data_fim" value="{{ data_fim }}">
+                        <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                        <button type="submit" class="btn" style="background:#444;color:#fff;padding:4px 8px;font-size:0.85em;">
+                            Cancelar
+                        </button>
+                    </form>
+                    {% else %}
+                    —
+                    {% endif %}
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="6" style="text-align:center; color:#888; padding:20px;">Nenhuma parcela no período.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 
 <div class="card" style="margin-bottom: 20px;">
     <h3><i class="fas fa-file-invoice-dollar"></i> Contas a pagar — mercadorias</h3>
     <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
-        Entradas consignadas com saldo. A baixa desconta o meio (Pix/Dinheiro etc.) no caixa aberto do dia.
+        Entradas consignadas com saldo. Baixa avulsa ou use o agendamento acima.
     </p>
     <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
         <thead>
@@ -946,21 +1084,23 @@ function adicionarLinhaParcela() {
                 <th>Total</th>
                 <th>Pago</th>
                 <th>Saldo</th>
+                <th>Agendável</th>
                 <th>Status</th>
-                <th>Pagar</th>
+                <th>Pagar agora</th>
             </tr>
         </thead>
         <tbody>
             {% for e in cmv.entradas_abertas %}
             <tr style="border-bottom: 1px solid #333;">
-                <td>{{ e.data_entrada|date:"d/m/Y" }}</td>
-                <td><strong>{{ e.item.nome }}</strong></td>
-                <td>{{ e.fornecedor.nome|default:"—" }}</td>
+                <td>{{ e.data_entrada }}</td>
+                <td><strong>{{ e.item }}</strong></td>
+                <td>{{ e.fornecedor }}</td>
                 <td>{{ e.quantidade }}</td>
                 <td>R$ {{ e.valor_total|floatformat:2 }}</td>
                 <td style="color: #03dac6;">R$ {{ e.valor_pago|floatformat:2 }}</td>
                 <td style="color: #cf6679; font-weight: bold;">R$ {{ e.saldo_a_pagar|floatformat:2 }}</td>
-                <td>{{ e.get_status_pagamento_display }}</td>
+                <td style="color: #bb86fc;">R$ {{ e.saldo_agendavel|floatformat:2 }}</td>
+                <td>{{ e.status_label }}</td>
                 <td>
                     <form method="POST" action="{% url 'registrar_pagamento_mercadoria' e.id %}"
                           style="display: flex; gap: 5px; flex-wrap: wrap; align-items: center;">
@@ -984,7 +1124,7 @@ function adicionarLinhaParcela() {
                 </td>
             </tr>
             {% empty %}
-            <tr><td colspan="9" style="text-align:center; color:#888; padding:20px;">Nenhuma mercadoria a pagar.</td></tr>
+            <tr><td colspan="10" style="text-align:center; color:#888; padding:20px;">Nenhuma mercadoria a pagar.</td></tr>
             {% endfor %}
         </tbody>
     </table>
@@ -1049,6 +1189,22 @@ function adicionarLinhaParcela() {
     </table>
 </div>
 {% endif %}
+
+<script>
+function adicionarParcelaCmv() {
+    const wrap = document.getElementById('linhas-parcelas-cmv');
+    const linha = document.createElement('div');
+    linha.className = 'cmv-agendar-parcela';
+    linha.innerHTML =
+        '<div><label>Valor (R$)</label>'
+        + '<input type="number" name="parcela_valor" step="0.01" min="0.01" placeholder="0,00" class="form-control"></div>'
+        + '<div><label>Data de pagamento</label>'
+        + '<input type="date" name="parcela_vencimento" class="form-control"></div>'
+        + '<div><button type="button" class="btn" style="background:#555;color:#fff;" onclick="this.closest(\'.cmv-agendar-parcela\').remove()">'
+        + '<i class="fas fa-times"></i></button></div>';
+    wrap.appendChild(linha);
+}
+</script>
 {% endif %}
 {% endif %}
 

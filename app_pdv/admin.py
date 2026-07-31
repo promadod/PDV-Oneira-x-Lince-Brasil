@@ -4,7 +4,7 @@ from django.contrib.auth.models import User
 from .models import (
     Loja, PerfilUsuario, Fornecedor, ItemEstoque, Produto, Cliente, GrupoProduto, ComponenteKit,
     Venda, ItemVenda, Caixa, EntradaEstoque, PrecoFornecedorItem, PagamentoFiado, LiquidacaoVenda,
-    PagamentoMercadoria, ParcelaFiadoAgendada, BloqueioIPLogin,
+    PagamentoMercadoria, ParcelaFiadoAgendada, ParcelaMercadoriaAgendada, BloqueioIPLogin,
     CategoriaTransacao, Transacao, Receita, Despesa, Moto, Motoboy, Rede,
     FormaPagamentoLoja, LogFechamentoEstoqueDiario
 )
@@ -290,6 +290,13 @@ class PagamentoMercadoriaAdmin(SaasAdmin):
     list_display = ('id', 'entrada', 'valor', 'meio_liquidacao', 'data_pagamento', 'caixa', 'loja')
     list_filter = ('meio_liquidacao', 'data_pagamento')
     search_fields = ('entrada__item__nome',)
+
+
+@admin.register(ParcelaMercadoriaAgendada)
+class ParcelaMercadoriaAgendadaAdmin(SaasAdmin):
+    list_display = ('id', 'entrada', 'valor', 'data_vencimento', 'status', 'data_entrada', 'loja')
+    list_filter = ('status', 'data_vencimento', 'loja')
+    search_fields = ('entrada__item__nome', 'entrada__id')
 
 
 @admin.register(Venda)
