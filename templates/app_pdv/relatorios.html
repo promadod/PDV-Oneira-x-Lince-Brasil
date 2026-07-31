@@ -56,6 +56,25 @@
             </select>
         </div>
         {% endif %}
+
+        {% if tipo_relatorio == 'cmv' and tem_cmv_pagamento %}
+        <div>
+            <label>Status da parcela</label>
+            <select name="cmv_parcela_status" class="form-control" style="width: 180px;">
+                <option value="todos" {% if cmv_parcela_status == 'todos' %}selected{% endif %}>Todas</option>
+                <option value="AGENDADO" {% if cmv_parcela_status == 'AGENDADO' %}selected{% endif %}>Agendadas</option>
+                <option value="ATRASADA" {% if cmv_parcela_status == 'ATRASADA' %}selected{% endif %}>Atrasadas</option>
+                <option value="PAGO" {% if cmv_parcela_status == 'PAGO' %}selected{% endif %}>Pagas</option>
+                <option value="CANCELADO" {% if cmv_parcela_status == 'CANCELADO' %}selected{% endif %}>Canceladas</option>
+            </select>
+        </div>
+        <div>
+            <label>Buscar parcela</label>
+            <input type="text" name="cmv_busca" value="{{ cmv_busca }}" class="form-control"
+                   placeholder="Item, fornecedor ou #ID" style="width: 220px;">
+        </div>
+        {% endif %}
+
         <div>
             <label style="visibility: hidden;">Filtrar</label> 
             <button type="submit" class="btn" style="height: 60px; display: flex; align-items: center; background-color: #15A0A5; color: white;">
@@ -945,10 +964,52 @@ function adicionarLinhaParcela() {
     align-items: center;
 }
 .cmv-edit-form.aberto { display: inline-flex; }
+.cmv-card-titulo {
+    margin: 0;
+    color: #15A0A5;
+    font-size: 1.15rem;
+    font-weight: 700;
+}
+.cmv-card-titulo i { margin-right: 6px; }
+.cmv-atalhos {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 0 0 18px;
+}
+.cmv-atalhos a {
+    text-decoration: none;
+    background: rgba(21, 160, 165, 0.15);
+    color: #15A0A5;
+    border: 1px solid rgba(21, 160, 165, 0.45);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+}
+.cmv-atalhos a:hover { background: rgba(21, 160, 165, 0.28); }
 @media (max-width: 700px) {
     .cmv-agendar-parcela { grid-template-columns: 1fr; }
 }
 </style>
+
+<div class="cmv-atalhos">
+    <a href="?tipo_relatorio=cmv&data_inicio={{ data_inicio }}&data_fim={{ data_fim }}&loja_id={{ loja_selecionada_id }}&cmv_parcela_status=AGENDADO&cmv_busca={{ cmv_busca|urlencode }}">
+        Só agendadas
+    </a>
+    <a href="?tipo_relatorio=cmv&data_inicio={{ data_inicio }}&data_fim={{ data_fim }}&loja_id={{ loja_selecionada_id }}&cmv_parcela_status=ATRASADA&cmv_busca={{ cmv_busca|urlencode }}">
+        Só atrasadas
+    </a>
+    <a href="?tipo_relatorio=cmv&data_inicio={{ data_inicio }}&data_fim={{ data_fim }}&loja_id={{ loja_selecionada_id }}&cmv_parcela_status=PAGO&cmv_busca={{ cmv_busca|urlencode }}">
+        Só pagas
+    </a>
+    <a href="?tipo_relatorio=cmv&data_inicio={{ data_inicio }}&data_fim={{ data_fim }}&loja_id={{ loja_selecionada_id }}&cmv_parcela_status=todos&cmv_busca=">
+        Limpar status/busca
+    </a>
+</div>
+<p style="color:#888; font-size:0.9em; margin:-8px 0 16px;">
+    Use <strong style="color:#ccc;">Data início / Data fim</strong> no filtro acima para incluir vencimentos futuros
+    (ex.: até daqui a 90 dias). Status e busca filtram a lista de parcelas.
+</p>
 
 <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 15px; margin-bottom: 20px;">
     <div class="card" style="border-top: 4px solid #cf6679; text-align: center;">
@@ -978,7 +1039,7 @@ function adicionarLinhaParcela() {
 </div>
 
 <div class="card" style="margin-bottom: 20px;">
-    <h3><i class="fas fa-calendar-plus"></i> Agendar parcelas de pagamento</h3>
+    <h3 class="cmv-card-titulo"><i class="fas fa-calendar-plus"></i> Agendar parcelas de pagamento</h3>
     <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
         Defina data e valor por parcela. O meio de pagamento (Pix, Dinheiro etc.) é escolhido na hora da baixa.
     </p>
@@ -988,6 +1049,8 @@ function adicionarLinhaParcela() {
         <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
         <input type="hidden" name="data_fim" value="{{ data_fim }}">
         <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+        <input type="hidden" name="cmv_parcela_status" value="{{ cmv_parcela_status }}">
+        <input type="hidden" name="cmv_busca" value="{{ cmv_busca }}">
 
         <label style="font-size: 0.85em; color: #aaa;">Entrada / mercadoria</label>
         <select name="entrada_id" required class="form-control" style="max-width: 520px; margin-bottom: 12px;">
@@ -1024,9 +1087,10 @@ function adicionarLinhaParcela() {
 </div>
 
 <div class="card" style="margin-bottom: 20px;">
-    <h3><i class="fas fa-calendar-alt"></i> Parcelas agendadas no período</h3>
+    <h3 class="cmv-card-titulo"><i class="fas fa-calendar-alt"></i> Parcelas agendadas no período</h3>
     <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
-        Filtradas pela data de vencimento. Na baixa, escolha o meio — o valor desconta no caixa do turno.
+        Filtradas pela data de vencimento{% if cmv_parcela_status and cmv_parcela_status != 'todos' %} e status <strong style="color:#15A0A5;">{{ cmv_parcela_status }}</strong>{% endif %}{% if cmv_busca %} · busca “{{ cmv_busca }}”{% endif %}.
+        Na baixa, escolha o meio — o valor desconta no caixa do turno.
     </p>
     <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
         <thead>
@@ -1070,6 +1134,8 @@ function adicionarLinhaParcela() {
                                 <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
                                 <input type="hidden" name="data_fim" value="{{ data_fim }}">
                                 <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                                <input type="hidden" name="cmv_parcela_status" value="{{ cmv_parcela_status }}">
+                                <input type="hidden" name="cmv_busca" value="{{ cmv_busca }}">
                                 <select name="meio_liquidacao" class="form-control" style="width:95px; padding:4px;">
                                     <option value="PIX" selected>Pix</option>
                                     <option value="DINHEIRO">Dinheiro</option>
@@ -1091,6 +1157,8 @@ function adicionarLinhaParcela() {
                                 <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
                                 <input type="hidden" name="data_fim" value="{{ data_fim }}">
                                 <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                                <input type="hidden" name="cmv_parcela_status" value="{{ cmv_parcela_status }}">
+                                <input type="hidden" name="cmv_busca" value="{{ cmv_busca }}">
                                 <button type="submit" class="btn" style="background:#444;color:#fff;padding:4px 8px;font-size:0.85em;">
                                     Cancelar
                                 </button>
@@ -1103,6 +1171,8 @@ function adicionarLinhaParcela() {
                             <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
                             <input type="hidden" name="data_fim" value="{{ data_fim }}">
                             <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                            <input type="hidden" name="cmv_parcela_status" value="{{ cmv_parcela_status }}">
+                            <input type="hidden" name="cmv_busca" value="{{ cmv_busca }}">
                             <input type="number" name="valor" step="0.01" min="0.01" value="{{ p.valor }}"
                                    required class="form-control" style="width:100px; padding:4px;" title="Valor">
                             <input type="date" name="data_vencimento" value="{{ p.vencimento_iso }}"
@@ -1127,7 +1197,7 @@ function adicionarLinhaParcela() {
 </div>
 
 <div class="card" style="margin-bottom: 20px;">
-    <h3><i class="fas fa-file-invoice-dollar"></i> Contas a pagar — mercadorias</h3>
+    <h3 class="cmv-card-titulo"><i class="fas fa-file-invoice-dollar"></i> Contas a pagar — mercadorias</h3>
     <p style="color: #888; font-size: 0.9em; margin-top: 5px;">
         Entradas consignadas com saldo. Baixa avulsa ou use o agendamento acima.
     </p>
@@ -1174,6 +1244,8 @@ function adicionarLinhaParcela() {
                         <input type="hidden" name="data_inicio" value="{{ data_inicio }}">
                         <input type="hidden" name="data_fim" value="{{ data_fim }}">
                         <input type="hidden" name="loja_id" value="{{ loja_selecionada_id }}">
+                        <input type="hidden" name="cmv_parcela_status" value="{{ cmv_parcela_status }}">
+                        <input type="hidden" name="cmv_busca" value="{{ cmv_busca }}">
                         <input type="number" name="valor" step="0.01" min="0.01" max="{{ e.saldo_a_pagar }}"
                                value="{{ e.saldo_a_pagar }}" required class="form-control" style="width: 90px; padding: 4px;">
                         <select name="meio_liquidacao" class="form-control" style="width: 95px; padding: 4px;">
@@ -1197,7 +1269,7 @@ function adicionarLinhaParcela() {
 
 {% if cmv.pagamentos_periodo %}
 <div class="card" style="margin-bottom: 20px;">
-    <h3><i class="fas fa-history"></i> Baixas no período</h3>
+    <h3 class="cmv-card-titulo"><i class="fas fa-history"></i> Baixas no período</h3>
     <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
         <thead>
             <tr style="border-bottom: 2px solid #444; text-align: left;">
@@ -1225,7 +1297,7 @@ function adicionarLinhaParcela() {
 
 {% if cmv.entradas_periodo %}
 <div class="card">
-    <h3><i class="fas fa-boxes"></i> Entradas de estoque no período</h3>
+    <h3 class="cmv-card-titulo"><i class="fas fa-boxes"></i> Entradas de estoque no período</h3>
     <table style="width: 100%; color: #eee; border-collapse: collapse; margin-top: 15px;">
         <thead>
             <tr style="border-bottom: 2px solid #444; text-align: left;">

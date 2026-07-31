@@ -42,7 +42,7 @@ def listar_entradas_abertas_cmv(lojas_cmv):
     return lista
 
 
-def listar_parcelas_mercadoria(lojas_cmv, data_inicio, data_fim, status=None):
+def listar_parcelas_mercadoria(lojas_cmv, data_inicio, data_fim, status=None, busca=None):
     qs = (
         ParcelaMercadoriaAgendada.objects.filter(
             loja__in=lojas_cmv,
@@ -51,12 +51,26 @@ def listar_parcelas_mercadoria(lojas_cmv, data_inicio, data_fim, status=None):
         .select_related('entrada__item', 'entrada__fornecedor', 'loja')
         .order_by('data_vencimento', 'entrada__item__nome')
     )
-    if status:
-        qs = qs.filter(status=status)
+
+    status_filtro = (status or '').strip().upper()
+    if status_filtro in ('AGENDADO', 'PAGO', 'CANCELADO'):
+        qs = qs.filter(status=status_filtro)
+    elif status_filtro == 'ATRASADA':
+        qs = qs.filter(status='AGENDADO', data_vencimento__lt=timezone.localdate())
+
+    busca_txt = (busca or '').strip()
+    if busca_txt:
+        from django.db.models import Q
+        qs = qs.filter(
+            Q(entrada__item__nome__icontains=busca_txt)
+            | Q(entrada__fornecedor__nome__icontains=busca_txt)
+            | Q(entrada__id__icontains=busca_txt)
+        )
 
     lista = []
     total_agendado = Decimal('0')
     total_atrasado = Decimal('0')
+    total_pago = Decimal('0')
 
     for p in qs:
         atrasada = p.esta_atrasada
@@ -64,6 +78,8 @@ def listar_parcelas_mercadoria(lojas_cmv, data_inicio, data_fim, status=None):
             total_agendado += p.valor
             if atrasada:
                 total_atrasado += p.valor
+        elif p.status == 'PAGO':
+            total_pago += p.valor
         fornecedor = '—'
         if p.entrada.fornecedor_id:
             fornecedor = p.entrada.fornecedor.nome
@@ -87,4 +103,5 @@ def listar_parcelas_mercadoria(lojas_cmv, data_inicio, data_fim, status=None):
         'qtd': len(lista),
         'total_agendado': total_agendado,
         'total_atrasado': total_atrasado,
+        'total_pago': total_pago,
     }

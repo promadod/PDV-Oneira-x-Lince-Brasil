@@ -2900,6 +2900,10 @@ def relatorios(request):
     elif tipo_relatorio == 'cmv':
         lojas_cmv = lojas_alvo.filter(gerencia_pagamento_mercadorias=True)
         context['tem_cmv_pagamento'] = lojas_cmv.exists()
+        cmv_parcela_status = (request.GET.get('cmv_parcela_status') or 'todos').strip()
+        cmv_busca = (request.GET.get('cmv_busca') or '').strip()
+        context['cmv_parcela_status'] = cmv_parcela_status
+        context['cmv_busca'] = cmv_busca
         if lojas_cmv.exists():
             cmv_vendido = calcular_custo_mercadorias_periodo(lojas_cmv, data_inicio, data_fim)
             entradas_periodo = EntradaEstoque.objects.filter(
@@ -2914,8 +2918,11 @@ def relatorios(request):
             pago_periodo = pagamentos_periodo.aggregate(Sum('valor'))['valor__sum'] or Decimal('0')
             entradas_abertas = listar_entradas_abertas_cmv(lojas_cmv)
             total_a_pagar = sum((e['saldo_a_pagar'] for e in entradas_abertas), Decimal('0'))
+            status_filtro = None if cmv_parcela_status in ('', 'todos') else cmv_parcela_status
             parcelas, totais_parcelas = listar_parcelas_mercadoria(
                 lojas_cmv, data_inicio, data_fim,
+                status=status_filtro,
+                busca=cmv_busca,
             )
             context['cmv'] = {
                 'cmv_vendido': cmv_vendido,
@@ -2936,10 +2943,15 @@ def _redirect_relatorio_fiado(request, tipo='fiado'):
     data_inicio = request.POST.get('data_inicio', request.GET.get('data_inicio', ''))
     data_fim = request.POST.get('data_fim', request.GET.get('data_fim', ''))
     loja_id = request.POST.get('loja_id', request.GET.get('loja_id', 'todas'))
-    return redirect(
+    url = (
         f"{reverse('relatorios')}?tipo_relatorio={tipo}"
         f"&data_inicio={data_inicio}&data_fim={data_fim}&loja_id={loja_id}"
     )
+    if tipo == 'cmv':
+        cmv_status = request.POST.get('cmv_parcela_status', request.GET.get('cmv_parcela_status', 'todos'))
+        cmv_busca = request.POST.get('cmv_busca', request.GET.get('cmv_busca', ''))
+        url += f"&cmv_parcela_status={cmv_status}&cmv_busca={cmv_busca}"
+    return redirect(url)
 
 
 @login_required
