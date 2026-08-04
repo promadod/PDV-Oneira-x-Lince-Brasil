@@ -1,3 +1,5 @@
+# Gerado em runtime por alertmanager-entrypoint.sh
+# Mantido no repositório só como referência do formato com SMTP ativo.
 global:
   resolve_timeout: 5m
   smtp_smarthost: '${SMTP_HOST}:${SMTP_PORT}'
@@ -7,14 +9,13 @@ global:
   smtp_require_tls: ${SMTP_REQUIRE_TLS}
 
 route:
-  receiver: '${ALERT_RECEIVER}'
+  receiver: 'email'
   group_by: ['alertname', 'severity']
   group_wait: 30s
   group_interval: 5m
   repeat_interval: 4h
 
 receivers:
-  - name: 'noop'
   - name: 'email'
     email_configs:
       - to: '${ALERT_EMAIL_TO}'
