@@ -30,6 +30,9 @@ if not SECRET_KEY:
 DEBUG = env_bool('DEBUG', default=False)
 
 ALLOWED_HOSTS = env_list('ALLOWED_HOSTS', default=['localhost', '127.0.0.1'])
+# Host interno do compose para scrape Prometheus → web:8000/metrics
+if 'web' not in ALLOWED_HOSTS:
+    ALLOWED_HOSTS = [*ALLOWED_HOSTS, 'web']
 
 CSRF_TRUSTED_ORIGINS = env_list('CSRF_TRUSTED_ORIGINS')
 
@@ -165,6 +168,8 @@ else:
 
 if not DEBUG:
     SECURE_SSL_REDIRECT = env_bool('SECURE_SSL_REDIRECT', default=True)
+    # Scrapes internos (Prometheus) usam HTTP na rede Docker
+    SECURE_REDIRECT_EXEMPT = [r'^metrics/?$']
     # Em HTTP (IP antes do SSL) deixe CSRF_COOKIE_SECURE=False e SESSION_COOKIE_SECURE=False no .env
     SESSION_COOKIE_SECURE = env_bool('SESSION_COOKIE_SECURE', default=True)
     CSRF_COOKIE_SECURE = env_bool('CSRF_COOKIE_SECURE', default=True)
