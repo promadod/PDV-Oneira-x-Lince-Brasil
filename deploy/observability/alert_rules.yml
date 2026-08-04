@@ -1,0 +1,29 @@
+groups:
+  - name: pdv_host
+    rules:
+      - alert: HighHostCPU
+        expr: 100 - (avg by (instance) (rate(node_cpu_seconds_total{mode="idle"}[5m])) * 100) > 80
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "CPU do servidor acima de 80%"
+          description: "Uso médio de CPU em {{ $labels.instance }} está em {{ $value | printf \"%.1f\" }}% há mais de 5 minutos."
+
+      - alert: HighHostMemory
+        expr: (1 - (node_memory_MemAvailable_bytes / node_memory_MemTotal_bytes)) * 100 > 90
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Memória do servidor acima de 90%"
+          description: "Memória em uso em {{ $labels.instance }}: {{ $value | printf \"%.1f\" }}%."
+
+      - alert: DiskAlmostFull
+        expr: (1 - (node_filesystem_avail_bytes{fstype!~"tmpfs|overlay",mountpoint="/"} / node_filesystem_size_bytes{fstype!~"tmpfs|overlay",mountpoint="/"})) * 100 > 85
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Disco acima de 85%"
+          description: "Uso de disco em /: {{ $value | printf \"%.1f\" }}%."

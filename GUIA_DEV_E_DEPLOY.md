@@ -52,6 +52,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 
 - App: http://127.0.0.1:8000
 - Health: http://127.0.0.1:8000/health/
+- Observabilidade (produção Contabo): ver `GUIA_OBSERVABILIDADE.md`
 
 Em segundo plano:
 
@@ -136,11 +137,13 @@ cd /opt/pdv/app
 git fetch origin
 git checkout develop
 git pull origin develop
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d --build
-docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T web python manage.py migrate --noinput
-docker compose -f docker-compose.yml -f docker-compose.prod.yml ps
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.observability.yml up -d --build
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.observability.yml exec -T web python manage.py migrate --noinput
+docker compose -f docker-compose.yml -f docker-compose.prod.yml -f docker-compose.observability.yml ps
 curl -s https://oneirasistemas.com.br/health/
 ```
+
+Observabilidade: ver `GUIA_OBSERVABILIDADE.md` (Grafana/Prometheus via túnel SSH).
 
 Teste a feature em: https://oneirasistemas.com.br
 

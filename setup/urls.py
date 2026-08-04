@@ -8,6 +8,7 @@ from setup.health import health
 
 urlpatterns = [
     path('health/', health, name='health'),
+    path('', include('django_prometheus.urls')),
     path('admin/', admin.site.urls),
     path('accounts/login/', SegurancaLoginView.as_view(), name='login'),
     path('accounts/logout/', LogoutView.as_view(), name='logout'),
