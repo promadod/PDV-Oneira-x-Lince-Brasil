@@ -4200,6 +4200,16 @@ class CustomAuthToken(ObtainAuthToken):
                 status=403,
             )
 
+        if not user.is_superuser:
+            from app_pdv.assinatura import (
+                loja_do_usuario,
+                loja_esta_bloqueada,
+                payload_assinatura_bloqueada,
+            )
+            loja = loja_do_usuario(user)
+            if loja and loja_esta_bloqueada(loja):
+                return Response(payload_assinatura_bloqueada(loja), status=403)
+
         limpar_falhas_apos_sucesso(request, user)
 
         if not user.is_superuser:

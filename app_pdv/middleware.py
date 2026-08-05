@@ -2,8 +2,13 @@ from django.shortcuts import redirect
 from django.urls import reverse
 from django.contrib.auth import logout
 from django.contrib import messages
+from django.contrib.auth.models import AnonymousUser
 from django.http import JsonResponse
-from .models import Loja
+from .assinatura import (
+    loja_do_usuario,
+    loja_esta_bloqueada,
+    payload_assinatura_bloqueada,
+)
 from .seguranca import (
     conta_congelada_username,
     ip_bloqueado,
@@ -13,27 +18,62 @@ from .seguranca import (
 )
 
 
+def _usuario_da_requisicao(request):
+    """
+    Session (web) ou Authorization: Token … (app gestor / API).
+    DRF só autentica o token na view; o middleware precisa resolver sozinho.
+    """
+    user = getattr(request, 'user', None)
+    if user is not None and user.is_authenticated:
+        return user
+
+    auth = request.META.get('HTTP_AUTHORIZATION', '') or ''
+    if not auth.lower().startswith('token '):
+        return user if user is not None else AnonymousUser()
+
+    key = auth.split(' ', 1)[1].strip()
+    if not key:
+        return AnonymousUser()
+
+    from rest_framework.authtoken.models import Token
+
+    try:
+        return Token.objects.select_related('user', 'user__perfil', 'user__perfil__loja').get(
+            key=key
+        ).user
+    except Token.DoesNotExist:
+        return AnonymousUser()
+
+
 class BloqueioPagamentoMiddleware:
     def __init__(self, get_response):
         self.get_response = get_response
 
+    def _resposta_bloqueio(self, request, loja):
+        # App gestor (React/Vercel) e demais clientes de API: JSON, não redirect HTML
+        if request.path.startswith('/api/'):
+            return JsonResponse(payload_assinatura_bloqueada(loja), status=403)
+        return redirect('assinatura_bloqueada')
+
     def __call__(self, request):
+        user = _usuario_da_requisicao(request)
+
         # 1. Se não estiver logado, libera
-        if not request.user.is_authenticated:
+        if not user.is_authenticated:
             return self.get_response(request)
 
         # 2. Se for Superuser, libera
-        if request.user.is_superuser:
+        if user.is_superuser:
             return self.get_response(request)
 
-        # 3. URLs liberadas
+        # 3. URLs liberadas (NÃO liberar /api/ inteiro — o app gestor deve respeitar o bloqueio)
         urls_liberadas = [
             reverse('logout'),
             reverse('assinatura_bloqueada'),
-            '/admin/', 
+            '/admin/',
             '/static/',
             '/media/',
-            '/api/', 
+            '/api/login/',  # login trata assinatura em CustomAuthToken
         ]
 
         for url in urls_liberadas:
@@ -42,20 +82,12 @@ class BloqueioPagamentoMiddleware:
 
         # 4. Verifica a Loja
         try:
-            if hasattr(request.user, 'perfil') and request.user.perfil.loja:
-                loja = request.user.perfil.loja
-                
-                # Rastreamento de uso
+            loja = loja_do_usuario(user)
+            if loja:
                 loja.registrar_acesso()
-                
-                # Verifica se deve bloquear (Baseado na Data)
-                esta_vencido = loja.verificar_bloqueio()
-                
-                if loja.status_assinatura == 'BLOQUEADO' or esta_vencido:
-                    return redirect('assinatura_bloqueada')
-                    
+                if loja_esta_bloqueada(loja):
+                    return self._resposta_bloqueio(request, loja)
         except Exception as e:
-            # Em produção, é melhor usar logging em vez de print
             print(f"Erro Middleware: {e}")
 
         return self.get_response(request)
