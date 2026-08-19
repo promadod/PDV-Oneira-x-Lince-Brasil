@@ -150,7 +150,42 @@ class Loja(models.Model):
         default=False,
         verbose_name="Trabalha com leitor de código de barras?",
         help_text="Ativo: na tela de vendas, leituras USB selecionam o produto automaticamente. "
-                   "Cadastre o código de barras em cada produto.",
+                   "Cadastre o código em cada produto. Necessário também para ler a etiqueta da balança.",
+    )
+
+    trabalha_com_balanca_granel = models.BooleanField(
+        default=False,
+        verbose_name="Trabalha com balança de granel (etiqueta)?",
+        help_text="Ativo: o PDV decodifica a etiqueta da Prix 4 Uno / Prix 3 Fit+L42 "
+                   "(código digitado na balança + peso). Use o mesmo código do cadastro na tabela da balança (MGV).",
+    )
+    BALANCA_PLU_DIGITOS_CHOICES = [
+        (4, '4 dígitos'),
+        (5, '5 dígitos'),
+        (6, '6 dígitos'),
+    ]
+    BALANCA_EAN_VARIAVEL_CHOICES = [
+        ('PESO', 'Peso (gramas) na etiqueta'),
+        ('PRECO', 'Preço total (centavos) na etiqueta'),
+    ]
+    balanca_ean_prefixo = models.CharField(
+        max_length=2,
+        default='2',
+        verbose_name="Prefixo EAN da etiqueta (balança)",
+        help_text="Padrão Toledo/supermercado: 2. Deve ser o mesmo no MGV das duas balanças.",
+    )
+    balanca_plu_digitos = models.PositiveSmallIntegerField(
+        default=6,
+        choices=BALANCA_PLU_DIGITOS_CHOICES,
+        verbose_name="Dígitos do código na balança (PLU)",
+        help_text="Tamanho do código digitado na balança (4, 5 ou 6). Igual no MGV da Prix 4 Uno e da Prix 3 Fit.",
+    )
+    balanca_ean_variavel = models.CharField(
+        max_length=8,
+        choices=BALANCA_EAN_VARIAVEL_CHOICES,
+        default='PESO',
+        verbose_name="O que a etiqueta leva além do código",
+        help_text="PESO: gramas do produto. PRECO: valor total em centavos. Tem que ser a mesma opção no MGV.",
     )
 
     cobra_taxa_servico = models.BooleanField(
@@ -715,8 +750,9 @@ class Produto(models.Model):
     nome_venda = models.CharField(max_length=150, verbose_name="Nome na Venda (Ex: Pack, Promoção)")
     codigo_barras = models.CharField(
         max_length=50, blank=True, default='',
-        verbose_name="Código de barras (EAN/GTIN)",
-        help_text="Lido pelo leitor USB na tela de vendas (quando a loja usa leitor de código de barras).",
+        verbose_name="Código do produto (barras / balança)",
+        help_text="Unidade: EAN do fabricante. Granel: o mesmo código digitado na balança (PLU). "
+                   "Na etiqueta a balança junta este código + peso; o PDV separa na leitura.",
     )
     preco_compra = models.DecimalField(max_digits=10, decimal_places=2, default=0.00, verbose_name="Preço de Custo (Unitário)")
     preco_venda = models.DecimalField(max_digits=10, decimal_places=2, default=0.00)

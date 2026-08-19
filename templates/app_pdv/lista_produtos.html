@@ -9,9 +9,27 @@
         {% if loja.divide_produtos_por_grupos %}
         <a href="{% url 'gerenciar_grupos_produto' %}" class="btn" style="background:#15a0a5; color:#000;">Cadastrar Grupo</a>
         {% endif %}
+        {% if loja.trabalha_com_balanca_granel %}
+        <a href="{% url 'exportar_carga_balanca' %}" class="btn" style="background:#333; color:#03dac6;">Carga da balança (MGV)</a>
+        {% endif %}
         <a href="{% url 'novo_produto' %}" class="btn">Novo Produto +</a>
     </div>
 </div>
+
+{% if loja.trabalha_com_balanca_granel %}
+<div class="card" style="margin-bottom:16px; padding:14px 18px; color:#ccc; font-size:0.92em;">
+    <strong style="color:#03dac6;">Balança (Prix 4 Uno / Prix 3 Fit + L42)</strong>
+    <p style="margin:8px 0 0 0;">
+        O código cadastrado no produto é o que se <strong>digita</strong> nas duas balanças (Prix 4 Uno e Prix 3 Fit).
+        Exporte a carga e importe o <strong>mesmo arquivo</strong> no MGV das duas.
+        A 4 Uno imprime a etiqueta; a 3 Fit usa a impressora L42.
+        O preço na etiqueta é o <strong>preço/kg do PDV × peso</strong> (a balança calcula na hora).
+        No caixa, o leitor lê a etiqueta: o PDV mostra o <strong>nome</strong> e o <strong>peso</strong>.
+        Formato da etiqueta: prefixo {{ loja.balanca_ean_prefixo }}, PLU {{ loja.balanca_plu_digitos }} dígitos,
+        {{ loja.get_balanca_ean_variavel_display }}. Ative também o leitor de código de barras.
+    </p>
+</div>
+{% endif %}
 
 <div class="card">
     <table style="width:100%; border-collapse: collapse; color: #fff;">

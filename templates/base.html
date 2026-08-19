@@ -453,7 +453,12 @@
         const btnSalvar = document.getElementById('btn-config-salvar');
         const GRUPOS = {
             entregas: ['trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon', 'taxa_entrega_pdv'],
-            pdv: ['impressao_automatica', 'trabalha_com_leitor_codigo_barras', 'cobra_taxa_servico', 'taxa_servico_pct'],
+            pdv: [
+                'impressao_automatica', 'trabalha_com_leitor_codigo_barras',
+                'trabalha_com_balanca_granel', 'balanca_ean_prefixo',
+                'balanca_plu_digitos', 'balanca_ean_variavel',
+                'cobra_taxa_servico', 'taxa_servico_pct',
+            ],
             deposito: ['usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'permite_venda_completa', 'divide_produtos_por_grupos', 'gerencia_pagamento_mercadorias'],
             fidelidade: ['fidelidade_ativa', 'fidelidade_tipo_meta', 'fidelidade_meta', 'fidelidade_desconto_pct'],
         };
@@ -507,6 +512,11 @@
                         html += `<div class="config-loja-item" style="flex-direction:column;gap:6px;">
                             <label for="cfg_${c.nome}">${label}${help ? `<small>${help}</small>` : ''}</label>
                             <select id="cfg_${c.nome}" data-nome="${c.nome}" data-tipo="choice">${opts}</select>
+                        </div>`;
+                    } else if (c.tipo === 'text') {
+                        html += `<div class="config-loja-item" style="flex-direction:column;gap:6px;">
+                            <label for="cfg_${c.nome}">${label}${help ? `<small>${help}</small>` : ''}</label>
+                            <input type="text" id="cfg_${c.nome}" data-nome="${c.nome}" data-tipo="text" maxlength="8" value="${escapeHtml(c.valor == null ? '' : c.valor)}">
                         </div>`;
                     } else {
                         html += `<div class="config-loja-item">

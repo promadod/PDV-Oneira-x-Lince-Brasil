@@ -521,6 +521,7 @@
     const USA_FIADO = {{ usa_fiado|yesno:"true,false" }};
     let caixaAbertoPdv = {{ caixa_aberto|yesno:"true,false" }};
     const LEITOR_CODIGO_BARRAS = {{ leitor_codigo_barras|yesno:"true,false" }};
+    const BALANCA_CFG = {{ balanca_config_json|safe|default:"{}" }};
     const MAPA_CODIGOS_BARRAS = {{ mapa_codigos_barras_json|safe }};
     const LISTA_CODIGOS_PRODUTOS = {{ lista_codigos_produtos_json|safe }};
     const MEIOS_ATALHO_F = { F1: 'DINHEIRO', F2: 'PIX', F3: 'CREDITO', F4: 'DEBITO' };
@@ -658,7 +659,7 @@
             && option.getAttribute('data-vende-vazio') !== '1';
     }
 
-    function aplicarOpcaoProduto(option) {
+    function aplicarOpcaoProduto(option, extras) {
         if (!option) return;
         const id = option.getAttribute('data-id');
         const unidade = option.getAttribute('data-unidade');
@@ -675,12 +676,16 @@
         }
 
         const inputQtd = document.getElementById('qtd_input');
-        if (unidade === 'KG' || unidade === 'L') {
+        const qtdExtra = extras && extras.quantidade != null ? Number(extras.quantidade) : null;
+        if (qtdExtra && qtdExtra > 0) {
+            inputQtd.value = (unidade === 'KG' || unidade === 'L') ? qtdExtra.toFixed(3) : String(Math.max(1, Math.round(qtdExtra)));
+        } else if (unidade === 'KG' || unidade === 'L') {
             inputQtd.value = '1.000';
         } else {
             inputQtd.value = '1';
         }
-        document.getElementById('total_item_input').value = precoNum.toFixed(2);
+        const qtdAtual = parseFloat(String(inputQtd.value).replace(',', '.')) || 0;
+        document.getElementById('total_item_input').value = (precoNum * qtdAtual).toFixed(2);
         inputQtd.select();
     }
 
@@ -796,23 +801,95 @@
         renderizarTabela();
     }
 
+    function ean13DigitoVerificador(doze) {
+        const corpo = String(doze || '').replace(/\D/g, '');
+        if (corpo.length !== 12) return '';
+        let soma = 0;
+        for (let i = 0; i < 12; i++) {
+            const n = parseInt(corpo[i], 10);
+            soma += (i % 2 === 0) ? n : n * 3;
+        }
+        return String((10 - (soma % 10)) % 10);
+    }
+
+    function chavesPluPossiveis(codigo) {
+        const bruto = String(codigo || '').trim();
+        const digitos = bruto.replace(/\D/g, '');
+        const n = parseInt(BALANCA_CFG.plu_digitos, 10) || 6;
+        const chaves = [];
+        const add = (v) => { if (v && chaves.indexOf(v) < 0) chaves.push(v); };
+        add(bruto);
+        if (digitos) {
+            add(digitos);
+            add(digitos.replace(/^0+/, '') || '0');
+            if (digitos.length <= n) add(digitos.padStart(n, '0'));
+        }
+        return chaves;
+    }
+
+    function nomeProdutoPorCodigo(codigo) {
+        const chaves = chavesPluPossiveis(codigo);
+        for (let i = 0; i < chaves.length; i++) {
+            const nome = MAPA_CODIGOS_BARRAS[chaves[i]];
+            if (nome) return nome;
+        }
+        return '';
+    }
+
+    function decodificarEtiquetaBalanca(codigo) {
+        if (!BALANCA_CFG || !BALANCA_CFG.ativa) return null;
+        const bruto = String(codigo || '').replace(/\D/g, '');
+        if (bruto.length !== 13) return null;
+        const prefixo = String((BALANCA_CFG && BALANCA_CFG.prefixo) || '2');
+        const pluN = parseInt(BALANCA_CFG && BALANCA_CFG.plu_digitos, 10) || 6;
+        const variavel = ((BALANCA_CFG && BALANCA_CFG.variavel) || 'PESO').toUpperCase();
+        if (!bruto.startsWith(prefixo)) return null;
+        const ini = prefixo.length;
+        const fim = ini + pluN;
+        if (fim >= 12) return null;
+        const plu = bruto.slice(ini, fim);
+        const payload = bruto.slice(fim, 12);
+        if (!/^\d+$/.test(plu) || !/^\d+$/.test(payload)) return null;
+        const valor = parseInt(payload, 10);
+        if (!valor) return null;
+        const out = { plu: plu, etiqueta: true, dvOk: ean13DigitoVerificador(bruto.slice(0, 12)) === bruto[12] };
+        if (variavel === 'PRECO') {
+            out.precoTotal = valor / 100;
+            out.quantidade = null;
+        } else {
+            out.quantidade = valor / 1000;
+            out.precoTotal = null;
+        }
+        return out;
+    }
+
     function selecionarProdutoPorCodigoBarras(codigo, opcoes) {
         const codigoLimpo = String(codigo || '').trim();
         if (!codigoLimpo) return false;
         const silencioso = !!(opcoes && opcoes.silencioso);
-
+        const etiqueta = decodificarEtiquetaBalanca(codigoLimpo);
         let nomeProduto = MAPA_CODIGOS_BARRAS[codigoLimpo];
+        if (!nomeProduto && etiqueta) {
+            nomeProduto = nomeProdutoPorCodigo(etiqueta.plu);
+        }
         const datalist = document.getElementById('lista_produtos');
         if (!nomeProduto && datalist) {
+            const candidatos = [codigoLimpo];
+            if (etiqueta) candidatos.push.apply(candidatos, chavesPluPossiveis(etiqueta.plu));
             for (let i = 0; i < datalist.options.length; i++) {
                 const opt = datalist.options[i];
-                if ((opt.getAttribute('data-codigo-barras') || '').trim() === codigoLimpo) {
+                const barras = (opt.getAttribute('data-codigo-barras') || '').trim();
+                const idOpt = (opt.getAttribute('data-id') || '').trim();
+                if (candidatos.indexOf(barras) >= 0 || candidatos.indexOf(idOpt) >= 0) {
                     nomeProduto = opt.value;
                     break;
                 }
-                if ((opt.getAttribute('data-id') || '').trim() === codigoLimpo) {
-                    nomeProduto = opt.value;
-                    break;
+                if (etiqueta) {
+                    const chavesCadastro = chavesPluPossiveis(barras);
+                    if (chavesCadastro.indexOf(etiqueta.plu) >= 0 || chavesCadastro.indexOf(etiqueta.plu.replace(/^0+/, '') || '0') >= 0) {
+                        nomeProduto = opt.value;
+                        break;
+                    }
                 }
             }
         }
@@ -821,13 +898,22 @@
             return false;
         }
 
-        document.getElementById('produto_input').value = nomeProduto;
+        const inpProduto = document.getElementById('produto_input');
+        inpProduto.value = nomeProduto;
         const option = obterOpcaoProdutoSelecionada();
         if (!option) {
             if (!silencioso) alert('Produto não disponível no PDV para o código: ' + codigoLimpo);
             return false;
         }
-        aplicarOpcaoProduto(option);
+        let qtdEtiqueta = null;
+        if (etiqueta) {
+            qtdEtiqueta = etiqueta.quantidade;
+            if (qtdEtiqueta == null && etiqueta.precoTotal) {
+                const preco = obterPrecoProdutoOption(option);
+                if (preco > 0) qtdEtiqueta = etiqueta.precoTotal / preco;
+            }
+        }
+        aplicarOpcaoProduto(option, qtdEtiqueta ? { quantidade: qtdEtiqueta } : null);
         const qtdInput = document.getElementById('qtd_input');
         if (qtdInput) qtdInput.focus();
         return true;
@@ -1412,21 +1498,48 @@
 
         if (e.key === 'Enter') {
             const active = document.activeElement;
-            if (active && active.id === 'produto_input') {
-                const val = active.value.trim();
-                if (val && !document.getElementById('produto_id_hidden').value) {
-                    if (selecionarProdutoPorCodigoBarras(val)) {
-                        e.preventDefault();
-                        return;
+            if (active && ['produto_input','qtd_input','preco_input','total_item_input'].includes(active.id)) {
+                e.preventDefault();
+                if (active.id === 'produto_input') {
+                    const val = active.value.trim();
+                    if (val && !document.getElementById('produto_id_hidden').value) {
+                        selecionarProdutoPorCodigoBarras(val);
                     }
                 }
-            }
-            if (active && ['produto_input','qtd_input','preco_input','total_item_input'].includes(active.id)) {
-                e.preventDefault(); adicionarAoCarrinho();
+                adicionarAoCarrinho();
             }
         }
         if (e.key === 'F2' && !modalAberto) { e.preventDefault(); abrirModalPagamento(); }
     });
+
+    // Leitor USB (cunha de teclado): captura o EAN-13 da etiqueta mesmo sem foco no campo produto.
+    if (LEITOR_CODIGO_BARRAS) {
+        let bufferLeitor = '';
+        let ultimoTsLeitor = 0;
+        document.addEventListener('keypress', (e) => {
+            if (modalAberto) return;
+            const ae = document.activeElement;
+            if (ae && ae.id === 'produto_input') return;
+            if (ae && (ae.tagName === 'TEXTAREA' || (ae.tagName === 'INPUT' && ae.id && ae.id !== 'qtd_input'))) {
+                return;
+            }
+            const agora = Date.now();
+            if (agora - ultimoTsLeitor > 80) bufferLeitor = '';
+            ultimoTsLeitor = agora;
+            if (e.key === 'Enter') {
+                const codigo = bufferLeitor.replace(/\D/g, '');
+                bufferLeitor = '';
+                if (codigo.length >= 4 && selecionarProdutoPorCodigoBarras(codigo, { silencioso: codigo.length === 13 })) {
+                    e.preventDefault();
+                    if (decodificarEtiquetaBalanca(codigo)) {
+                        adicionarAoCarrinho();
+                    }
+                }
+                return;
+            }
+            if (e.key && e.key.length === 1) bufferLeitor += e.key;
+        });
+    }
 
     function aplicarStatusCaixaRodape(dados) {
         if (!dados) return;

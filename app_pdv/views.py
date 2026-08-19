@@ -71,6 +71,7 @@ from .fiado_helpers import (
     listar_parcelas_agendadas, distribuir_pagamento_fiado,
 )
 from .mercadoria_helpers import listar_entradas_abertas_cmv, listar_parcelas_mercadoria
+from .balanca import config_balanca_loja, gerar_csv_carga_balanca
 from .forms import (
     ProdutoForm, ClienteForm, FornecedorForm, LojaForm, 
     CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, 
@@ -198,7 +199,12 @@ def api_config_loja_pdv(request):
             tipo_interno = field.get_internal_type()
             if tipo_interno == 'BooleanField':
                 tipo = 'bool'
-            elif tipo_interno in ('DecimalField', 'FloatField', 'IntegerField', 'PositiveIntegerField'):
+            elif field.choices:
+                tipo = 'choice'
+            elif tipo_interno in (
+                'DecimalField', 'FloatField', 'IntegerField',
+                'PositiveIntegerField', 'PositiveSmallIntegerField', 'SmallIntegerField',
+            ):
                 tipo = 'decimal'
             else:
                 tipo = 'choice' if field.choices else 'text'
@@ -249,6 +255,13 @@ def api_config_loja_pdv(request):
             campos_para_salvar.append(nome)
             alterados.append(f'{field.verbose_name}: {valor_antigo} → {valor_novo}')
 
+    if 'trabalha_com_balanca_granel' in campos_para_salvar and loja.trabalha_com_balanca_granel:
+        if not loja.trabalha_com_leitor_codigo_barras:
+            loja.trabalha_com_leitor_codigo_barras = True
+            if 'trabalha_com_leitor_codigo_barras' not in campos_para_salvar:
+                campos_para_salvar.append('trabalha_com_leitor_codigo_barras')
+            alterados.append('Trabalha com leitor de código de barras?: False → True')
+
     if campos_para_salvar:
         loja.save(update_fields=campos_para_salvar)
         loja.refresh_from_db(fields=campos_para_salvar)
@@ -285,6 +298,24 @@ def lista_produtos(request):
         'produtos': produtos,
         'loja': loja,
     })
+
+
+@login_required
+def exportar_carga_balanca(request):
+    """CSV com o mesmo código do cadastro para carregar no MGV (Prix 4 Uno e 3 Fit)."""
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+    produtos = (
+        Produto.objects.filter(loja=loja)
+        .exclude(codigo_barras='')
+        .select_related('item_estoque')
+        .order_by('nome_venda')
+    )
+    conteudo = gerar_csv_carga_balanca(produtos, loja)
+    response = HttpResponse('\ufeff' + conteudo, content_type='text/csv; charset=utf-8')
+    response['Content-Disposition'] = 'attachment; filename="carga_balanca_mgv.csv"'
+    return response
 
 @login_required
 def gerenciar_grupos_produto(request):
@@ -783,14 +814,17 @@ def loja_usa_taxa_servico(loja):
 
 
 def _mapa_codigos_barras_pdv(loja, produtos_pdv=None):
-    """Mapa código de barras / ID interno → nome para busca no PDV."""
+    """Mapa código de barras / PLU / ID interno → nome para busca no PDV."""
+    from .balanca import chaves_busca_plu, config_balanca_loja
     qs = Produto.objects.filter(loja=loja).only('id', 'nome_venda', 'codigo_barras')
     mapa = {}
+    cfg = config_balanca_loja(loja)
     for p in qs:
         mapa[str(p.id)] = p.nome_venda
         codigo = (p.codigo_barras or '').strip()
         if codigo:
-            mapa[codigo] = p.nome_venda
+            for chave in chaves_busca_plu(codigo, cfg['plu_digitos']):
+                mapa[chave] = p.nome_venda
     return mapa
 
 
@@ -850,6 +884,8 @@ CAMPOS_CONFIG_LOJA_PDV = [
     'taxa_entrega_pdv',
     # PDV
     'impressao_automatica', 'trabalha_com_leitor_codigo_barras',
+    'trabalha_com_balanca_granel', 'balanca_ean_prefixo',
+    'balanca_plu_digitos', 'balanca_ean_variavel',
     'cobra_taxa_servico', 'taxa_servico_pct',
     # Depósito / Fiado
     'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio',
@@ -864,7 +900,10 @@ def _serializar_valor_campo_loja(field, valor):
     """Normaliza valor do modelo Loja para JSON/API."""
     if field.get_internal_type() == 'BooleanField':
         return bool(valor)
-    if field.get_internal_type() in ('DecimalField', 'FloatField', 'IntegerField', 'PositiveIntegerField'):
+    if field.get_internal_type() in (
+        'DecimalField', 'FloatField', 'IntegerField',
+        'PositiveIntegerField', 'PositiveSmallIntegerField', 'SmallIntegerField',
+    ):
         if valor is None:
             return None
         return float(valor)
@@ -884,7 +923,7 @@ def _parse_valor_campo_loja(field, bruto):
         return False
     if tipo in ('DecimalField', 'FloatField'):
         return Decimal(str(bruto).strip().replace(',', '.'))
-    if tipo in ('IntegerField', 'PositiveIntegerField'):
+    if tipo in ('IntegerField', 'PositiveIntegerField', 'PositiveSmallIntegerField', 'SmallIntegerField'):
         return int(Decimal(str(bruto).strip().replace(',', '.')))
     texto = '' if bruto is None else str(bruto).strip()
     if field.choices:
@@ -940,6 +979,8 @@ def _context_tela_vendas(loja, produtos, clientes, request=None, **extra):
         'modo_taxa_servico': loja_usa_taxa_servico(loja),
         'taxa_servico_pct': loja.taxa_servico_pct,
         'leitor_codigo_barras': loja.trabalha_com_leitor_codigo_barras,
+        'trabalha_com_balanca_granel': loja.trabalha_com_balanca_granel,
+        'balanca_config_json': json.dumps(config_balanca_loja(loja), cls=DjangoJSONEncoder),
         'mapa_codigos_barras_json': json.dumps(
             _mapa_codigos_barras_pdv(loja),
             cls=DjangoJSONEncoder,

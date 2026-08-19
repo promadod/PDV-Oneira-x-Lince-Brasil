@@ -31,7 +31,7 @@ class ProdutoForm(forms.ModelForm):
             'eh_kit': 'Produto kit / promoção?',
             'item_estoque': 'Item do Estoque (Pai)', 
             'nome_venda': 'Nome de Venda (Ex: Pack c/ 12)',
-            'codigo_barras': 'Código de barras (leitor USB)',
+            'codigo_barras': 'Código do produto (barras / balança)',
             'imagem': 'Foto do Produto (Aparece no App)', 
             'quantidade_baixa': 'Qtd Itens neste Produto (Ex: 12)',
             'preco_compra': 'Custo Médio (atualizado pelas entradas de estoque)',
@@ -70,8 +70,16 @@ class ProdutoForm(forms.ModelForm):
         self.loja = loja
         super(ProdutoForm, self).__init__(*args, **kwargs)
 
-        if not loja or not loja.trabalha_com_leitor_codigo_barras:
+        if not loja or not (
+            loja.trabalha_com_leitor_codigo_barras or loja.trabalha_com_balanca_granel
+        ):
             self.fields.pop('codigo_barras', None)
+        elif 'codigo_barras' in self.fields:
+            if loja.trabalha_com_balanca_granel:
+                self.fields['codigo_barras'].help_text = (
+                    f'Granel: digite o mesmo código da balança '
+                    f'({loja.balanca_plu_digitos} dígitos). Unidade: EAN do fabricante.'
+                )
         if not loja or not loja.permite_venda_completa:
             self.fields.pop('usa_venda_completa', None)
             self.fields.pop('preco_venda_completo', None)
@@ -100,6 +108,18 @@ class ProdutoForm(forms.ModelForm):
         codigo = (self.cleaned_data.get('codigo_barras') or '').strip()
         if not codigo:
             return ''
+        if self.loja and getattr(self.loja, 'trabalha_com_balanca_granel', False):
+            item = self.cleaned_data.get('item_estoque') or getattr(self.instance, 'item_estoque', None)
+            unidade = getattr(item, 'unidade_medida', None) if item else None
+            if unidade == 'KG':
+                from .balanca import _apenas_digitos, normalizar_plu
+                digitos = _apenas_digitos(codigo)
+                plu_n = int(getattr(self.loja, 'balanca_plu_digitos', 6) or 6)
+                if not digitos or len(digitos) > plu_n:
+                    raise forms.ValidationError(
+                        f'Código da balança (granel) deve ter no máximo {plu_n} dígitos — o mesmo que se digita na Prix.'
+                    )
+                codigo = normalizar_plu(digitos, plu_n)
         if self.loja:
             qs = Produto.objects.filter(loja=self.loja, codigo_barras=codigo)
             if self.instance and self.instance.pk:
