@@ -302,17 +302,25 @@ def lista_produtos(request):
 
 @login_required
 def exportar_carga_balanca(request):
-    """CSV com o mesmo código do cadastro para carregar no MGV (Prix 4 Uno e 3 Fit)."""
+    """CSV só com produtos KG (granel) para carregar no MGV (Prix 4 Uno e 3 Fit)."""
     loja = check_loja(request)
     if not loja:
         return redirect('admin:index')
+    if not getattr(loja, 'trabalha_com_balanca_granel', False):
+        messages.warning(request, 'Balança granel não está habilitada para esta loja.')
+        return redirect('lista_produtos')
     produtos = (
-        Produto.objects.filter(loja=loja)
-        .exclude(codigo_barras='')
+        Produto.objects.filter(loja=loja, item_estoque__unidade_medida='KG')
         .select_related('item_estoque')
         .order_by('nome_venda')
     )
     conteudo = gerar_csv_carga_balanca(produtos, loja)
+    if conteudo.strip().count('\n') <= 1:
+        messages.warning(
+            request,
+            'Nenhum produto em quilograma (KG) encontrado para exportar à balança.',
+        )
+        return redirect('lista_produtos')
     response = HttpResponse('\ufeff' + conteudo, content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = 'attachment; filename="carga_balanca_mgv.csv"'
     return response
@@ -819,11 +827,14 @@ def _mapa_codigos_barras_pdv(loja, produtos_pdv=None):
     qs = Produto.objects.filter(loja=loja).only('id', 'nome_venda', 'codigo_barras')
     mapa = {}
     cfg = config_balanca_loja(loja)
+    plu_n = cfg['plu_digitos']
     for p in qs:
-        mapa[str(p.id)] = p.nome_venda
+        # ID do produto e paddings (export MGV / digitação na balança)
+        for chave in chaves_busca_plu(str(p.id), plu_n):
+            mapa[chave] = p.nome_venda
         codigo = (p.codigo_barras or '').strip()
         if codigo:
-            for chave in chaves_busca_plu(codigo, cfg['plu_digitos']):
+            for chave in chaves_busca_plu(codigo, plu_n):
                 mapa[chave] = p.nome_venda
     return mapa
 
@@ -3491,6 +3502,75 @@ def relatorio_entregadores(request):
 
 # --------------------------------- IMPORTÇÃO ---------------------------------
 
+def normalizar_codigo_barras_excel(valor):
+    """
+    Converte célula do Excel (float/int/str/notação científica) em código limpo,
+    sem sufixo '.0' nem notação científica.
+    """
+    if valor is None:
+        return ''
+    try:
+        if pd.isna(valor):
+            return ''
+    except (TypeError, ValueError):
+        pass
+
+    if isinstance(valor, bool):
+        return ''
+
+    if isinstance(valor, int):
+        return str(valor) if valor >= 0 else ''
+
+    if isinstance(valor, float):
+        if abs(valor) >= 1e16:
+            # float já perdeu dígitos — não inventar código
+            return ''
+        if valor == int(valor):
+            return str(int(valor))
+        return f'{valor:.0f}'
+
+    texto = str(valor).strip()
+    if not texto or texto.lower() in ('nan', 'none', 'nat'):
+        return ''
+
+    # Excel BR às vezes usa vírgula em notação científica
+    texto_norm = texto.replace(' ', '').replace(',', '.')
+    if 'e+' in texto_norm.lower() or 'e-' in texto_norm.lower():
+        try:
+            num = float(texto_norm)
+            if abs(num) >= 1e16:
+                return ''
+            if num == int(num):
+                return str(int(num))
+            return f'{num:.0f}'
+        except ValueError:
+            return ''
+
+    if texto.endswith('.0') and texto[:-2].lstrip('-').isdigit():
+        texto = texto[:-2]
+
+    # Remove caracteres não numéricos comuns de formatação; mantém só dígitos
+    so_digitos = ''.join(ch for ch in texto if ch.isdigit())
+    return so_digitos if so_digitos else texto.strip()
+
+
+def _formatar_colunas_texto_xlsx(workbook, sheet_name, nomes_colunas):
+    """Força formato Texto (@) nas colunas indicadas do modelo Excel."""
+    ws = workbook[sheet_name]
+    headers = [cell.value for cell in ws[1]]
+    for nome in nomes_colunas:
+        if nome not in headers:
+            continue
+        col_idx = headers.index(nome) + 1
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            if cell.value is None or cell.value == '':
+                cell.value = ''
+            else:
+                cell.value = str(cell.value)
+            cell.number_format = '@'
+
+
 @login_required
 def menu_importacao(request):
     form = ImportacaoForm()
@@ -3609,9 +3689,7 @@ def importar_produtos(request):
                     custo = limpar_preco(row.get('preco_custo', 0))
                     venda = limpar_preco(row.get('preco_venda', 0))
 
-                    codigo_barras = str(row.get('codigo_barras', '') or '').strip()
-                    if codigo_barras.lower() == 'nan':
-                        codigo_barras = ''
+                    codigo_barras = normalizar_codigo_barras_excel(row.get('codigo_barras', ''))
 
                     grupo_nome = row.get('grupo')
                     grupo_obj = None
@@ -3716,7 +3794,8 @@ def importar_produtos(request):
 @login_required
 def baixar_modelo_excel(request, tipo):
     output = io.BytesIO()
-    
+    colunas_texto = []
+
     if tipo == 'clientes':
         df = pd.DataFrame({
             'Nome': ['João da Silva (Exemplo)'],
@@ -3725,7 +3804,8 @@ def baixar_modelo_excel(request, tipo):
             'Bairro': ['Centro'],
         })
         nome_arquivo = 'Modelo_Importacao_Clientes.xlsx'
-        
+        colunas_texto = ['WhatsApp']
+
     elif tipo == 'produtos':
         df = pd.DataFrame({
             'Item Pai': ['Special Dog', 'Special Dog', 'Coca Cola Lata'],
@@ -3740,19 +3820,23 @@ def baixar_modelo_excel(request, tipo):
             'Preco Custo': [5.00, 50.00, 2.50],
             'Preco Venda': [10.00, 95.00, 5.00],
         })
+        # Garante dtype string na coluna (evita Excel tratar como número)
+        df['Codigo Barras'] = df['Codigo Barras'].astype(str).replace({'nan': ''})
         nome_arquivo = 'Modelo_Importacao_Produtos.xlsx'
+        colunas_texto = ['Codigo Barras']
     else:
         return HttpResponse("Tipo inválido", status=400)
 
-    # Gera o Excel usando o pandas e manda para o download
-    writer = pd.ExcelWriter(output, engine='openpyxl')
-    df.to_excel(writer, index=False, sheet_name='Planilha_Modelo')
-    writer.close()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Planilha_Modelo')
+        if colunas_texto:
+            _formatar_colunas_texto_xlsx(writer.book, 'Planilha_Modelo', colunas_texto)
+
     output.seek(0)
-    
+
     response = HttpResponse(output, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = f'attachment; filename="{nome_arquivo}"'
-    return response 
+    return response
 
 
 #--------------------------------------Vendedor------------------------------------------

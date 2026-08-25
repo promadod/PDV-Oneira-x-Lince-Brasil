@@ -507,6 +507,8 @@
 
 <script>
     let carrinho = [];
+    let ultimaQtdEtiqueta = null; // kg/qtd calculada da última etiqueta de balança (scan)
+    let ultimoNomeProduto = null; // nome canônico do último produto resolvido (scan)
     let modoEspecial = null;
     const itensPreCarregados = {{ itens_json|safe|default:"[]" }};
     let liquidacoesPreCarregadas = {{ liquidacoes_json|default:"[]"|safe }};
@@ -646,6 +648,33 @@
         return null;
     }
 
+    function obterOpcaoProdutoPorId(id) {
+        if (id == null || id === '') return null;
+        const datalist = document.getElementById('lista_produtos');
+        if (!datalist) return null;
+        const idStr = String(id);
+        for (let i = 0; i < datalist.options.length; i++) {
+            if ((datalist.options[i].getAttribute('data-id') || '') === idStr) {
+                return datalist.options[i];
+            }
+        }
+        return null;
+    }
+
+    function nomeCanonicoProduto(option, nomeInput, opcoes) {
+        if (opcoes && opcoes.nome) return String(opcoes.nome).trim();
+        if (ultimoNomeProduto) return String(ultimoNomeProduto).trim();
+        if (option && option.value) return String(option.value).trim();
+        const bruto = String(nomeInput || '').trim();
+        // Evita gravar EAN da balança (13 dígitos) no lugar do nome
+        if (/^\d{12,14}$/.test(bruto.replace(/\D/g, ''))) {
+            const id = document.getElementById('produto_id_hidden').value;
+            const optId = obterOpcaoProdutoPorId(id);
+            if (optId && optId.value) return String(optId.value).trim();
+        }
+        return bruto;
+    }
+
     function obterPrecoProdutoOption(option) {
         const preco = option.getAttribute('data-preco');
         const precoCompleto = option.getAttribute('data-preco-completo') || preco;
@@ -670,6 +699,7 @@
         const precoNum = obterPrecoProdutoOption(option);
         document.getElementById('preco_input').value = precoNum.toFixed(2);
 
+        // Ícone/conexão de balança ao vivo: só para granel (uso manual). Etiqueta USB não depende disso.
         const containerBalanca = document.getElementById('container-balanca');
         if (containerBalanca) {
             containerBalanca.style.display = unidade === 'KG' ? 'inline-flex' : 'none';
@@ -677,8 +707,10 @@
 
         const inputQtd = document.getElementById('qtd_input');
         const qtdExtra = extras && extras.quantidade != null ? Number(extras.quantidade) : null;
-        if (qtdExtra && qtdExtra > 0) {
-            inputQtd.value = (unidade === 'KG' || unidade === 'L') ? qtdExtra.toFixed(3) : String(Math.max(1, Math.round(qtdExtra)));
+        if (qtdExtra != null && !isNaN(qtdExtra) && qtdExtra > 0) {
+            inputQtd.value = (unidade === 'KG' || unidade === 'L')
+                ? qtdExtra.toFixed(3)
+                : String(Math.max(1, Math.round(qtdExtra)));
         } else if (unidade === 'KG' || unidade === 'L') {
             inputQtd.value = '1.000';
         } else {
@@ -695,7 +727,12 @@
 
         const option = obterOpcaoProdutoSelecionada();
         if (option) {
-            aplicarOpcaoProduto(option);
+            // Preserva qtd vinda da etiqueta se o onchange disparar após o scan
+            if (ultimaQtdEtiqueta != null && ultimaQtdEtiqueta > 0) {
+                aplicarOpcaoProduto(option, { quantidade: ultimaQtdEtiqueta });
+            } else {
+                aplicarOpcaoProduto(option);
+            }
             return;
         }
 
@@ -707,6 +744,8 @@
     }
 
     function limparInputsProduto() {
+        ultimaQtdEtiqueta = null;
+        ultimoNomeProduto = null;
         document.getElementById('produto_id_hidden').value = '';
         document.getElementById('preco_input').value = '';
         document.getElementById('total_item_input').value = '';
@@ -714,19 +753,30 @@
         if (containerBalanca) containerBalanca.style.display = 'none';
     }
 
-    function adicionarAoCarrinho() {
+    function adicionarAoCarrinho(opcoes) {
         const id = document.getElementById('produto_id_hidden').value;
-        const nome = document.getElementById('produto_input').value;
+        const nomeInput = document.getElementById('produto_input').value;
         const precoInput = document.getElementById('preco_input').value;
         const unidade = document.getElementById('produto_unidade_hidden').value || 'UN';
-        const qtdTexto = document.getElementById('qtd_input').value.toString().replace(',', '.');
-        const qtd = parseFloat(qtdTexto);
 
-        if (!id || !nome) { alert('Selecione um produto válido!'); return; }
-        if (!precoInput) { alert('Preço inválido!'); return; }
-        if (isNaN(qtd) || qtd <= 0) { alert('Quantidade inválida!'); return; }
+        let qtd;
+        const qtdOverride = opcoes && opcoes.quantidade != null
+            ? Number(opcoes.quantidade)
+            : (ultimaQtdEtiqueta != null ? Number(ultimaQtdEtiqueta) : null);
+        if (qtdOverride != null && !isNaN(qtdOverride) && qtdOverride > 0) {
+            qtd = qtdOverride;
+        } else {
+            const qtdTexto = document.getElementById('qtd_input').value.toString().replace(',', '.');
+            qtd = parseFloat(qtdTexto);
+        }
 
-        const option = obterOpcaoProdutoSelecionada();
+        const option = obterOpcaoProdutoSelecionada() || obterOpcaoProdutoPorId(id);
+        const nome = nomeCanonicoProduto(option, nomeInput, opcoes);
+
+        if (!id || !nome) { alert('Selecione um produto válido!'); return false; }
+        if (!precoInput) { alert('Preço inválido!'); return false; }
+        if (isNaN(qtd) || qtd <= 0) { alert('Quantidade inválida!'); return false; }
+
         const vendaCompleta = produtoUsaVendaCompleta(option);
         if (option) {
             const ehKit = option.getAttribute('data-eh-kit') === '1';
@@ -745,23 +795,23 @@
                 const qtdTotalKits = qtdJaNoCarrinho + qtd;
                 if (qtdTotalKits > estoqueKit) {
                     alert(`Estoque insuficiente para o kit. Disponível: ${estoqueKit}`);
-                    return;
+                    return false;
                 }
             } else {
                 const consumoTotal = (qtdJaNoCarrinho + qtd) * qtdBaixa;
                 if (vendaCompleta) {
                     if (consumoTotal > estoqueCheio) {
                         alert(`Estoque insuficiente para venda completa. Disponível: ${estoqueCheio}`);
-                        return;
+                        return false;
                     }
                 } else if (vendeVazio) {
                     if (consumoTotal > estoqueVazio) {
                         alert(`Estoque insuficiente de vasilhame vazio. Disponível: ${estoqueVazio}`);
-                        return;
+                        return false;
                     }
                 } else if (consumoTotal > estoqueCheio) {
                     alert(`Estoque insuficiente. Disponível: ${estoqueCheio}`);
-                    return;
+                    return false;
                 }
             }
         }
@@ -777,6 +827,10 @@
 
         if (itemExistente) {
             itemExistente.quantidade = (parseFloat(itemExistente.quantidade) || 0) + qtd;
+            // Corrige nome se uma leitura anterior gravou o EAN no cupom
+            if (itemExistente.nome !== nomeExibicao && !/^\d{12,14}$/.test(String(nomeExibicao).replace(/\D/g, ''))) {
+                itemExistente.nome = nomeExibicao;
+            }
         } else {
             carrinho.push({
                 id: String(id), nome: nomeExibicao, preco: precoFinal,
@@ -785,6 +839,8 @@
         }
 
         renderizarTabela();
+        ultimaQtdEtiqueta = null;
+        ultimoNomeProduto = null;
         document.getElementById('qtd_input').value = unidade === 'KG' || unidade === 'L' ? '1.000' : '1';
         document.getElementById('produto_input').value = '';
         document.getElementById('produto_id_hidden').value = '';
@@ -794,6 +850,7 @@
         const containerBalanca = document.getElementById('container-balanca');
         if (containerBalanca) containerBalanca.style.display = 'none';
         focarEntradaProduto();
+        return true;
     }
 
     function removerItem(idx) {
@@ -821,8 +878,16 @@
         add(bruto);
         if (digitos) {
             add(digitos);
-            add(digitos.replace(/^0+/, '') || '0');
-            if (digitos.length <= n) add(digitos.padStart(n, '0'));
+            const core = digitos.replace(/^0+/, '') || '0';
+            add(core);
+            if (core.length <= n) {
+                add(core.padStart(n, '0'));
+                add(core.padEnd(n, '0'));
+            }
+            if (digitos.length <= n) {
+                add(digitos.padStart(n, '0'));
+                add(digitos.padEnd(n, '0'));
+            }
         }
         return chaves;
     }
@@ -867,6 +932,7 @@
         const codigoLimpo = String(codigo || '').trim();
         if (!codigoLimpo) return false;
         const silencioso = !!(opcoes && opcoes.silencioso);
+        ultimaQtdEtiqueta = null;
         const etiqueta = decodificarEtiquetaBalanca(codigoLimpo);
         let nomeProduto = MAPA_CODIGOS_BARRAS[codigoLimpo];
         if (!nomeProduto && etiqueta) {
@@ -890,6 +956,11 @@
                         nomeProduto = opt.value;
                         break;
                     }
+                    // PLU da etiqueta (ex. 194400) ↔ id do produto (1944)
+                    if (idOpt && chavesPluPossiveis(idOpt).indexOf(etiqueta.plu) >= 0) {
+                        nomeProduto = opt.value;
+                        break;
+                    }
                 }
             }
         }
@@ -898,22 +969,63 @@
             return false;
         }
 
+        ultimoNomeProduto = nomeProduto;
         const inpProduto = document.getElementById('produto_input');
         inpProduto.value = nomeProduto;
-        const option = obterOpcaoProdutoSelecionada();
+        let option = obterOpcaoProdutoSelecionada();
+        if (!option) {
+            // Fallback: achou pelo mapa/PLU mas o value do input não casou 100% com o datalist
+            const datalistOpts = document.getElementById('lista_produtos');
+            if (datalistOpts) {
+                for (let i = 0; i < datalistOpts.options.length; i++) {
+                    if (datalistOpts.options[i].value === nomeProduto) {
+                        option = datalistOpts.options[i];
+                        break;
+                    }
+                }
+            }
+        }
+        if (!option && etiqueta) {
+            const candidatos = chavesPluPossiveis(etiqueta.plu);
+            const datalistOpts = document.getElementById('lista_produtos');
+            for (let i = 0; datalistOpts && i < datalistOpts.options.length; i++) {
+                const opt = datalistOpts.options[i];
+                const idOpt = (opt.getAttribute('data-id') || '').trim();
+                if (idOpt && chavesPluPossiveis(idOpt).indexOf(etiqueta.plu) >= 0) {
+                    option = opt;
+                    nomeProduto = opt.value;
+                    ultimoNomeProduto = nomeProduto;
+                    inpProduto.value = nomeProduto;
+                    break;
+                }
+            }
+        }
         if (!option) {
             if (!silencioso) alert('Produto não disponível no PDV para o código: ' + codigoLimpo);
             return false;
         }
+
+        // PRECO: kg = total_etiqueta / preço_kg | PESO: gramas da etiqueta
         let qtdEtiqueta = null;
         if (etiqueta) {
-            qtdEtiqueta = etiqueta.quantidade;
-            if (qtdEtiqueta == null && etiqueta.precoTotal) {
+            if (etiqueta.quantidade != null && Number(etiqueta.quantidade) > 0) {
+                qtdEtiqueta = Number(etiqueta.quantidade);
+            } else if (etiqueta.precoTotal != null && Number(etiqueta.precoTotal) > 0) {
                 const preco = obterPrecoProdutoOption(option);
-                if (preco > 0) qtdEtiqueta = etiqueta.precoTotal / preco;
+                if (preco > 0) {
+                    qtdEtiqueta = Number(etiqueta.precoTotal) / preco;
+                }
+            }
+            if (qtdEtiqueta != null && qtdEtiqueta > 0) {
+                qtdEtiqueta = Math.round(qtdEtiqueta * 1000) / 1000;
+                ultimaQtdEtiqueta = qtdEtiqueta;
             }
         }
-        aplicarOpcaoProduto(option, qtdEtiqueta ? { quantidade: qtdEtiqueta } : null);
+
+        aplicarOpcaoProduto(
+            option,
+            (qtdEtiqueta != null && qtdEtiqueta > 0) ? { quantidade: qtdEtiqueta } : null
+        );
         const qtdInput = document.getElementById('qtd_input');
         if (qtdInput) qtdInput.focus();
         return true;
@@ -1506,7 +1618,10 @@
                         selecionarProdutoPorCodigoBarras(val);
                     }
                 }
-                adicionarAoCarrinho();
+                adicionarAoCarrinho({
+                    quantidade: ultimaQtdEtiqueta != null ? ultimaQtdEtiqueta : undefined,
+                    nome: ultimoNomeProduto || undefined,
+                });
             }
         }
         if (e.key === 'F2' && !modalAberto) { e.preventDefault(); abrirModalPagamento(); }
@@ -1532,7 +1647,11 @@
                 if (codigo.length >= 4 && selecionarProdutoPorCodigoBarras(codigo, { silencioso: codigo.length === 13 })) {
                     e.preventDefault();
                     if (decodificarEtiquetaBalanca(codigo)) {
-                        adicionarAoCarrinho();
+                        // Quantidade + nome explícitos da etiqueta (não usar o EAN do input)
+                        adicionarAoCarrinho({
+                            quantidade: ultimaQtdEtiqueta != null ? ultimaQtdEtiqueta : undefined,
+                            nome: ultimoNomeProduto || undefined,
+                        });
                     }
                 }
                 return;

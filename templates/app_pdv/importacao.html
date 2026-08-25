@@ -54,7 +54,12 @@
 
         <div style="background: #333; padding: 10px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px;">
             <i class="fas fa-info-circle"></i> O sistema criará o Item no Cofre (Estoque Pai) e o Produto de Venda de forma inteligente.
-        
+        </div>
+        <div style="background: rgba(255, 193, 7, 0.12); border: 1px solid rgba(255, 193, 7, 0.35); padding: 10px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px; color: #e8d48b;">
+            <i class="fas fa-exclamation-triangle"></i>
+            <strong>Codigo Barras:</strong> no Excel, mantenha a coluna como <strong>Texto</strong>
+            (já vem assim no modelo). Não cole como número — evita notação científica (E+) e códigos com <code>.0</code> no final.
+            Se a coluna voltar a Geral, selecione-a → botão direito → Formatar células → Texto, e cole de novo.
         </div>
 
         <form action="{% url 'importar_produtos' %}" method="POST" enctype="multipart/form-data">
