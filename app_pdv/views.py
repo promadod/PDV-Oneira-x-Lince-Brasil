@@ -51,6 +51,7 @@ from .models import (
     FormaPagamentoLoja, PrecoFornecedorItem, PagamentoFiado, PagamentoMercadoria,
     LiquidacaoVenda, ParcelaFiadoAgendada, ParcelaMercadoriaAgendada,
     saldo_agendavel_venda, saldo_agendavel_entrada, LogAuditoria,
+    ImportacaoProdutosLog,
     validar_forma_pagamento, montar_resumo_pagamentos_loja,
     montar_relatorio_pagamentos, get_nome_forma_pagamento, criar_formas_pagamento_padrao,
     validar_meio_liquidacao, montar_resumo_liquidacao_loja, calcular_entradas_gaveta,
@@ -72,9 +73,15 @@ from .fiado_helpers import (
 )
 from .mercadoria_helpers import listar_entradas_abertas_cmv, listar_parcelas_mercadoria
 from .balanca import config_balanca_loja, gerar_csv_carga_balanca
+from .importacao_produtos import (
+    executar_importacao_produtos,
+    normalizar_codigo_barras_excel,
+    normalizar_colunas_dataframe,
+    reverter_importacao_produtos as reverter_importacao_produtos_svc,
+)
 from .forms import (
     ProdutoForm, ClienteForm, FornecedorForm, LojaForm, 
-    CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, 
+    CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, ImportacaoProdutosForm, 
     CadastroVendedorForm, MotoboyForm, MotoForm, 
     EntradaEstoqueForm, ItemEstoqueForm, PermissoesUsuarioForm, EditarVendedorForm
 )
@@ -3502,58 +3509,6 @@ def relatorio_entregadores(request):
 
 # --------------------------------- IMPORTÇÃO ---------------------------------
 
-def normalizar_codigo_barras_excel(valor):
-    """
-    Converte célula do Excel (float/int/str/notação científica) em código limpo,
-    sem sufixo '.0' nem notação científica.
-    """
-    if valor is None:
-        return ''
-    try:
-        if pd.isna(valor):
-            return ''
-    except (TypeError, ValueError):
-        pass
-
-    if isinstance(valor, bool):
-        return ''
-
-    if isinstance(valor, int):
-        return str(valor) if valor >= 0 else ''
-
-    if isinstance(valor, float):
-        if abs(valor) >= 1e16:
-            # float já perdeu dígitos — não inventar código
-            return ''
-        if valor == int(valor):
-            return str(int(valor))
-        return f'{valor:.0f}'
-
-    texto = str(valor).strip()
-    if not texto or texto.lower() in ('nan', 'none', 'nat'):
-        return ''
-
-    # Excel BR às vezes usa vírgula em notação científica
-    texto_norm = texto.replace(' ', '').replace(',', '.')
-    if 'e+' in texto_norm.lower() or 'e-' in texto_norm.lower():
-        try:
-            num = float(texto_norm)
-            if abs(num) >= 1e16:
-                return ''
-            if num == int(num):
-                return str(int(num))
-            return f'{num:.0f}'
-        except ValueError:
-            return ''
-
-    if texto.endswith('.0') and texto[:-2].lstrip('-').isdigit():
-        texto = texto[:-2]
-
-    # Remove caracteres não numéricos comuns de formatação; mantém só dígitos
-    so_digitos = ''.join(ch for ch in texto if ch.isdigit())
-    return so_digitos if so_digitos else texto.strip()
-
-
 def _formatar_colunas_texto_xlsx(workbook, sheet_name, nomes_colunas):
     """Força formato Texto (@) nas colunas indicadas do modelo Excel."""
     ws = workbook[sheet_name]
@@ -3573,8 +3528,27 @@ def _formatar_colunas_texto_xlsx(workbook, sheet_name, nomes_colunas):
 
 @login_required
 def menu_importacao(request):
-    form = ImportacaoForm()
-    return render(request, 'app_pdv/importacao.html', {'form': form})
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+    form_clientes = ImportacaoForm()
+    form_produtos = ImportacaoProdutosForm()
+    historico_importacoes = (
+        ImportacaoProdutosLog.objects.filter(loja=loja)
+        .select_related('usuario', 'revertida_por')
+        .order_by('-criado_em')[:30]
+    )
+    ultima_ativa = (
+        ImportacaoProdutosLog.objects.filter(loja=loja, revertida_em__isnull=True)
+        .order_by('-criado_em', '-id')
+        .first()
+    )
+    return render(request, 'app_pdv/importacao.html', {
+        'form': form_clientes,
+        'form_produtos': form_produtos,
+        'historico_importacoes': historico_importacoes,
+        'importacao_revertivel_id': ultima_ativa.id if ultima_ativa else None,
+    })
 
 @login_required
 def importar_clientes(request):
@@ -3588,8 +3562,8 @@ def importar_clientes(request):
             try:
                 df = pd.read_excel(arquivo, engine='openpyxl')
                 df.columns = (df.columns.str.strip().str.lower()
-                              .str.replace('ç', 'c').str.replace('ã', 'a')
-                              .str.replace('é', 'e').str.replace('ó', 'o'))
+                              .str.replace('├º', 'c').str.replace('├ú', 'a')
+                              .str.replace('├⌐', 'e').str.replace('├│', 'o'))
 
                 contador_criados = 0
                 contador_atualizados = 0
@@ -3640,155 +3614,105 @@ def importar_clientes(request):
 
 
 @login_required
-@transaction.atomic
 def importar_produtos(request):
     loja = check_loja(request)
-    if not loja: return redirect('admin:index')
+    if not loja:
+        return redirect('admin:index')
 
     if request.method == 'POST':
-        form = ImportacaoForm(request.POST, request.FILES)
+        form = ImportacaoProdutosForm(request.POST, request.FILES)
         if form.is_valid():
             arquivo = request.FILES['arquivo_excel']
+            modo_estoque = form.cleaned_data['modo_estoque']
             try:
-                df = pd.read_excel(arquivo, engine='openpyxl')
-                
-                # Tratamento avançado de nomes de colunas
-                df.columns = (df.columns.str.lower().str.strip()
-                              .str.replace(' ', '_')
-                              .str.replace('ç', 'c').str.replace('ã', 'a')
-                              .str.replace('á', 'a').str.replace('à', 'a')
-                              .str.replace('é', 'e').str.replace('ê', 'e')
-                              .str.replace('í', 'i').str.replace('ó', 'o')
-                              .str.replace('ô', 'o').str.replace('ú', 'u'))
+                df = normalizar_colunas_dataframe(pd.read_excel(arquivo, engine='openpyxl'))
+                log, resultado = executar_importacao_produtos(
+                    loja=loja,
+                    usuario=request.user,
+                    df=df,
+                    nome_arquivo=getattr(arquivo, 'name', '') or 'importacao.xlsx',
+                    modo_estoque=modo_estoque,
+                )
 
-                contador = 0
-                
-                def limpar_preco(valor):
-                    if pd.isna(valor): return 0.0
-                    if isinstance(valor, (int, float)): return float(valor)
-                    valor = str(valor).replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
-                    try: return float(valor)
-                    except: return 0.0
+                for aviso in resultado.avisos[:15]:
+                    messages.warning(request, aviso)
+                if len(resultado.avisos) > 15:
+                    messages.warning(request, f'ΓÇª e mais {len(resultado.avisos) - 15} aviso(s).')
 
-                for index, row in df.iterrows():
-                    item_pai_nome = row.get('item_pai')
-                    nome_venda = row.get('nome_venda')
-                    
-                    if pd.isna(item_pai_nome) or pd.isna(nome_venda): continue 
-                    
-                    item_pai_nome = str(item_pai_nome).strip()
-                    nome_venda = str(nome_venda).strip()
-                    
-                    unidade = str(row.get('unidade', 'UN')).strip().upper()
-                    if unidade not in ['UN', 'KG', 'L']: unidade = 'UN'
+                modo_label = 'somado' if modo_estoque == 'SOMAR' else 'substitu├¡do'
+                registrar_log(
+                    request,
+                    'IMPORTACAO',
+                    (
+                        f'Importa├º├úo produtos #{log.id}: {log.nome_arquivo} ΓÇö '
+                        f'estoque {modo_label} ΓÇö {resultado.linhas_processadas} linha(s), '
+                        f'{resultado.produtos_criados} novo(s), {resultado.produtos_atualizados} atualizado(s)'
+                    ),
+                    modelo='ImportacaoProdutosLog',
+                    objeto_id=log.id,
+                    loja=loja,
+                )
 
-                    estoque_total = limpar_preco(row.get('estoque_total', 0))
-                    qtd_baixa = limpar_preco(row.get('qtd_baixa', 1))
-                    if qtd_baixa <= 0: qtd_baixa = 1 
-                    
-                    custo = limpar_preco(row.get('preco_custo', 0))
-                    venda = limpar_preco(row.get('preco_venda', 0))
-
-                    codigo_barras = normalizar_codigo_barras_excel(row.get('codigo_barras', ''))
-
-                    grupo_nome = row.get('grupo')
-                    grupo_obj = None
-                    if pd.notna(grupo_nome) and str(grupo_nome).strip() and str(grupo_nome).strip().lower() != 'nan':
-                        grupo_obj, _ = GrupoProduto.objects.get_or_create(
-                            loja=loja,
-                            nome=str(grupo_nome).strip(),
-                        )
-
-                    # --- NOVA LEITURA: VALIDADE E OBSERVAÇÃO ---
-                    validade_raw = row.get('data_validade')
-                    observacao_raw = row.get('observacao')
-                    
-                    data_val = None
-                    if pd.notna(validade_raw) and str(validade_raw).strip() != '':
-                        try:
-                            # Converte a data do Excel para o formato que o banco de dados entende
-                            data_val = pd.to_datetime(validade_raw).date()
-                        except:
-                            pass # Se a pessoa digitar lixo na data, ignora para não travar a importação
-                            
-                    obs_val = str(observacao_raw).strip() if pd.notna(observacao_raw) else ""
-                    if obs_val == 'nan': obs_val = ""
-                    # ---------------------------------------------
-                    
-                    # 1. Cria ou Encontra o Cofre (Item Pai) ATUALIZADO
-                    item, created_item = ItemEstoque.objects.get_or_create(
-                        nome=item_pai_nome, 
-                        loja=loja,
-                        defaults={
-                            'unidade_medida': unidade,
-                            'data_validade': data_val,  # Salva a data nova
-                            'observacao': obs_val       # Salva a observação nova
-                        }
+                if resultado.produtos_criados > 0:
+                    messages.success(
+                        request,
+                        f'{resultado.produtos_criados} produto(s) criado(s). '
+                        f'{resultado.produtos_atualizados} atualizado(s). '
+                        f'Estoque {modo_label}. Registro #{log.id}.',
                     )
-                    
-                    # Se o item já existia e a planilha tem data/obs nova, ele atualiza!
-                    if not created_item:
-                        mudou = False
-                        if data_val: 
-                            item.data_validade = data_val
-                            mudou = True
-                        if obs_val: 
-                            item.observacao = obs_val
-                            mudou = True
-                        if mudou:
-                            item.save()
-                    
-                    # Soma o estoque apenas se houver na planilha (evita somar infinito ao atualizar)
-                    if estoque_total > 0:
-                        # --- CORREÇÃO AQUI: Forçando ambos a serem Decimal antes da soma ---
-                        estoque_atual = Decimal(str(item.quantidade_estoque))
-                        estoque_novo = Decimal(str(estoque_total))
-                        item.quantidade_estoque = estoque_atual + estoque_novo
-                        item.save()
-
-                    if codigo_barras:
-                        conflito = Produto.objects.filter(
-                            loja=loja, codigo_barras=codigo_barras
-                        ).exclude(nome_venda=nome_venda, item_estoque=item).exists()
-                        if conflito:
-                            messages.warning(
-                                request,
-                                f"Código de barras '{codigo_barras}' já usado em outro produto "
-                                f"(linha {index + 2}). Produto '{nome_venda}' importado sem o código."
-                            )
-                            codigo_barras = ''
-
-                    defaults_produto = {
-                        'quantidade_baixa': Decimal(str(qtd_baixa)),
-                        'preco_compra': Decimal(str(custo)),
-                        'preco_venda': Decimal(str(venda)),
-                        'ativo': True,
-                    }
-                    if codigo_barras:
-                        defaults_produto['codigo_barras'] = codigo_barras
-                    if grupo_obj is not None:
-                        defaults_produto['grupo'] = grupo_obj
-
-                    # 2. Cria ou Atualiza o Produto da Prateleira
-                    produto, created_prod = Produto.objects.update_or_create(
-                        loja=loja,
-                        nome_venda=nome_venda,
-                        item_estoque=item,
-                        defaults=defaults_produto,
-                    )
-                    if created_prod:
-                        contador += 1
-        
-                if contador > 0:
-                    messages.success(request, f"{contador} novos produtos criados com sucesso! Os estoques e preços foram sincronizados.")
                 else:
-                    messages.info(request, "Nenhum produto novo criado, mas os preços e estoques dos existentes foram atualizados.")
+                    messages.info(
+                        request,
+                        f'Importa├º├úo #{log.id} conclu├¡da: {resultado.produtos_atualizados} produto(s) '
+                        f'atualizado(s), estoque {modo_label}.',
+                    )
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                messages.error(request, f"Erro ao processar arquivo. Verifique se usou a planilha modelo. Detalhe: {str(e)}")
+                messages.error(
+                    request,
+                    f'Erro ao processar arquivo. Verifique se usou a planilha modelo. Detalhe: {str(e)}',
+                )
 
+    return redirect('menu_importacao')
+
+
+@login_required
+@transaction.atomic
+def reverter_importacao_produtos(request, importacao_id):
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+
+    if request.method != 'POST':
+        return redirect('menu_importacao')
+
+    log = get_object_or_404(ImportacaoProdutosLog, pk=importacao_id, loja=loja)
+    resultado = reverter_importacao_produtos_svc(log, request.user)
+
+    if not resultado.ok:
+        for msg in resultado.mensagens:
+            messages.error(request, msg)
+        return redirect('menu_importacao')
+
+    registrar_log(
+        request,
+        'IMPORTACAO',
+        (
+            f'Revers├úo importa├º├úo #{log.id} ({log.nome_arquivo}): '
+            f'{resultado.itens_restaurados} item(ns) de estoque, '
+            f'{resultado.produtos_removidos} produto(s) removido(s), '
+            f'{resultado.produtos_restaurados} produto(s) restaurado(s)'
+        ),
+        modelo='ImportacaoProdutosLog',
+        objeto_id=log.id,
+        loja=loja,
+    )
+    messages.success(
+        request,
+        f'Importa├º├úo #{log.id} revertida com sucesso. Estoques e produtos restaurados.',
+    )
     return redirect('menu_importacao')
 
 @login_required

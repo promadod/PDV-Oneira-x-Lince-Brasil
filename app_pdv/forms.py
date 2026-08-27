@@ -321,7 +321,29 @@ class TransacaoForm(forms.ModelForm):
 
 
 class ImportacaoForm(forms.Form):
-    arquivo_excel = forms.FileField(label="Selecione o arquivo Excel (.xlsx)", widget=forms.FileInput(attrs={'class': 'form-control', 'accept': '.xlsx'}))
+    arquivo_excel = forms.FileField(
+        label="Selecione o arquivo Excel (.xlsx)",
+        widget=forms.FileInput(attrs={'class': 'form-control', 'accept': '.xlsx'}),
+    )
+
+
+class ImportacaoProdutosForm(forms.Form):
+    MODO_SOMAR = 'SOMAR'
+    MODO_SUBSTITUIR = 'SUBSTITUIR'
+
+    arquivo_excel = forms.FileField(
+        label="Selecione o arquivo Excel (.xlsx)",
+        widget=forms.FileInput(attrs={'class': 'form-control', 'accept': '.xlsx'}),
+    )
+    modo_estoque = forms.ChoiceField(
+        label="Estoque na planilha",
+        choices=[
+            (MODO_SOMAR, 'Somar ao estoque existente'),
+            (MODO_SUBSTITUIR, 'Substituir estoque pela planilha'),
+        ],
+        initial=MODO_SOMAR,
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
 
 class CadastroVendedorForm(UserCreationForm):
     first_name = forms.CharField(label="Nome", max_length=30, required=True, widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Ex: Ana'}))

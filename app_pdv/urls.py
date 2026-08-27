@@ -120,6 +120,7 @@ urlpatterns = [
     path('importacao/', views.menu_importacao, name='menu_importacao'),
     path('importacao/clientes/', views.importar_clientes, name='importar_clientes'),
     path('importacao/produtos/', views.importar_produtos, name='importar_produtos'),
+    path('importacao/produtos/<int:importacao_id>/reverter/', views.reverter_importacao_produtos, name='reverter_importacao_produtos'),
     path('importacao/modelo/<str:tipo>/', views.baixar_modelo_excel, name='baixar_modelo_excel'),
 
     # ------------------------------Vendedor------------------------------

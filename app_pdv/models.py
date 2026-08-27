@@ -1916,6 +1916,7 @@ class LogAuditoria(models.Model):
         ('ESTOQUE', 'Estoque'),
         ('SENHA', 'Senha / usuário'),
         ('CONFIG', 'Configuração'),
+        ('IMPORTACAO', 'Importação'),
         ('OUTRO', 'Outro'),
     ]
     usuario = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='logs_auditoria')
@@ -1935,6 +1936,86 @@ class LogAuditoria(models.Model):
     def __str__(self):
         user = self.usuario.username if self.usuario else '—'
         return f"#{self.id} {user} — {self.get_acao_display()} — {self.criado_em:%d/%m/%Y %H:%M}"
+
+
+class ImportacaoProdutosLog(models.Model):
+    MODO_SOMAR = 'SOMAR'
+    MODO_SUBSTITUIR = 'SUBSTITUIR'
+    MODO_ESTOQUE_CHOICES = [
+        (MODO_SOMAR, 'Somar ao estoque existente'),
+        (MODO_SUBSTITUIR, 'Substituir estoque pelo da planilha'),
+    ]
+
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='importacoes_produtos')
+    usuario = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='importacoes_produtos',
+    )
+    nome_arquivo = models.CharField(max_length=255)
+    modo_estoque = models.CharField(max_length=12, choices=MODO_ESTOQUE_CHOICES, default='SOMAR')
+    criado_em = models.DateTimeField(auto_now_add=True)
+    produtos_criados = models.PositiveIntegerField(default=0)
+    produtos_atualizados = models.PositiveIntegerField(default=0)
+    linhas_processadas = models.PositiveIntegerField(default=0)
+    revertida_em = models.DateTimeField(null=True, blank=True)
+    revertida_por = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='importacoes_produtos_revertidas',
+    )
+
+    class Meta:
+        verbose_name = 'Importa├º├úo de produtos'
+        verbose_name_plural = 'Importa├º├╡es de produtos'
+        ordering = ['-criado_em']
+
+    @property
+    def revertida(self):
+        return self.revertida_em is not None
+
+    def __str__(self):
+        status = 'revertida' if self.revertida else 'ativa'
+        return f"Importa├º├úo #{self.id} ΓÇö {self.nome_arquivo} ({status})"
+
+
+class ImportacaoProdutosItemSnapshot(models.Model):
+    importacao = models.ForeignKey(
+        ImportacaoProdutosLog, on_delete=models.CASCADE, related_name='itens_snapshot',
+    )
+    item_estoque = models.ForeignKey(
+        ItemEstoque, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='snapshots_importacao',
+    )
+    nome_item = models.CharField(max_length=150)
+    estoque_antes = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    estoque_depois = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    item_criado = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Snapshot item (importa├º├úo)'
+        verbose_name_plural = 'Snapshots item (importa├º├úo)'
+
+
+class ImportacaoProdutosProdutoSnapshot(models.Model):
+    importacao = models.ForeignKey(
+        ImportacaoProdutosLog, on_delete=models.CASCADE, related_name='produtos_snapshot',
+    )
+    produto = models.ForeignKey(
+        Produto, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='snapshots_importacao',
+    )
+    nome_venda = models.CharField(max_length=150)
+    linha_planilha = models.PositiveIntegerField(default=0)
+    produto_criado = models.BooleanField(default=False)
+    preco_compra_antes = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    preco_venda_antes = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    quantidade_baixa_antes = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    codigo_barras_antes = models.CharField(max_length=50, blank=True, default='')
+    grupo_id_antes = models.PositiveIntegerField(null=True, blank=True)
+    ativo_antes = models.BooleanField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Snapshot produto (importa├º├úo)'
+        verbose_name_plural = 'Snapshots produto (importa├º├úo)'
 
 
 class Motoboy(models.Model):

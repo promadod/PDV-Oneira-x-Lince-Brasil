@@ -2,27 +2,38 @@
 {% block title %}Importação de Dados{% endblock %}
 
 {% block content %}
+<style>
+    .import-cards { display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 28px; align-items: stretch; }
+    .import-card { flex: 1; min-width: 300px; display: flex; flex-direction: column; }
+    .import-card form { margin-top: auto; }
+    .import-field-label {
+        display: block; font-size: 0.85em; color: #aaa; margin-bottom: 4px;
+    }
+    .import-card .form-control { width: 100%; margin-bottom: 8px; box-sizing: border-box; }
+</style>
+
 <h2 style="margin-bottom: 20px;">Importação de Dados (Excel)</h2>
 
 {% if messages %}
     {% for message in messages %}
-    <div style="padding: 15px; margin-bottom: 20px; border-radius: 5px; 
+    <div style="padding: 15px; margin-bottom: 20px; border-radius: 5px;
         {% if message.tags == 'success' %}background-color: #03dac6; color: #000;
+        {% elif message.tags == 'warning' %}background-color: #ffc107; color: #000;
         {% else %}background-color: #cf6679; color: #fff;{% endif %}">
         {{ message }}
     </div>
     {% endfor %}
 {% endif %}
 
-<div style="display: flex; gap: 20px; flex-wrap: wrap;">
+<div class="import-cards">
 
-    <div class="card" style="flex: 1; min-width: 300px;">
+    <div class="card import-card">
         <h3 style="color: #15A0A5;"><i class="fas fa-users"></i> Importar Clientes</h3>
         <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
             <strong>Colunas:</strong> Nome, WhatsApp, Endereco, Bairro.<br>
             Para evitar erros, baixe e preencha a nossa planilha modelo abaixo.
         </p>
-        
+
         <a href="{% url 'baixar_modelo_excel' 'clientes' %}" class="btn" style="background-color: #2196F3; color: white; display: block; text-align: center; margin-bottom: 15px; text-decoration: none;">
             <i class="fas fa-file-excel"></i> Baixar Modelo de Clientes
         </a>
@@ -30,7 +41,7 @@
         <div style="background: #333; padding: 10px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px;">
             <i class="fas fa-info-circle"></i> O sistema criará ou atualizará o Cliente no banco de dados automaticamente.
         </div>
-        
+
         <form action="{% url 'importar_clientes' %}" method="POST" enctype="multipart/form-data">
             {% csrf_token %}
             {{ form.arquivo_excel }}
@@ -40,12 +51,11 @@
         </form>
     </div>
 
-    <div class="card" style="flex: 1; min-width: 300px;">
+    <div class="card import-card">
         <h3 style="color: #15A0A5;"><i class="fas fa-box"></i> Importar Produtos</h3>
         <p style="font-size: 0.9em; color: #aaa; margin-bottom: 10px;">
             <strong>Colunas:</strong> Item Pai, Unidade, Estoque Total, Data Validade, Observacao,
             Nome Venda, Codigo Barras, Preco Custo e Venda.
-            Para evitar erros, baixe e preencha a nossa planilha modelo abaixo.
         </p>
 
         <a href="{% url 'baixar_modelo_excel' 'produtos' %}" class="btn" style="background-color: #4CAF50; color: white; display: block; text-align: center; margin-bottom: 15px; text-decoration: none;">
@@ -53,23 +63,78 @@
         </a>
 
         <div style="background: #333; padding: 10px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px;">
-            <i class="fas fa-info-circle"></i> O sistema criará o Item no Cofre (Estoque Pai) e o Produto de Venda de forma inteligente.
-        </div>
-        <div style="background: rgba(255, 193, 7, 0.12); border: 1px solid rgba(255, 193, 7, 0.35); padding: 10px; border-radius: 4px; font-size: 0.8em; margin-bottom: 10px; color: #e8d48b;">
-            <i class="fas fa-exclamation-triangle"></i>
-            <strong>Codigo Barras:</strong> no Excel, mantenha a coluna como <strong>Texto</strong>
-            (já vem assim no modelo). Não cole como número — evita notação científica (E+) e códigos com <code>.0</code> no final.
-            Se a coluna voltar a Geral, selecione-a → botão direito → Formatar células → Texto, e cole de novo.
+            <i class="fas fa-info-circle"></i> Cria/atualiza itens de estoque e produtos de venda.
         </div>
 
         <form action="{% url 'importar_produtos' %}" method="POST" enctype="multipart/form-data">
             {% csrf_token %}
-            {{ form.arquivo_excel }}
+            <label class="import-field-label" for="{{ form_produtos.modo_estoque.id_for_label }}">{{ form_produtos.modo_estoque.label }}</label>
+            {{ form_produtos.modo_estoque }}
+            {{ form_produtos.arquivo_excel }}
             <button type="submit" class="btn" style="margin-top: 10px; width: 100%;">
                 <i class="fas fa-upload"></i> Carregar Produtos
             </button>
         </form>
     </div>
 
+</div>
+
+<div class="card" style="margin-top: 8px;">
+    <h3 style="color: #15A0A5; margin-bottom: 12px;"><i class="fas fa-history"></i> Histórico de importações de produtos</h3>
+    {% if historico_importacoes %}
+    <div style="overflow-x: auto;">
+        <table style="width: 100%; border-collapse: collapse; font-size: 0.9em;">
+            <thead>
+                <tr style="border-bottom: 1px solid #444; text-align: left;">
+                    <th style="padding: 8px;">#</th>
+                    <th style="padding: 8px;">Data</th>
+                    <th style="padding: 8px;">Arquivo</th>
+                    <th style="padding: 8px;">Estoque</th>
+                    <th style="padding: 8px;">Linhas</th>
+                    <th style="padding: 8px;">Novos</th>
+                    <th style="padding: 8px;">Atualiz.</th>
+                    <th style="padding: 8px;">Usuário</th>
+                    <th style="padding: 8px;">Status</th>
+                    <th style="padding: 8px;"></th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for imp in historico_importacoes %}
+                <tr style="border-bottom: 1px solid #333;">
+                    <td style="padding: 8px;">{{ imp.id }}</td>
+                    <td style="padding: 8px; white-space: nowrap;">{{ imp.criado_em|date:"d/m/Y H:i" }}</td>
+                    <td style="padding: 8px; max-width: 180px; overflow: hidden; text-overflow: ellipsis;" title="{{ imp.nome_arquivo }}">{{ imp.nome_arquivo }}</td>
+                    <td style="padding: 8px;">{% if imp.modo_estoque == 'SOMAR' %}Somar{% else %}Substituir{% endif %}</td>
+                    <td style="padding: 8px;">{{ imp.linhas_processadas }}</td>
+                    <td style="padding: 8px;">{{ imp.produtos_criados }}</td>
+                    <td style="padding: 8px;">{{ imp.produtos_atualizados }}</td>
+                    <td style="padding: 8px;">{% if imp.usuario %}{{ imp.usuario.username }}{% else %}—{% endif %}</td>
+                    <td style="padding: 8px;">
+                        {% if imp.revertida %}
+                        <span style="color: #cf6679;">Revertida {{ imp.revertida_em|date:"d/m H:i" }}{% if imp.revertida_por %} por {{ imp.revertida_por.username }}{% endif %}</span>
+                        {% else %}
+                        <span style="color: #03dac6;">Ativa</span>
+                        {% endif %}
+                    </td>
+                    <td style="padding: 8px; white-space: nowrap;">
+                        {% if not imp.revertida and imp.id == importacao_revertivel_id %}
+                        <form action="{% url 'reverter_importacao_produtos' imp.id %}" method="POST" style="display: inline;"
+                              onsubmit="return confirm('Reverter importação #{{ imp.id }}? Estoques voltam ao valor anterior; produtos criados serão removidos (se não tiverem vendas).');">
+                            {% csrf_token %}
+                            <button type="submit" class="btn" style="background: #cf6679; color: #fff; padding: 4px 10px; font-size: 0.85em;">
+                                <i class="fas fa-undo"></i> Reverter
+                            </button>
+                        </form>
+                        {% endif %}
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    <p style="font-size: 0.78em; color: #888; margin-top: 10px;">Últimas 30 importações desta loja. Só a importação <strong>ativa mais recente</strong> pode ser revertida (ordem inversa). Reversão bloqueada se algum produto criado na importação já tiver vendas.</p>
+    {% else %}
+    <p style="color: #888; font-size: 0.9em;">Nenhuma importação de produtos registrada ainda.</p>
+    {% endif %}
 </div>
 {% endblock %}
