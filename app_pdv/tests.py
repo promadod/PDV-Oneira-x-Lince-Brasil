@@ -139,6 +139,7 @@ class NormalizarCodigoBarrasExcelTests(SimpleTestCase):
         self.assertEqual(normalizar_codigo_barras_excel('7.894900011517E+12'), '7894900011517')
         self.assertEqual(normalizar_codigo_barras_excel(7.894900011517e12), '7894900011517')
 
+
 class ImportacaoProdutosTests(TestCase):
     def setUp(self):
         from django.contrib.auth.models import User
@@ -214,3 +215,62 @@ class ImportacaoProdutosTests(TestCase):
         self.assertTrue(out.ok)
         self.assertFalse(ItemEstoque.objects.filter(loja=self.loja).exists())
         self.assertFalse(Produto.objects.filter(loja=self.loja).exists())
+
+
+class TrocoDinheiroTests(SimpleTestCase):
+    def test_calcular_troco_valor_maior(self):
+        from app_pdv.models import calcular_troco_dinheiro
+
+        recebido, troco = calcular_troco_dinheiro(Decimal('150'), Decimal('200'))
+        self.assertEqual(recebido, Decimal('200'))
+        self.assertEqual(troco, Decimal('50'))
+
+    def test_normalizar_liquidacao_card_maior_que_total(self):
+        from app_pdv.models import normalizar_liquidacoes_troco_dinheiro
+
+        out = normalizar_liquidacoes_troco_dinheiro(
+            Decimal('1500'),
+            [{'meio_liquidacao': 'DINHEIRO', 'valor': Decimal('1600')}],
+        )
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['valor'], Decimal('1500'))
+        self.assertEqual(out[0]['valor_recebido_dinheiro'], Decimal('1600'))
+
+        from app_pdv.models import calcular_troco_dinheiro
+
+        self.assertEqual(calcular_troco_dinheiro(Decimal('150'), Decimal('150')), (None, None))
+        self.assertEqual(calcular_troco_dinheiro(Decimal('150'), None), (None, None))
+
+
+class ConferenciaDinheiroLojaTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from app_pdv.models import Loja, Venda
+
+        self.user = User.objects.create_user('op', password='x')
+        self.loja_com = Loja.objects.create(nome='Com conferencia', conferencia_dinheiro_habilitada=True)
+        self.loja_sem = Loja.objects.create(nome='Sem conferencia', conferencia_dinheiro_habilitada=False)
+        self.venda_com = Venda.objects.create(
+            loja=self.loja_com, total=Decimal('10'), meio_liquidacao='DINHEIRO', conferencia_ok=False,
+        )
+        self.venda_sem = Venda.objects.create(
+            loja=self.loja_sem, total=Decimal('10'), meio_liquidacao='DINHEIRO', conferencia_ok=True,
+        )
+
+    def test_exige_conferencia_respeita_flag_loja(self):
+        self.assertTrue(self.venda_com.exige_conferencia_pagamento())
+        self.assertFalse(self.venda_sem.exige_conferencia_pagamento())
+
+    def test_persistir_liquidacao_auto_confirma_sem_conferencia(self):
+        from app_pdv.models import persistir_liquidacoes_venda
+
+        persistir_liquidacoes_venda(
+            self.venda_sem,
+            [{'meio_liquidacao': 'DINHEIRO', 'valor': Decimal('10'), 'valor_recebido_dinheiro': Decimal('20')}],
+        )
+        self.venda_sem.refresh_from_db()
+        liq = self.venda_sem.liquidacoes.first()
+        self.assertTrue(liq.conferencia_ok)
+        self.assertTrue(self.venda_sem.conferencia_ok)
+        self.assertEqual(self.venda_sem.troco_para, Decimal('10'))
+        self.assertEqual(self.venda_sem.valor_recebido_dinheiro, Decimal('20'))

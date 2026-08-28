@@ -56,6 +56,7 @@ from .models import (
     montar_relatorio_pagamentos, get_nome_forma_pagamento, criar_formas_pagamento_padrao,
     validar_meio_liquidacao, montar_resumo_liquidacao_loja, calcular_entradas_gaveta,
     get_nome_meio_liquidacao, validar_liquidacoes_payload, persistir_liquidacoes_venda,
+    calcular_troco_dinheiro, loja_usa_conferencia_dinheiro, normalizar_liquidacoes_troco_dinheiro,
     ORIGEM_VENDA_CHOICES, STATUS_COMPROMETIDOS, STATUS_VENDA_FATURADA, STATUS_GERA_LIQUIDACAO,
     MEIO_LIQUIDACAO_VENDA_CHOICES,
     produtos_disponiveis_pdv, validar_estoque_item_venda, estoque_diario_ativo,
@@ -80,8 +81,8 @@ from .importacao_produtos import (
     reverter_importacao_produtos as reverter_importacao_produtos_svc,
 )
 from .forms import (
-    ProdutoForm, ClienteForm, FornecedorForm, LojaForm, 
-    CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, ImportacaoProdutosForm, 
+    ProdutoForm, ClienteForm, FornecedorForm, LojaForm,
+    CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, ImportacaoProdutosForm,
     CadastroVendedorForm, MotoboyForm, MotoForm, 
     EntradaEstoqueForm, ItemEstoqueForm, PermissoesUsuarioForm, EditarVendedorForm
 )
@@ -724,6 +725,7 @@ def lista_vendas(request):
         'total_resultados': total_resultados,
         'total_geral': total_geral,
         'por_pagina': HISTORICO_POR_PAGINA,
+        'conferencia_dinheiro_habilitada': loja.conferencia_dinheiro_habilitada,
     })
 
 @login_required
@@ -738,9 +740,21 @@ def detalhes_venda(request, id):
         (item.quantidade * item.preco_unitario for item in itens),
         Decimal('0'),
     )
+    info_pagamento_dinheiro = None
+    if not venda.pagamento_dividido and venda.meio_liquidacao == 'DINHEIRO':
+        liq_din = next((l for l in liquidacoes if l.meio_liquidacao == 'DINHEIRO'), None)
+        vr = liq_din.valor_recebido_dinheiro if liq_din else venda.valor_recebido_dinheiro
+        troco = liq_din.troco_para if liq_din else venda.troco_para
+        if vr and troco:
+            info_pagamento_dinheiro = {
+                'valor_venda': liq_din.valor if liq_din else venda.total,
+                'valor_pago': vr,
+                'troco': troco,
+            }
     return render(request, 'app_pdv/detalhes_venda.html', {
         'venda': venda, 'itens': itens, 'pagamentos_fiado': pagamentos_fiado,
         'liquidacoes': liquidacoes,
+        'info_pagamento_dinheiro': info_pagamento_dinheiro,
         'impressao_automatica': loja.impressao_automatica,
         'auto_print': auto_print,
         'subtotal_consumo': subtotal_consumo,
@@ -901,7 +915,8 @@ CAMPOS_CONFIG_LOJA_PDV = [
     'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon',
     'taxa_entrega_pdv',
     # PDV
-    'impressao_automatica', 'trabalha_com_leitor_codigo_barras',
+    'impressao_automatica', 'conferencia_dinheiro_habilitada',
+    'trabalha_com_leitor_codigo_barras',
     'trabalha_com_balanca_granel', 'balanca_ean_prefixo',
     'balanca_plu_digitos', 'balanca_ean_variavel',
     'cobra_taxa_servico', 'taxa_servico_pct',
@@ -1283,15 +1298,15 @@ def _processar_salvar_venda(request, loja, data):
         status_entrega_inicial = 'PENDENTE' if eh_entrega else 'ENTREGUE'
         
         venda_id = data.get('venda_id') 
-        valor_troco = data.get('troco_para')
+        valor_recebido_bruto = data.get('valor_recebido_dinheiro')
+        valor_recebido_dinheiro = None
+        valor_troco = None
         if pagamento_dividido or (meio_liquidacao and meio_liquidacao != 'DINHEIRO'):
+            valor_recebido_dinheiro = None
             valor_troco = None
-        elif not valor_troco or valor_troco == '':
-            valor_troco = None
-        else:
-            valor_troco = _valor_decimal_payload(valor_troco)
-            if valor_troco <= 0:
-                valor_troco = None
+        elif valor_recebido_bruto not in (None, '', 0, '0', '0.00'):
+            bruto = _valor_decimal_payload(valor_recebido_bruto)
+            valor_recebido_dinheiro, valor_troco = calcular_troco_dinheiro(total_final_venda, bruto)
 
         # VARIÁVEL PARA CONTROLAR SE É UMA VENDA NOVA QUE PRECISA BAIXAR ESTOQUE
         dar_baixa_estoque = False
@@ -1310,6 +1325,10 @@ def _processar_salvar_venda(request, loja, data):
         if eh_entrega and not eh_fiado and status_venda == 'FINALIZADO':
             status_venda = 'EM_PREPARACAO'
 
+        usa_conferencia = loja_usa_conferencia_dinheiro(loja)
+        conferencia_inicial = not (
+            meio_liquidacao == 'DINHEIRO' and usa_conferencia and not pagamento_dividido
+        )
         if venda_id:
             try:
                 venda = Venda.objects.get(id=venda_id, loja=loja)
@@ -1323,6 +1342,7 @@ def _processar_salvar_venda(request, loja, data):
                 venda.taxa_servico_pct = taxa_servico_pct_val
                 venda.total = total_final_venda
                 venda.troco_para = valor_troco if not pagamento_dividido else None
+                venda.valor_recebido_dinheiro = valor_recebido_dinheiro if not pagamento_dividido else None
                 venda.eh_entrega = eh_entrega
                 venda.endereco_entrega = endereco_entrega
                 venda.pagamento_dividido = pagamento_dividido
@@ -1363,11 +1383,12 @@ def _processar_salvar_venda(request, loja, data):
                 endereco_entrega=endereco_entrega,
                 status_entrega=status_entrega_inicial,
                 troco_para=valor_troco if not pagamento_dividido else None,
+                valor_recebido_dinheiro=valor_recebido_dinheiro if not pagamento_dividido else None,
                 eh_fiado=eh_fiado,
                 eh_cortesia=eh_cortesia,
                 eh_avaria=eh_avaria,
                 desconto_fidelidade=desconto_fidelidade,
-                conferencia_ok=False,
+                conferencia_ok=conferencia_inicial,
             )
             if nova_venda.status in ['FINALIZADO', 'RETIRADO_NA_LOJA', 'FIADO']:
                 dar_baixa_estoque = True
@@ -1417,14 +1438,21 @@ def _processar_salvar_venda(request, loja, data):
             total_final = total_final_venda
 
             if pagamento_dividido:
-                liquidacoes = data.get('liquidacoes') or []
+                liquidacoes = normalizar_liquidacoes_troco_dinheiro(
+                    total_final, data.get('liquidacoes') or [],
+                )
                 err = validar_liquidacoes_payload(total_final, liquidacoes, exige_multiplo=True)
             else:
                 liquidacoes = [{
                     'meio_liquidacao': meio_liquidacao,
                     'valor': total_final,
-                    'troco_para': valor_troco if meio_liquidacao == 'DINHEIRO' and valor_troco else None,
+                    'valor_recebido_dinheiro': (
+                        valor_recebido_bruto
+                        if meio_liquidacao == 'DINHEIRO' and valor_recebido_bruto not in (None, '', 0, '0', '0.00')
+                        else None
+                    ),
                 }]
+                liquidacoes = normalizar_liquidacoes_troco_dinheiro(total_final, liquidacoes)
                 err = validar_liquidacoes_payload(total_final, liquidacoes)
 
             if err:
@@ -1574,6 +1602,7 @@ def retomar_venda(request, id):
             {
                 'meio_liquidacao': liq.meio_liquidacao,
                 'valor': float(liq.valor),
+                'valor_recebido_dinheiro': float(liq.valor_recebido_dinheiro) if liq.valor_recebido_dinheiro else None,
                 'troco_para': float(liq.troco_para) if liq.troco_para else None,
             }
             for liq in venda.liquidacoes.all()
@@ -3637,15 +3666,15 @@ def importar_produtos(request):
                 for aviso in resultado.avisos[:15]:
                     messages.warning(request, aviso)
                 if len(resultado.avisos) > 15:
-                    messages.warning(request, f'ΓÇª e mais {len(resultado.avisos) - 15} aviso(s).')
+                    messages.warning(request, f'… e mais {len(resultado.avisos) - 15} aviso(s).')
 
-                modo_label = 'somado' if modo_estoque == 'SOMAR' else 'substitu├¡do'
+                modo_label = 'somado' if modo_estoque == 'SOMAR' else 'substituído'
                 registrar_log(
                     request,
                     'IMPORTACAO',
                     (
-                        f'Importa├º├úo produtos #{log.id}: {log.nome_arquivo} ΓÇö '
-                        f'estoque {modo_label} ΓÇö {resultado.linhas_processadas} linha(s), '
+                        f'Importação produtos #{log.id}: {log.nome_arquivo} — '
+                        f'estoque {modo_label} — {resultado.linhas_processadas} linha(s), '
                         f'{resultado.produtos_criados} novo(s), {resultado.produtos_atualizados} atualizado(s)'
                     ),
                     modelo='ImportacaoProdutosLog',
@@ -3663,7 +3692,7 @@ def importar_produtos(request):
                 else:
                     messages.info(
                         request,
-                        f'Importa├º├úo #{log.id} conclu├¡da: {resultado.produtos_atualizados} produto(s) '
+                        f'Importação #{log.id} concluída: {resultado.produtos_atualizados} produto(s) '
                         f'atualizado(s), estoque {modo_label}.',
                     )
 
@@ -3700,7 +3729,7 @@ def reverter_importacao_produtos(request, importacao_id):
         request,
         'IMPORTACAO',
         (
-            f'Revers├úo importa├º├úo #{log.id} ({log.nome_arquivo}): '
+            f'Reversão importação #{log.id} ({log.nome_arquivo}): '
             f'{resultado.itens_restaurados} item(ns) de estoque, '
             f'{resultado.produtos_removidos} produto(s) removido(s), '
             f'{resultado.produtos_restaurados} produto(s) restaurado(s)'
@@ -3711,7 +3740,7 @@ def reverter_importacao_produtos(request, importacao_id):
     )
     messages.success(
         request,
-        f'Importa├º├úo #{log.id} revertida com sucesso. Estoques e produtos restaurados.',
+        f'Importação #{log.id} revertida com sucesso. Estoques e produtos restaurados.',
     )
     return redirect('menu_importacao')
 
@@ -4640,15 +4669,15 @@ def api_criar_pedido(request):
             # PUXA A INFORMAÇÃO SE É ENTREGA OU RETIRADA
             eh_entrega = data.get('eh_entrega', True) 
             
-            valor_troco = 0.00
+            valor_recebido_bruto = Decimal('0')
             if 'Troco p/:' in observacao_texto:
                 try:
                     partes = observacao_texto.split('R$')
                     if len(partes) > 1:
                         valor_limpo = partes[1].replace(')', '').strip()
-                        valor_troco = float(valor_limpo)
-                except:
-                    valor_troco = 0.00
+                        valor_recebido_bruto = Decimal(str(valor_limpo))
+                except Exception:
+                    valor_recebido_bruto = Decimal('0')
 
             if not loja.loja_aberta:
                 return JsonResponse({'erro': 'LOJA FECHADA - PEDIDO REJEITADO'}, status=403)
@@ -4665,7 +4694,7 @@ def api_criar_pedido(request):
             if not meio_liquidacao and pagamento in ('DINHEIRO', 'PIX', 'CREDITO', 'DEBITO'):
                 meio_liquidacao = pagamento
             elif not meio_liquidacao:
-                meio_liquidacao = 'DINHEIRO' if valor_troco > 0 else 'PIX'
+                meio_liquidacao = 'DINHEIRO' if valor_recebido_bruto > 0 else 'PIX'
             if not validar_meio_liquidacao(meio_liquidacao):
                 return JsonResponse({'erro': 'Meio de liquidação inválido.'}, status=400)
 
@@ -4702,6 +4731,13 @@ def api_criar_pedido(request):
                     cliente_obj.progresso_fidelidade = Decimal('0')
                     cliente_obj.save(update_fields=['promocao_fidelidade_ativa', 'progresso_fidelidade'])
 
+            valor_recebido_dinheiro, troco_calculado = (None, None)
+            if meio_liquidacao == 'DINHEIRO' and valor_recebido_bruto > 0:
+                valor_recebido_dinheiro, troco_calculado = calcular_troco_dinheiro(
+                    total_pedido, valor_recebido_bruto,
+                )
+            usa_conf_dinheiro = loja_usa_conferencia_dinheiro(loja)
+
             # CRIA A VENDA
             venda = Venda.objects.create(
                 loja=loja, 
@@ -4715,8 +4751,9 @@ def api_criar_pedido(request):
                 observacao=obs_extra,
                 origem='APP',
                 status='PENDENTE',
-                troco_para=valor_troco if meio_liquidacao == 'DINHEIRO' else 0,
-                conferencia_ok=(meio_liquidacao != 'DINHEIRO'),
+                troco_para=troco_calculado,
+                valor_recebido_dinheiro=valor_recebido_dinheiro,
+                conferencia_ok=not (meio_liquidacao == 'DINHEIRO' and usa_conf_dinheiro),
             )
 
             itens_data = data.get('itens', [])

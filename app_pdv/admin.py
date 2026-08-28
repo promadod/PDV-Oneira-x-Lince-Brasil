@@ -104,8 +104,8 @@ class SaasAdmin(admin.ModelAdmin):
 
 @admin.register(Loja)
 class LojaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
-    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias')
+    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
+    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada')
     fieldsets = (
         (None, {
             'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta')
@@ -116,6 +116,7 @@ class LojaAdmin(admin.ModelAdmin):
         ('PDV', {
             'fields': (
                 'nome_marca_pdv', 'impressao_automatica',
+                'conferencia_dinheiro_habilitada',
                 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel',
                 'balanca_ean_prefixo', 'balanca_plu_digitos', 'balanca_ean_variavel',
                 'cobra_taxa_servico', 'taxa_servico_pct',

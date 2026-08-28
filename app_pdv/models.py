@@ -245,6 +245,13 @@ class Loja(models.Model):
                    "descontam o meio (Pix/Dinheiro etc.) no caixa do dia.",
     )
 
+    conferencia_dinheiro_habilitada = models.BooleanField(
+        default=True,
+        verbose_name="Conferência de pagamento em dinheiro?",
+        help_text="Ativo: vendas em dinheiro exigem botão Receber no histórico (útil para delivery/app). "
+                   "Desligado: confirmação automática — ideal para lojas só com venda no balcão.",
+    )
+
     # --- PLANO DE FIDELIDADE ---
     fidelidade_ativa = models.BooleanField(
         default=False,
@@ -1085,8 +1092,23 @@ def get_nome_meio_liquidacao(codigo):
     return dict(MEIO_LIQUIDACAO_VENDA_CHOICES).get(codigo, codigo)
 
 
+def loja_usa_conferencia_dinheiro(loja):
+    return bool(loja and getattr(loja, 'conferencia_dinheiro_habilitada', True))
+
+
+def calcular_troco_dinheiro(valor_parcela, valor_recebido):
+    """Se valor_recebido > valor_parcela, retorna (recebido, troco); senão (None, None)."""
+    if valor_recebido in (None, '', 0, '0', '0.00'):
+        return None, None
+    recebido = Decimal(str(valor_recebido))
+    parcela = Decimal(str(valor_parcela or 0))
+    if recebido <= parcela:
+        return None, None
+    return recebido, recebido - parcela
+
+
 def validar_liquidacoes_payload(total_venda, liquidacoes, exige_multiplo=False):
-    """Valida lista de parcelas [{meio_liquidacao, valor, troco_para?}]."""
+    """Valida lista de parcelas [{meio_liquidacao, valor, valor_recebido_dinheiro?}]."""
     if not liquidacoes:
         return 'Informe ao menos uma forma de pagamento.'
     if exige_multiplo and len(liquidacoes) < 2:
@@ -1117,28 +1139,56 @@ def validar_liquidacoes_payload(total_venda, liquidacoes, exige_multiplo=False):
     return None
 
 
+def normalizar_liquidacoes_troco_dinheiro(total_venda, liquidacoes):
+    """Venda 100% dinheiro: valor no card > total vira valor recebido + liquidação = total."""
+    if not liquidacoes or len(liquidacoes) != 1:
+        return liquidacoes
+    item = liquidacoes[0]
+    if item.get('meio_liquidacao') != 'DINHEIRO':
+        return liquidacoes
+    total_venda = Decimal(str(total_venda or 0))
+    valor = Decimal(str(item.get('valor', 0) or 0))
+    if valor <= total_venda + Decimal('0.01'):
+        return liquidacoes
+    recebido = item.get('valor_recebido_dinheiro')
+    if recebido in (None, '', 0, '0', '0.00'):
+        recebido = valor
+    else:
+        recebido = Decimal(str(recebido))
+    return [{
+        'meio_liquidacao': 'DINHEIRO',
+        'valor': total_venda,
+        'valor_recebido_dinheiro': recebido,
+    }]
+
+
 def persistir_liquidacoes_venda(venda, liquidacoes, caixa=None, usuario=None):
     """Substitui parcelas da venda e sincroniza campos-resumo em Venda."""
     venda.liquidacoes.all().delete()
     tem_dinheiro = False
+    usa_conferencia = loja_usa_conferencia_dinheiro(venda.loja)
 
     for item in liquidacoes:
         meio = item['meio_liquidacao']
         valor = Decimal(str(item['valor']))
-        troco = item.get('troco_para')
+        valor_recebido_decimal = None
         troco_decimal = None
-        if meio == 'DINHEIRO' and troco not in (None, '', 0, '0', '0.00'):
-            troco_decimal = Decimal(str(troco))
+        if meio == 'DINHEIRO':
             tem_dinheiro = True
-        elif meio == 'DINHEIRO':
-            tem_dinheiro = True
+            valor_recebido_decimal, troco_decimal = calcular_troco_dinheiro(
+                valor, item.get('valor_recebido_dinheiro'),
+            )
 
-        conferencia_ok = meio != 'DINHEIRO'
+        if meio == 'DINHEIRO' and usa_conferencia:
+            conferencia_ok = False
+        else:
+            conferencia_ok = True
         LiquidacaoVenda.objects.create(
             loja=venda.loja,
             venda=venda,
             valor=valor,
             meio_liquidacao=meio,
+            valor_recebido_dinheiro=valor_recebido_decimal,
             troco_para=troco_decimal,
             conferencia_ok=conferencia_ok,
             registrado_por=usuario,
@@ -1150,20 +1200,31 @@ def persistir_liquidacoes_venda(venda, liquidacoes, caixa=None, usuario=None):
     if dividido:
         venda.meio_liquidacao = 'MISTO'
         venda.troco_para = None
+        venda.valor_recebido_dinheiro = None
     else:
         unica = liquidacoes[0]
         venda.meio_liquidacao = unica['meio_liquidacao']
-        venda.troco_para = (
-            Decimal(str(unica['troco_para'])) if unica['meio_liquidacao'] == 'DINHEIRO' and unica.get('troco_para') else None
-        )
+        if unica['meio_liquidacao'] == 'DINHEIRO':
+            vr, troco = calcular_troco_dinheiro(
+                unica['valor'],
+                unica.get('valor_recebido_dinheiro'),
+            )
+            venda.valor_recebido_dinheiro = vr
+            venda.troco_para = troco
+        else:
+            venda.valor_recebido_dinheiro = None
+            venda.troco_para = None
 
-    if tem_dinheiro:
+    if tem_dinheiro and usa_conferencia:
         pendente = venda.liquidacoes.filter(meio_liquidacao='DINHEIRO', conferencia_ok=False).exists()
         venda.conferencia_ok = not pendente
     else:
         venda.conferencia_ok = True
 
-    venda.save(update_fields=['pagamento_dividido', 'meio_liquidacao', 'troco_para', 'conferencia_ok'])
+    venda.save(update_fields=[
+        'pagamento_dividido', 'meio_liquidacao', 'troco_para',
+        'valor_recebido_dinheiro', 'conferencia_ok',
+    ])
     return venda
 
 
@@ -1381,6 +1442,10 @@ class Venda(models.Model):
         verbose_name="Valor taxa de serviço (R$)",
     )
     troco_para = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valor_recebido_dinheiro = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        verbose_name='Valor recebido em dinheiro',
+    )
     conferencia_ok = models.BooleanField(default=False)
     quem_recebeu = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="recebimentos_caixa")
     status_entrega = models.CharField(max_length=20, choices=STATUS_ENTREGA_CHOICES, default='PENDENTE')
@@ -1400,6 +1465,8 @@ class Venda(models.Model):
         return get_nome_forma_pagamento(self.loja, self.forma_pagamento)
 
     def exige_conferencia_pagamento(self):
+        if not loja_usa_conferencia_dinheiro(self.loja):
+            return False
         if self.liquidacoes.filter(meio_liquidacao='DINHEIRO', conferencia_ok=False).exists():
             return True
         if self.liquidacoes.exists():
@@ -1564,6 +1631,10 @@ class LiquidacaoVenda(models.Model):
         verbose_name="Meio de liquidação",
     )
     troco_para = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valor_recebido_dinheiro = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        verbose_name='Valor recebido em dinheiro',
+    )
     conferencia_ok = models.BooleanField(default=False)
     data_liquidacao = models.DateTimeField(auto_now_add=True)
     registrado_por = models.ForeignKey(
@@ -1964,8 +2035,8 @@ class ImportacaoProdutosLog(models.Model):
     )
 
     class Meta:
-        verbose_name = 'Importa├º├úo de produtos'
-        verbose_name_plural = 'Importa├º├╡es de produtos'
+        verbose_name = 'Importação de produtos'
+        verbose_name_plural = 'Importações de produtos'
         ordering = ['-criado_em']
 
     @property
@@ -1974,7 +2045,7 @@ class ImportacaoProdutosLog(models.Model):
 
     def __str__(self):
         status = 'revertida' if self.revertida else 'ativa'
-        return f"Importa├º├úo #{self.id} ΓÇö {self.nome_arquivo} ({status})"
+        return f"Importação #{self.id} — {self.nome_arquivo} ({status})"
 
 
 class ImportacaoProdutosItemSnapshot(models.Model):
@@ -1991,8 +2062,8 @@ class ImportacaoProdutosItemSnapshot(models.Model):
     item_criado = models.BooleanField(default=False)
 
     class Meta:
-        verbose_name = 'Snapshot item (importa├º├úo)'
-        verbose_name_plural = 'Snapshots item (importa├º├úo)'
+        verbose_name = 'Snapshot item (importação)'
+        verbose_name_plural = 'Snapshots item (importação)'
 
 
 class ImportacaoProdutosProdutoSnapshot(models.Model):
@@ -2014,8 +2085,8 @@ class ImportacaoProdutosProdutoSnapshot(models.Model):
     ativo_antes = models.BooleanField(null=True, blank=True)
 
     class Meta:
-        verbose_name = 'Snapshot produto (importa├º├úo)'
-        verbose_name_plural = 'Snapshots produto (importa├º├úo)'
+        verbose_name = 'Snapshot produto (importação)'
+        verbose_name_plural = 'Snapshots produto (importação)'
 
 
 class Motoboy(models.Model):

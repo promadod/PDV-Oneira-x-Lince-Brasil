@@ -452,11 +452,6 @@
                 </div>
             </div>
 
-            <div class="modal-troco-wrap" id="wrapTrocoModal">
-                <label for="input_troco_modal">Troco para (dinheiro)</label>
-                <input type="number" id="input_troco_modal" step="0.01" min="0" placeholder="50.00" class="form-control">
-            </div>
-
             <div class="modal-lancamento-wrap" id="wrapLancamentoAvulso">
                 <label for="selectLancamentoAvulso">Tipo de lançamento</label>
                 <select id="selectLancamentoAvulso" class="form-control">
@@ -501,6 +496,7 @@
             <li><kbd>Enter</kbd> confirma a venda (com foco no modal)</li>
             <li><kbd>Esc</kbd> fecha o modal &nbsp; <kbd>?</kbd> abre esta ajuda</li>
             <li>Digite o valor manualmente — o sistema não preenche o restante automaticamente</li>
+            <li>Em venda 100% dinheiro, valor maior que o total no card exibe o troco no topo</li>
         </ul>
     </div>
 </div>
@@ -1235,10 +1231,11 @@
             if (card) {
                 card.classList.add('ativo');
                 const inp = card.querySelector('.card-valor');
-                if (inp) inp.value = parsePrecoBR(liq.valor).toFixed(2);
-                if (liq.troco_para && liq.meio_liquidacao === 'DINHEIRO') {
-                    const trocoInp = document.getElementById('input_troco_modal');
-                    if (trocoInp) trocoInp.value = parsePrecoBR(liq.troco_para).toFixed(2);
+                if (inp) {
+                    const valCard = (liq.valor_recebido_dinheiro && liq.meio_liquidacao === 'DINHEIRO')
+                        ? liq.valor_recebido_dinheiro
+                        : liq.valor;
+                    inp.value = parsePrecoBR(valCard).toFixed(2);
                 }
             }
         });
@@ -1257,6 +1254,23 @@
         }
     }
 
+    function normalizarParcelasTrocoDinheiro(parcelas, total) {
+        if (parcelas.length !== 1 || parcelas[0].meio_liquidacao !== 'DINHEIRO') return parcelas;
+        const digitado = parcelas[0].valor;
+        if (digitado > total + 0.001) {
+            return [{
+                meio_liquidacao: 'DINHEIRO',
+                valor: total,
+                valor_recebido_dinheiro: digitado,
+            }];
+        }
+        return parcelas.map(p => ({
+            meio_liquidacao: p.meio_liquidacao,
+            valor: p.valor,
+            valor_recebido_dinheiro: null,
+        }));
+    }
+
     function coletarLiquidacoesModal() {
         const parcelas = [];
         document.querySelectorAll('.meio-card .card-valor').forEach(inp => {
@@ -1265,15 +1279,10 @@
                 parcelas.push({
                     meio_liquidacao: inp.dataset.meio,
                     valor: v,
-                    troco_para: null,
+                    valor_recebido_dinheiro: null,
                 });
             }
         });
-        const dinheiro = parcelas.find(p => p.meio_liquidacao === 'DINHEIRO');
-        if (dinheiro) {
-            const troco = parsePrecoBR(document.getElementById('input_troco_modal').value);
-            if (troco > 0) dinheiro.troco_para = troco;
-        }
         return parcelas;
     }
 
@@ -1283,6 +1292,7 @@
         const parcelas = coletarLiquidacoesModal();
         const soma = parcelas.reduce((s, p) => s + p.valor, 0);
         const restante = Math.round((total - soma) * 100) / 100;
+        const soDinheiro = parcelas.length === 1 && parcelas[0].meio_liquidacao === 'DINHEIRO';
         const el = document.getElementById('modalRestanteDisplay');
         if (modoEspecial === 'cortesia' || modoEspecial === 'avaria' || modoEspecial === 'finalizar_depois') {
             el.textContent = modoEspecial === 'finalizar_depois' ? 'Venda ficará em aberto' : 'Sem cobrança';
@@ -1295,6 +1305,10 @@
                 el.textContent = 'Fiado integral — informe entrada nos cards acima (opcional)';
             }
             el.className = restanteFiado > 0.01 ? 'restante pendente' : 'restante ok';
+        } else if (soDinheiro && soma > total + 0.001) {
+            const troco = Math.round((soma - total) * 100) / 100;
+            el.textContent = 'Troco: R$ ' + troco.toFixed(2);
+            el.className = 'restante ok';
         } else if (Math.abs(restante) <= 0.01) {
             el.textContent = parcelas.length > 1 ? 'Pagamento dividido ✓' : 'Quitado ✓';
             el.className = 'restante ok';
@@ -1302,8 +1316,6 @@
             el.textContent = 'Restante: R$ ' + restante.toFixed(2);
             el.className = 'restante pendente';
         }
-        const temDinheiro = parcelas.some(p => p.meio_liquidacao === 'DINHEIRO');
-        document.getElementById('wrapTrocoModal').classList.toggle('visivel', temDinheiro && !modoEspecial);
     }
 
     function abrirModalPagamento() {
@@ -1332,8 +1344,9 @@
     }
 
     function confirmarVendaModal() {
-        const parcelas = coletarLiquidacoesModal();
+        const parcelasBrutas = coletarLiquidacoesModal();
         const total = calcularTotalVenda();
+        const parcelas = normalizarParcelasTrocoDinheiro(parcelasBrutas, total);
         const ehCortesia = modoEspecial === 'cortesia';
         const ehAvaria = modoEspecial === 'avaria';
         const ehFiado = modoEspecial === 'fiado';
@@ -1358,16 +1371,18 @@
         }
 
         if (!semReceita && !finalizarDepois && !ehFiado && !ehOrcamento) {
-            const soma = parcelas.reduce((s, p) => s + p.valor, 0);
-            if (parcelas.length === 0) {
+            const somaBruta = parcelasBrutas.reduce((s, p) => s + p.valor, 0);
+            const soDinheiro = parcelasBrutas.length === 1 && parcelasBrutas[0].meio_liquidacao === 'DINHEIRO';
+            const trocoNoCard = soDinheiro && somaBruta > total + 0.001;
+            if (parcelasBrutas.length === 0) {
                 alert('Informe ao menos um meio de pagamento ou escolha uma opção especial.');
                 return;
             }
-            if (Math.abs(soma - total) > 0.01) {
-                alert('A soma dos pagamentos deve ser igual ao total. Restante: R$ ' + (total - soma).toFixed(2));
+            if (!trocoNoCard && Math.abs(somaBruta - total) > 0.01) {
+                alert('A soma dos pagamentos deve ser igual ao total. Restante: R$ ' + (total - somaBruta).toFixed(2));
                 return;
             }
-            if (parcelas.length >= 2 && !PERMITE_PAGAMENTO_DIVIDIDO) {
+            if (parcelasBrutas.length >= 2 && !PERMITE_PAGAMENTO_DIVIDIDO) {
                 alert('Esta loja não permite pagamento dividido.');
                 return;
             }
@@ -1429,9 +1444,9 @@
         const checkUsarFid = document.getElementById('check_usar_fidelidade');
         const usarFidelidade = FIDELIDADE_ATIVA && checkUsarFid && checkUsarFid.checked && !semReceita;
 
-        let troco = null;
+        let valorRecebido = null;
         const dinP = parcelas.find(p => p.meio_liquidacao === 'DINHEIRO');
-        if (dinP && dinP.troco_para) troco = dinP.troco_para;
+        if (dinP && dinP.valor_recebido_dinheiro) valorRecebido = dinP.valor_recebido_dinheiro;
 
         const dadosVenda = {
             venda_id: document.getElementById('venda_id_edicao').value || null,
@@ -1446,7 +1461,7 @@
             taxa_entrega: (!MODO_TAXA_SERVICO && LOJA_TRABALHA_COM_ENTREGAS) ? obterTaxaModal() : 0,
             taxa_servico_pct: MODO_TAXA_SERVICO ? obterTaxaModal() : 0,
             total_final: semReceita ? 0 : total,
-            troco_para: troco,
+            valor_recebido_dinheiro: valorRecebido,
             eh_fiado: ehFiado,
             valor_pago_inicial: ehFiado ? parcelas.reduce((s, p) => s + p.valor, 0) : 0,
             usar_fidelidade: usarFidelidade,
@@ -1599,7 +1614,7 @@
             }
             if (e.key === 'Enter') {
                 const ae = document.activeElement;
-                if (ae && (ae.classList.contains('card-valor') || ae.id === 'input_troco_modal' || ae.id === 'inputTaxaModal' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) {
+                if (ae && (ae.classList.contains('card-valor') || ae.id === 'inputTaxaModal' || ae.tagName === 'SELECT' || ae.tagName === 'TEXTAREA')) {
                     return;
                 }
                 e.preventDefault();
