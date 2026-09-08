@@ -785,7 +785,17 @@
         if (isDividido) dadosVenda.liquidacoes = parcelas;
         else if (ehFiado && parcelas.length > 1) dadosVenda.liquidacoes = parcelas;
 
-        document.getElementById('btnConfirmarPagamento').disabled = true;
+        if (window.OneiraSubmitLock && OneiraSubmitLock.isLocked()) return;
+        if (!window._vendaIdempotencyKey) {
+            window._vendaIdempotencyKey = (window.OneiraSubmitLock && OneiraSubmitLock.newKey)
+                ? OneiraSubmitLock.newKey()
+                : ('idemp-' + Date.now());
+        }
+        dadosVenda.idempotency_key = window._vendaIdempotencyKey;
+        if (window.OneiraSubmitLock) OneiraSubmitLock.lock('Finalizando venda…');
+        const btnConfirmar = document.getElementById('btnConfirmarPagamento');
+        if (btnConfirmar) btnConfirmar.disabled = true;
+
         fetch('{% url "salvar_venda" %}', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'X-CSRFToken': '{{ csrf_token }}' },
@@ -794,14 +804,19 @@
         .then(r => r.json())
         .then(data => {
             if (data.status === 'sucesso') {
+                window._vendaIdempotencyKey = null;
                 alert('Venda registrada!');
                 window.location.href = "{% url 'lista_vendas' %}";
             } else {
-                alert(data.mensagem || 'Erro ao salvar.');
+                throw new Error(data.mensagem || 'Erro ao salvar.');
             }
         })
-        .catch(() => alert('Erro de conexão.'))
-        .finally(() => { document.getElementById('btnConfirmarPagamento').disabled = false; });
+        .catch((err) => {
+            window._vendaIdempotencyKey = null;
+            if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
+            if (btnConfirmar) btnConfirmar.disabled = false;
+            alert((err && err.message) || 'Erro de conexão.');
+        });
     }
 
     document.querySelectorAll('.pagamento-card').forEach(card => {

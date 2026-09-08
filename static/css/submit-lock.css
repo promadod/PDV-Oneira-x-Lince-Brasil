@@ -1,0 +1,94 @@
+/* Overlay anti-duplicidade — bloqueio visual durante POST/salvamento */
+#oneira-submit-lock {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10050;
+  align-items: center;
+  justify-content: center;
+  background: rgba(6, 10, 16, 0.72);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  pointer-events: all;
+}
+
+#oneira-submit-lock.ativo {
+  display: flex;
+}
+
+.oneira-submit-lock-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 18px;
+  padding: 28px 36px;
+  border-radius: 16px;
+  background: linear-gradient(160deg, rgba(22, 28, 40, 0.95), rgba(12, 16, 24, 0.98));
+  border: 1px solid rgba(3, 218, 198, 0.35);
+  box-shadow:
+    0 0 0 1px rgba(21, 160, 165, 0.15),
+    0 20px 50px rgba(0, 0, 0, 0.55),
+    0 0 40px rgba(3, 218, 198, 0.12);
+  color: #e8f7f6;
+  min-width: 220px;
+  max-width: min(90vw, 340px);
+  text-align: center;
+}
+
+.oneira-submit-lock-spinner {
+  position: relative;
+  width: 56px;
+  height: 56px;
+}
+
+.oneira-submit-lock-spinner::before,
+.oneira-submit-lock-spinner::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 3px solid transparent;
+}
+
+.oneira-submit-lock-spinner::before {
+  border-top-color: #03dac6;
+  border-right-color: rgba(3, 218, 198, 0.35);
+  animation: oneira-spin 0.85s linear infinite;
+}
+
+.oneira-submit-lock-spinner::after {
+  inset: 8px;
+  border-bottom-color: #15a0a5;
+  border-left-color: rgba(21, 160, 165, 0.3);
+  animation: oneira-spin 1.25s linear infinite reverse;
+}
+
+.oneira-submit-lock-msg {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: #c8fff8;
+}
+
+.oneira-submit-lock-sub {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #8aa;
+  font-weight: 400;
+}
+
+@keyframes oneira-spin {
+  to { transform: rotate(360deg); }
+}
+
+body.oneira-submit-locked {
+  overflow: hidden;
+}
+
+button.oneira-btn-locked,
+input.oneira-btn-locked {
+  opacity: 0.65 !important;
+  cursor: wait !important;
+  pointer-events: none !important;
+}

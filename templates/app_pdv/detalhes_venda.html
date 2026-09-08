@@ -335,7 +335,9 @@
         const msg = document.getElementById('obs_status_msg');
         const textarea = document.getElementById('input_observacao');
         if (!btn || !textarea) return;
+        if (window.OneiraSubmitLock && OneiraSubmitLock.isLocked()) return;
 
+        if (window.OneiraSubmitLock) OneiraSubmitLock.lock('Salvando observação…');
         btn.disabled = true;
         msg.textContent = 'Salvando...';
         msg.className = '';
@@ -364,6 +366,7 @@
             msg.className = 'erro';
         })
         .finally(() => {
+            if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
             btn.disabled = false;
             setTimeout(() => {
                 if (msg.className === 'sucesso') msg.textContent = '';

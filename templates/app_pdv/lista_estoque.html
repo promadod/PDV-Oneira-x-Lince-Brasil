@@ -199,8 +199,10 @@
 
     document.querySelectorAll('.btn-salvar-item').forEach(btn => {
         btn.addEventListener('click', function() {
+            if (window.OneiraSubmitLock && OneiraSubmitLock.isLocked()) return;
             const tr = this.closest('tr');
             this.disabled = true;
+            if (window.OneiraSubmitLock) OneiraSubmitLock.lock('Salvando estoque…');
             salvarLinha(tr)
                 .then(data => {
                     if (data.status === 'sucesso') {
@@ -209,7 +211,10 @@
                         Swal.fire({ icon: 'error', title: 'Erro', text: data.mensagem || 'Falha ao salvar.', background: '#1e1e1e', color: '#fff' });
                     }
                 })
-                .finally(() => { this.disabled = false; });
+                .finally(() => {
+                    if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
+                    this.disabled = false;
+                });
         });
     });
 
@@ -260,14 +265,20 @@
             }
         }).then(result => {
             if (!result.isConfirmed) return;
+            if (window.OneiraSubmitLock) OneiraSubmitLock.lock('Registrando abertura…');
             postJson("{% url 'registrar_contagem_diaria' %}", { itens: result.value })
                 .then(data => {
                     if (data.status === 'sucesso') {
                         Swal.fire({ icon: 'success', title: 'Abertura registrada', text: data.mensagem, background: '#1e1e1e', color: '#fff' })
                             .then(() => location.reload());
                     } else {
+                        if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
                         Swal.fire({ icon: 'error', title: 'Erro', text: data.mensagem, background: '#1e1e1e', color: '#fff' });
                     }
+                })
+                .catch(() => {
+                    if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
+                    Swal.fire({ icon: 'error', title: 'Erro', text: 'Falha de conexão.', background: '#1e1e1e', color: '#fff' });
                 });
         });
     }
@@ -287,14 +298,20 @@
                 confirmButtonColor: '#6a4a9a',
             }).then(result => {
                 if (!result.isConfirmed) return;
+                if (window.OneiraSubmitLock) OneiraSubmitLock.lock('Registrando fechamento…');
                 postJson("{% url 'registrar_fechamento_estoque' %}", {})
                     .then(data => {
                         if (data.status === 'sucesso') {
                             Swal.fire({ icon: 'success', title: 'Fechamento registrado', text: data.mensagem, background: '#1e1e1e', color: '#fff' })
                                 .then(() => location.reload());
                         } else {
+                            if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
                             Swal.fire({ icon: 'error', title: 'Erro', text: data.mensagem, background: '#1e1e1e', color: '#fff' });
                         }
+                    })
+                    .catch(() => {
+                        if (window.OneiraSubmitLock) OneiraSubmitLock.unlock();
+                        Swal.fire({ icon: 'error', title: 'Erro', text: 'Falha de conexão.', background: '#1e1e1e', color: '#fff' });
                     });
             });
         });

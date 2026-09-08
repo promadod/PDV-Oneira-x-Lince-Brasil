@@ -8,7 +8,7 @@
         Selecione os itens, informe a quantidade de cada um e a filial destino. Só serão transferidos itens que já existem na outra loja (mesmo nome, ignorando acentos).
     </p>
 
-    <form method="POST" id="form-lote">
+    <form method="POST" id="form-lote" data-submit-lock-msg="Transferindo estoque…">
         {% csrf_token %}
 
         <div style="display: flex; flex-wrap: wrap; gap: 16px; align-items: flex-end; margin-bottom: 20px;">

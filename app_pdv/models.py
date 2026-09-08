@@ -2089,6 +2089,35 @@ class ImportacaoProdutosProdutoSnapshot(models.Model):
         verbose_name_plural = 'Snapshots produto (importação)'
 
 
+class IdempotenciaOperacao(models.Model):
+    """Reserva chave única por loja/endpoint para evitar processamento duplicado."""
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='idempotencias')
+    usuario = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='idempotencias',
+    )
+    endpoint = models.CharField(max_length=80)
+    chave = models.CharField(max_length=64)
+    resposta = models.JSONField(default=dict, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Idempotência de operação'
+        verbose_name_plural = 'Idempotências de operação'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['loja', 'endpoint', 'chave'],
+                name='idempotencia_unica_loja_endpoint_chave',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['criado_em'], name='app_pdv_idem_criado_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.endpoint}:{self.chave}'
+
+
 class Motoboy(models.Model):
     loja = models.ForeignKey(Loja, on_delete=models.CASCADE)
     user = models.OneToOneField(User, on_delete=models.CASCADE, null=True, blank=True, related_name='motoboy_perfil')

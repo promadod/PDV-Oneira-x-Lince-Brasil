@@ -107,6 +107,7 @@ from .fidelidade_service import (
     listar_acompanhamento_fidelidade,
 )
 from .audit_log import registrar_log
+from .idempotencia import reivindicar, concluir, liberar
 from .seguranca import usuario_pode_configurar_loja
 from .whatsapp_service import (
     notificar_novo_pedido_empresa, notificar_cliente_saiu_entrega,
@@ -1136,6 +1137,36 @@ def salvar_venda(request):
 
 
 def _processar_salvar_venda(request, loja, data):
+
+        chave_idem = (data.get('idempotency_key') or data.get('idempotencia_chave') or '').strip()
+        reivindicado, resposta_existente = reivindicar(loja, 'salvar_venda', chave_idem, request.user)
+        if not reivindicado:
+            status_http = 200 if (resposta_existente or {}).get('status') == 'sucesso' else 409
+            return JsonResponse(resposta_existente or {'status': 'erro', 'mensagem': 'Operação duplicada.'}, status=status_http)
+
+        try:
+            response = _processar_salvar_venda_interno(request, loja, data)
+        except Exception:
+            liberar(loja, 'salvar_venda', chave_idem)
+            raise
+
+        if chave_idem:
+            status_code = getattr(response, 'status_code', 200)
+            if status_code >= 400:
+                liberar(loja, 'salvar_venda', chave_idem)
+            else:
+                try:
+                    payload = json.loads(response.content.decode('utf-8'))
+                except Exception:
+                    payload = {}
+                if payload.get('status') == 'sucesso':
+                    concluir(loja, 'salvar_venda', chave_idem, payload)
+                else:
+                    liberar(loja, 'salvar_venda', chave_idem)
+        return response
+
+
+def _processar_salvar_venda_interno(request, loja, data):
 
         eh_fiado = bool(data.get('eh_fiado')) and loja.usa_fiado
         valor_pago_inicial = _valor_decimal_payload(data.get('valor_pago_inicial'))

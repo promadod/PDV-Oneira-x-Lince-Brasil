@@ -112,7 +112,7 @@
 <h2 style="margin-bottom:20px;">{{ titulo }}</h2>
 
 <div class="card" style="max-width: 700px;">
-    <form method="post" enctype="multipart/form-data" id="form-produto" novalidate>
+    <form method="post" enctype="multipart/form-data" id="form-produto" novalidate data-submit-lock-msg="Salvando produto…">
         {% csrf_token %}
 
         {% if form.errors %}
@@ -395,11 +395,6 @@
                         $(this).trigger('change.select2');
                     }
                 });
-                const btn = formProduto.querySelector('button[type="submit"]');
-                if (btn) {
-                    btn.disabled = true;
-                    btn.textContent = 'Salvando...';
-                }
             });
         }
 
