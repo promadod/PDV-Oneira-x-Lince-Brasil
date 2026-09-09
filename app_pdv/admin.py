@@ -418,3 +418,30 @@ class BloqueioIPLoginAdmin(admin.ModelAdmin):
         for reg in queryset:
             liberar_ip(reg.ip)
         self.message_user(request, f'{queryset.count()} IP(s) liberado(s).')
+@admin.register(FiscalConfig)
+class FiscalConfigAdmin(SaasAdmin):
+    list_display = ('loja', 'cnpj', 'ambiente', 'emite_nfce', 'emite_nfe', 'contingencia_ativa')
+    list_filter = ('ambiente', 'contingencia_ativa')
+
+
+@admin.register(DocumentoFiscal)
+class DocumentoFiscalAdmin(SaasAdmin):
+    list_display = ('ref', 'tipo', 'status', 'numero', 'valor_total', 'loja', 'criado_em')
+    list_filter = ('tipo', 'status')
+    search_fields = ('ref', 'chave_acesso', 'numero')
+
+
+@admin.register(RegraTributaria)
+class RegraTributariaAdmin(SaasAdmin):
+    list_display = ('nome', 'cfop', 'csosn', 'ncm', 'ativa', 'loja')
+
+
+@admin.register(FiscalWebhookLog)
+class FiscalWebhookLogAdmin(SaasAdmin):
+    list_display = ('criado_em', 'evento', 'ref', 'status_recebido', 'processado', 'loja')
+    readonly_fields = ('criado_em',)
+
+
+@admin.register(NFeRecebida)
+class NFeRecebidaAdmin(SaasAdmin):
+    list_display = ('chave_acesso', 'nome_emitente', 'valor_total', 'situacao', 'manifestacao', 'loja')
