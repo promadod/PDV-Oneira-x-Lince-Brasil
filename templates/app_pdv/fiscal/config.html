@@ -1,0 +1,70 @@
+{% extends 'base.html' %}
+{% block title %}Configuração Fiscal{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2 style="margin-bottom:16px;">1. Configurações Fiscais (Empresa e Certificado)</h2>
+<p style="color:#aaa;margin-bottom:20px;">Cadastro do emitente e integração Focus NFe. O certificado A1 é gerenciado na Focus; informe o token da empresa aqui.</p>
+<form method="post" data-submit-lock-msg="Salvando configuração fiscal…">
+    {% csrf_token %}
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Empresa</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Razão social</label>{{ form.razao_social }}</div>
+            <div><label>Nome fantasia</label>{{ form.nome_fantasia }}</div>
+            <div><label>CNPJ</label>{{ form.cnpj }}</div>
+            <div><label>CRT</label>{{ form.crt }}</div>
+            <div><label>IE</label>{{ form.inscricao_estadual }}</div>
+            <div><label>IM</label>{{ form.inscricao_municipal }}</div>
+            <div><label>CNAE</label>{{ form.cnae }}</div>
+            <div><label>Ambiente</label>{{ form.ambiente }}</div>
+        </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Endereço</h3>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;">
+            <div><label>Logradouro</label>{{ form.logradouro }}</div>
+            <div><label>Número</label>{{ form.numero }}</div>
+            <div><label>Complemento</label>{{ form.complemento }}</div>
+            <div><label>Bairro</label>{{ form.bairro }}</div>
+            <div><label>CEP</label>{{ form.cep }}</div>
+            <div><label>Município</label>{{ form.municipio }}</div>
+            <div><label>UF</label>{{ form.uf }}</div>
+            <div><label>Código IBGE</label>{{ form.codigo_ibge }}</div>
+        </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Focus NFe / Certificado</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Token Focus</label>{{ form.focus_token }}</div>
+            <div><label>ID empresa Focus</label>{{ form.focus_empresa_id }}</div>
+            <div><label>CSC ID (NFC-e)</label>{{ form.csc_id }}</div>
+            <div><label>CSC Token</label>{{ form.csc_token }}</div>
+            <div><label>Webhook URL</label>{{ form.webhook_url_configurada }}</div>
+            <div><label>E-mail XML/DANFE</label>{{ form.email_envio_xml }}</div>
+        </div>
+        <p style="color:#888;font-size:0.85em;margin-top:10px;">Status certificado: <strong>{{ fiscal_config.certificado_status }}</strong>
+            {% if fiscal_config.certificado_validade %} · validade {{ fiscal_config.certificado_validade|date:"d/m/Y" }}{% endif %}
+        </p>
+        <p style="color:#888;font-size:0.85em;">Webhook do sistema: <code>/api/fiscal/webhooks/focus/</code></p>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Séries / numeração / tipos</h3>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+            <div><label>Série NF-e</label>{{ form.serie_nfe }}</div>
+            <div><label>Série NFC-e</label>{{ form.serie_nfce }}</div>
+            <div><label>Série NFS-e</label>{{ form.serie_nfse }}</div>
+            <div><label>Próx. NF-e</label>{{ form.proximo_numero_nfe }}</div>
+            <div><label>Próx. NFC-e</label>{{ form.proximo_numero_nfce }}</div>
+            <div><label>Próx. NFS-e</label>{{ form.proximo_numero_nfse }}</div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:16px;">
+            <label>{{ form.emite_nfe }} Emitir NF-e</label>
+            <label>{{ form.emite_nfce }} Emitir NFC-e</label>
+            <label>{{ form.emite_nfse }} Emitir NFS-e</label>
+            <label>{{ form.emite_nfse_nacional }} NFS-e Nacional</label>
+            <label>{{ form.enviar_whatsapp_danfe }} Enviar DANFE no WhatsApp</label>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-success">Salvar configurações</button>
+</form>
+{% endblock %}

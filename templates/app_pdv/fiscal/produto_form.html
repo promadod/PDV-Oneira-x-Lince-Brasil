@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Dados fiscais produto{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>Dados fiscais — {{ produto.nome_venda }}</h2>
+<form method="post" class="card" style="max-width:640px;" data-submit-lock-msg="Salvando…">
+    {% csrf_token %}
+    {% for field in form %}
+    <div style="margin-bottom:12px;">
+        <label>{{ field.label }}</label>
+        {{ field }}
+    </div>
+    {% endfor %}
+    <button type="submit" class="btn btn-success">Salvar</button>
+    <a href="{% url 'fiscal_produtos' %}" class="btn" style="background:#444;">Voltar</a>
+</form>
+{% endblock %}

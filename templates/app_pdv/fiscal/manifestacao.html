@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+{% block title %}Manifestação NF-e{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>10. Manifestação / NF-e recebidas</h2>
+<p style="color:#aaa;">Ciência e confirmação de notas de entrada (compras). Sincronização automática via Focus pode ser ligada depois.</p>
+<div class="card">
+    <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:10px;">Chave</th><th>Emitente</th><th>Valor</th><th>Situação</th><th>Manifestar</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for n in recebidas %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;font-size:0.8em;">{{ n.chave_acesso }}</td>
+                <td>{{ n.nome_emitente|default:n.cnpj_emitente }}</td>
+                <td>R$ {{ n.valor_total }}</td>
+                <td>{{ n.situacao }} {% if n.manifestacao %}({{ n.manifestacao }}){% endif %}</td>
+                <td>
+                    <form method="post" action="{% url 'fiscal_manifestar' n.id %}" style="display:flex;gap:6px;align-items:center;">
+                        {% csrf_token %}
+                        <select name="manifestacao" class="form-control" style="min-width:140px;">
+                            <option value="ciencia">Ciência</option>
+                            <option value="confirmacao">Confirmação</option>
+                            <option value="desconhecimento">Desconhecimento</option>
+                            <option value="nao_realizada">Não realizada</option>
+                        </select>
+                        <button type="submit" class="btn" style="padding:6px 10px;">OK</button>
+                    </form>
+                </td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="5" style="padding:20px;text-align:center;">Nenhuma NF-e recebida cadastrada.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

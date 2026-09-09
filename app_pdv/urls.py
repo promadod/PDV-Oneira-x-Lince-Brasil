@@ -2,6 +2,7 @@ from django.urls import path, include
 from . import views
 from . import gestor_views
 from .views import CustomAuthToken,EntregasDisponiveisView, AssumirEntregaView, MinhasEntregasView, DevolverEntregaView, ReceberLeadTrafficHub
+from .fiscal import views as fiscal_views
 
 
 urlpatterns = [
@@ -191,6 +192,8 @@ urlpatterns = [
 
     path('api/receber-lead/', ReceberLeadTrafficHub.as_view(), name='receber_lead'),
 
+    path('fiscal/', include('app_pdv.fiscal.urls')),
+    path('api/fiscal/webhooks/focus/', fiscal_views.fiscal_webhook_focus, name='fiscal_webhook_focus'),
 
     # -------------------------------- OUTRAS ROTAS --------------------------------------
 

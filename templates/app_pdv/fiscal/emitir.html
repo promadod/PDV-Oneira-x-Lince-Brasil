@@ -1,0 +1,31 @@
+{% extends 'base.html' %}
+{% block title %}Emitir documento fiscal{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>5. Emitir NFC-e / NF-e / NFS-e</h2>
+<p style="color:#aaa;">Envia o documento à Focus NFe (processamento assíncrono). Vincule a uma venda do PDV quando possível.</p>
+<form method="post" class="card" style="max-width:520px;margin-bottom:20px;" data-submit-lock-msg="Emitindo…">
+    {% csrf_token %}
+    <div style="margin-bottom:12px;"><label>Tipo</label>{{ form.tipo }}</div>
+    <div style="margin-bottom:12px;"><label>ID da venda (opcional)</label>{{ form.venda_id }}</div>
+    <button type="submit" class="btn btn-success">Enviar à Focus</button>
+</form>
+<div class="card">
+    <h3 style="color:#15a0a5;">Vendas recentes</h3>
+    <table style="width:100%;border-collapse:collapse;color:#fff;">
+        <thead><tr style="border-bottom:1px solid #444;text-align:left;"><th style="padding:10px;">ID</th><th>Total</th><th>Status</th><th>Data</th></tr></thead>
+        <tbody>
+            {% for v in vendas_recentes %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">#{{ v.id }}</td>
+                <td>R$ {{ v.total }}</td>
+                <td>{{ v.status }}</td>
+                <td>{{ v.data_venda|date:"d/m/Y H:i" }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="padding:16px;">Sem vendas.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

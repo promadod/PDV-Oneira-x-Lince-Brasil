@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Documentos Fiscais{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
+    <h2 style="margin:0;">3 / 5 — Documentos (NF-e / NFC-e / NFS-e)</h2>
+    <a href="{% url 'fiscal_emitir' %}" class="btn">Emitir novo</a>
+</div>
+<form method="get" class="card" style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;" data-submit-lock="off">
+    <div>
+        <label>Tipo</label>
+        <select name="tipo" class="form-control">
+            <option value="">Todos</option>
+            <option value="nfce" {% if filtro_tipo == 'nfce' %}selected{% endif %}>NFC-e</option>
+            <option value="nfe" {% if filtro_tipo == 'nfe' %}selected{% endif %}>NF-e</option>
+            <option value="nfse" {% if filtro_tipo == 'nfse' %}selected{% endif %}>NFS-e</option>
+        </select>
+    </div>
+    <div>
+        <label>Status</label>
+        <select name="status" class="form-control">
+            <option value="">Todos</option>
+            <option value="autorizado" {% if filtro_status == 'autorizado' %}selected{% endif %}>Autorizado</option>
+            <option value="processando" {% if filtro_status == 'processando' %}selected{% endif %}>Processando</option>
+            <option value="erro" {% if filtro_status == 'erro' %}selected{% endif %}>Erro</option>
+            <option value="cancelado" {% if filtro_status == 'cancelado' %}selected{% endif %}>Cancelado</option>
+        </select>
+    </div>
+    <button type="submit" class="btn">Filtrar</button>
+</form>
+<div class="card">
+    <table style="width:100%;border-collapse:collapse;color:#fff;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:12px;">Ref</th><th>Tipo</th><th>Número</th><th>Status</th><th>Valor</th><th>Venda</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in documentos %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:10px;font-size:0.85em;">{{ d.ref }}</td>
+                <td>{{ d.get_tipo_display }}</td>
+                <td>{{ d.numero|default:"—" }}</td>
+                <td style="color:{% if d.status == 'autorizado' %}#03dac6{% elif d.status == 'erro' %}#cf6679{% else %}#ffbb33{% endif %};">{{ d.get_status_display }}</td>
+                <td>R$ {{ d.valor_total }}</td>
+                <td>{% if d.venda_id %}#{{ d.venda_id }}{% else %}—{% endif %}</td>
+                <td><a href="{% url 'fiscal_documento_detalhe' d.id %}" style="color:#03dac6;">Abrir</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" style="padding:20px;text-align:center;">Nenhum documento.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

@@ -179,6 +179,15 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
 
+# --- Fiscal / Focus NFe ---
+FOCUS_NFE_API_BASE_HOMOLOGACAO = os.getenv(
+    'FOCUS_NFE_API_BASE_HOMOLOGACAO', 'https://homologacao.focusnfe.com.br/v2'
+).strip()
+FOCUS_NFE_API_BASE_PRODUCAO = os.getenv(
+    'FOCUS_NFE_API_BASE_PRODUCAO', 'https://api.focusnfe.com.br/v2'
+).strip()
+FOCUS_NFE_TIMEOUT_SECONDS = int(os.getenv('FOCUS_NFE_TIMEOUT_SECONDS', '45') or 45)
+
 # --- Observabilidade: logs JSON + nível configurável ---
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOGGING = {

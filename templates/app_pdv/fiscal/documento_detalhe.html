@@ -1,0 +1,52 @@
+{% extends 'base.html' %}
+{% block title %}Documento {{ doc.ref }}{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>{{ doc.get_tipo_display }} — {{ doc.numero|default:doc.ref }}</h2>
+<div class="card" style="margin-bottom:16px;">
+    <p><strong>Status:</strong> {{ doc.get_status_display }}</p>
+    <p><strong>Chave:</strong> {{ doc.chave_acesso|default:"—" }}</p>
+    <p><strong>Protocolo:</strong> {{ doc.protocolo|default:"—" }}</p>
+    <p><strong>SEFAZ:</strong> {{ doc.status_sefaz }} {{ doc.mensagem_sefaz }}</p>
+    <p><strong>Valor:</strong> R$ {{ doc.valor_total }}</p>
+    {% if doc.em_contingencia %}<p style="color:#ff9800;">Emitido em contingência</p>{% endif %}
+    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
+        {% if doc.url_xml or doc.caminho_xml %}<a class="btn" style="background:#333;" href="{{ doc.url_xml|default:doc.caminho_xml }}" target="_blank">XML</a>{% endif %}
+        {% if doc.url_pdf or doc.caminho_pdf %}<a class="btn" style="background:#333;" href="{{ doc.url_pdf|default:doc.caminho_pdf }}" target="_blank">DANFE/PDF</a>{% endif %}
+        <a href="{% url 'fiscal_documentos' %}" class="btn" style="background:#444;">Voltar</a>
+    </div>
+</div>
+
+{% if doc.status == 'autorizado' %}
+<div class="card" style="margin-bottom:16px;">
+    <h3 style="color:#cf6679;">6. Cancelar</h3>
+    <form method="post" action="{% url 'fiscal_documento_cancelar' doc.id %}" data-submit-lock-msg="Cancelando…">
+        {% csrf_token %}
+        {{ cancel_form.justificativa }}
+        <button type="submit" class="btn" style="background:#cf6679;margin-top:10px;" onclick="return confirm('Cancelar este documento?')">Cancelar documento</button>
+    </form>
+</div>
+{% if doc.tipo == 'nfe' %}
+<div class="card" style="margin-bottom:16px;">
+    <h3 style="color:#15a0a5;">Carta de Correção (CC-e)</h3>
+    <form method="post" action="{% url 'fiscal_documento_cce' doc.id %}" data-submit-lock-msg="Enviando CC-e…">
+        {% csrf_token %}
+        {{ cce_form.correcao }}
+        <button type="submit" class="btn" style="margin-top:10px;">Enviar CC-e</button>
+    </form>
+    {% if doc.carta_correcao %}<p style="color:#aaa;margin-top:10px;">Última CC-e: {{ doc.carta_correcao }}</p>{% endif %}
+</div>
+{% endif %}
+{% endif %}
+
+<div class="card">
+    <h3 style="color:#15a0a5;">Eventos</h3>
+    <ul style="color:#ccc;">
+        {% for e in doc.eventos.all %}
+        <li style="margin-bottom:8px;"><strong>{{ e.tipo }}</strong> — {{ e.descricao }} <span style="color:#666;">({{ e.criado_em|date:"d/m/Y H:i" }})</span></li>
+        {% empty %}
+        <li>Sem eventos.</li>
+        {% endfor %}
+    </ul>
+</div>
+{% endblock %}

@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Contingência Fiscal{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>7. Contingência / offline</h2>
+<p style="color:#aaa;">Ative quando a SEFAZ estiver indisponível. As próximas emissões serão marcadas em contingência.</p>
+<form method="post" class="card" style="max-width:520px;" data-submit-lock-msg="Salvando…">
+    {% csrf_token %}
+    <label style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">{{ form.contingencia_ativa }} Contingência ativa</label>
+    <div style="margin-bottom:12px;"><label>Tipo</label>{{ form.contingencia_tipo }}</div>
+    <div style="margin-bottom:12px;"><label>Motivo</label>{{ form.contingencia_motivo }}</div>
+    {% if fiscal_config.contingencia_inicio %}
+    <p style="color:#ff9800;">Início: {{ fiscal_config.contingencia_inicio|date:"d/m/Y H:i" }}</p>
+    {% endif %}
+    <button type="submit" class="btn btn-success">Salvar</button>
+</form>
+{% endblock %}

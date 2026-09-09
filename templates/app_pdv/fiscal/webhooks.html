@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block title %}Webhooks Fiscais{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>4. Logs e Callbacks (Webhooks)</h2>
+<p style="color:#aaa;">Endpoint: <code>POST /api/fiscal/webhooks/focus/</code> — configure na Focus apontando para o domínio da loja.</p>
+<div class="card">
+    <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:10px;">Quando</th><th>Evento</th><th>Ref</th><th>Status</th><th>OK?</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in logs %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">{{ l.criado_em|date:"d/m/Y H:i:s" }}</td>
+                <td>{{ l.evento }}</td>
+                <td>{{ l.ref|default:"—" }}</td>
+                <td>{{ l.status_recebido }}</td>
+                <td>{% if l.processado %}<span style="color:#03dac6;">sim</span>{% else %}<span style="color:#cf6679;">não</span>{% endif %}</td>
+            </tr>
+            {% if l.erro %}
+            <tr><td colspan="5" style="padding:4px 8px 12px;color:#cf6679;font-size:0.85em;">{{ l.erro }}</td></tr>
+            {% endif %}
+            {% empty %}
+            <tr><td colspan="5" style="padding:20px;text-align:center;">Nenhum webhook recebido ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

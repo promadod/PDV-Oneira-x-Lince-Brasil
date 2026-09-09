@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Matriz Tributária{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>2. Matriz de Impostos</h2>
+<p style="color:#aaa;">CFOP, CSOSN/CST e alíquotas (inclui IBS/CBS para reforma).</p>
+
+<div class="card" style="margin-bottom:20px;max-width:720px;">
+    <h3 style="color:#15a0a5;">Nova regra</h3>
+    <form method="post" data-submit-lock-msg="Salvando regra…">
+        {% csrf_token %}
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            {% for field in form %}
+            <div {% if field.name == 'observacao' or field.name == 'nome' %}style="grid-column:1/-1"{% endif %}>
+                <label>{{ field.label }}</label>
+                {{ field }}
+            </div>
+            {% endfor %}
+        </div>
+        <button type="submit" class="btn" style="margin-top:12px;">Cadastrar regra</button>
+    </form>
+</div>
+
+<div class="card">
+    <table style="width:100%;border-collapse:collapse;color:#fff;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:12px;">Nome</th><th>NCM</th><th>CFOP</th><th>CSOSN</th><th>ICMS%</th><th>IBS%</th><th>CBS%</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in regras %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:10px;">{{ r.nome }}{% if not r.ativa %} <span style="color:#cf6679;">(inativa)</span>{% endif %}</td>
+                <td>{{ r.ncm|default:"—" }}</td>
+                <td>{{ r.cfop }}</td>
+                <td>{{ r.csosn|default:r.cst_icms }}</td>
+                <td>{{ r.aliquota_icms }}</td>
+                <td>{{ r.aliquota_ibs }}</td>
+                <td>{{ r.aliquota_cbs }}</td>
+                <td><a href="{% url 'fiscal_matriz_excluir' r.id %}" style="color:#cf6679;" onclick="return confirm('Excluir regra?')">Excluir</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="8" style="padding:20px;text-align:center;color:#888;">Nenhuma regra cadastrada.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

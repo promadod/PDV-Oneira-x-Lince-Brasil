@@ -8,6 +8,9 @@ from .models import (
     CategoriaTransacao, Transacao, Receita, Despesa, Moto, Motoboy, Rede,
     FormaPagamentoLoja, LogFechamentoEstoqueDiario
 )
+from .fiscal.models import (
+    FiscalConfig, DocumentoFiscal, RegraTributaria, FiscalWebhookLog, NFeRecebida,
+)
 from .seguranca import descongelar_conta, liberar_ip
 
 admin.site.site_header = "Magno Distribuidora - Administração"
@@ -28,7 +31,7 @@ class PerfilUsuarioInline(admin.StackedInline):
         ('Permissões', {
             'fields': (
                 'perm_dashboard', 'perm_pdv', 'perm_caixa', 'perm_torre',
-                'perm_estoque', 'perm_relatorios', 'perm_usuarios',
+                'perm_estoque', 'perm_relatorios', 'perm_usuarios', 'perm_fiscal',
             ),
         }),
         ('Segurança', {
@@ -104,11 +107,11 @@ class SaasAdmin(admin.ModelAdmin):
 
 @admin.register(Loja)
 class LojaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
-    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada')
+    list_display = ('id', 'nome', 'gerente', 'ativo', 'fiscal_habilitado', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
+    list_filter = ('ativo', 'fiscal_habilitado', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada')
     fieldsets = (
         (None, {
-            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta')
+            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta', 'fiscal_habilitado')
         }),
         ('Entregas', {
             'fields': ('taxa_entrega_app', 'taxa_entrega_pdv', 'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon')

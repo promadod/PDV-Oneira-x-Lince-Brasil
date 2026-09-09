@@ -119,6 +119,11 @@ class Loja(models.Model):
         verbose_name='CNPJ',
         help_text='Exibido no rodapé do PDV. Ex: 00.000.000/0001-00',
     )
+    fiscal_habilitado = models.BooleanField(
+        default=False,
+        verbose_name='Módulo fiscal habilitado?',
+        help_text='Ativa o menu Fiscal (NF-e/NFC-e/NFS-e via Focus NFe) para esta loja. SaaS: só lojas contratantes.',
+    )
 
     # --- INTEGRAÇÃO MOVEON ---
     usa_moveon = models.BooleanField(
@@ -427,6 +432,11 @@ class PerfilUsuario(models.Model):
     perm_estoque = models.BooleanField(default=False, verbose_name="Modificar Estoque/Produtos")
     perm_relatorios = models.BooleanField(default=False, verbose_name="Ver Relatórios")
     perm_usuarios = models.BooleanField(default=False, verbose_name="Gerenciar Usuários")
+    perm_fiscal = models.BooleanField(
+        default=False,
+        verbose_name="Acessar Módulo Fiscal",
+        help_text="NF-e, NFC-e, NFS-e, matriz tributária e webhooks. Exige módulo fiscal ativo na loja.",
+    )
     conta_congelada = models.BooleanField(
         default=False,
         verbose_name="Conta congelada",

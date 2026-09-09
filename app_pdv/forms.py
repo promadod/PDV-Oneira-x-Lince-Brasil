@@ -418,7 +418,10 @@ class MotoForm(forms.ModelForm):
 class PermissoesUsuarioForm(forms.ModelForm):
     class Meta:
         model = PerfilUsuario
-        fields = ['perm_dashboard','perm_pdv', 'perm_caixa', 'perm_torre', 'perm_estoque', 'perm_relatorios', 'perm_usuarios']
+        fields = [
+            'perm_dashboard', 'perm_pdv', 'perm_caixa', 'perm_torre',
+            'perm_estoque', 'perm_relatorios', 'perm_usuarios', 'perm_fiscal',
+        ]
         widgets = {
             'perm_dashboard': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'perm_pdv': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
@@ -427,4 +430,5 @@ class PermissoesUsuarioForm(forms.ModelForm):
             'perm_estoque': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'perm_relatorios': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'perm_usuarios': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'perm_fiscal': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
