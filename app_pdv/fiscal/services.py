@@ -8,6 +8,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from .focus_client import FocusNFeError, client_from_config
+from .focus_payload import montar_payload_emissao
 from .models import (
     DocumentoFiscal,
     DocumentoFiscalEvento,
@@ -106,16 +107,13 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, payload_extra=No
     valor = Decimal(str(venda.total)) if venda else Decimal('0')
     ref = _nova_ref(loja, tipo, getattr(venda, 'id', None))
 
-    payload = {
-        'cnpj_emitente': ''.join(c for c in (cfg.cnpj or '') if c.isdigit()),
-        'nome_emitente': cfg.razao_social or loja.nome,
-        'valor_total': float(valor),
-        'itens': snapshot.get('itens', []),
-        'ambiente': cfg.ambiente,
-    }
-    if cfg.contingencia_ativa:
-        payload['em_contingencia'] = True
-        payload['contingencia_tipo'] = cfg.contingencia_tipo
+    try:
+        payload = montar_payload_emissao(cfg, loja, tipo=tipo, venda=venda)
+    except ValueError as exc:
+        raise FocusNFeError(str(exc)) from exc
+    params_extra = {}
+    if cfg.contingencia_ativa and tipo == 'nfce':
+        params_extra['forma_emissao'] = 'offline'
     if payload_extra:
         payload.update(payload_extra)
 
@@ -146,11 +144,11 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, payload_extra=No
     endpoint = _endpoint_tipo(tipo)
     try:
         if endpoint == 'nfe':
-            retorno = client.emitir_nfe(ref, payload)
+            retorno = client.emitir_nfe(ref, payload, query_params=params_extra or None)
         elif endpoint == 'nfse':
-            retorno = client.emitir_nfse(ref, payload)
+            retorno = client.emitir_nfse(ref, payload, query_params=params_extra or None)
         else:
-            retorno = client.emitir_nfce(ref, payload)
+            retorno = client.emitir_nfce(ref, payload, query_params=params_extra or None)
     except FocusNFeError as exc:
         doc.status = 'erro'
         doc.mensagem_sefaz = str(exc)
@@ -266,3 +264,60 @@ def processar_webhook(payload: dict, headers: dict | None = None, loja=None):
         log.erro = 'Documento não encontrado para a ref informada.'
         log.save(update_fields=['erro'])
     return log
+
+
+def testar_conexao_focus(cfg: FiscalConfig) -> dict:
+    if not cfg.focus_token:
+        raise FocusNFeError('Informe o token Focus NFe antes de testar.')
+    client = client_from_config(cfg)
+    data = client.testar_autenticacao()
+    hooks = data if isinstance(data, list) else data.get('hooks', data)
+    qtd = len(hooks) if isinstance(hooks, list) else 0
+    return {
+        'ok': True,
+        'ambiente': cfg.ambiente,
+        'base_url': cfg.focus_base_url,
+        'gatilhos_cadastrados': qtd,
+        'resposta': data,
+    }
+
+
+def url_webhook_sistema(request) -> str:
+    from django.urls import reverse
+
+    path = reverse('fiscal_webhook_focus')
+    return request.build_absolute_uri(path)
+
+
+def registrar_gatilhos_focus(cfg: FiscalConfig, webhook_url: str, eventos: list[str] | None = None) -> list[dict]:
+    if not cfg.focus_token:
+        raise FocusNFeError('Configure o token Focus NFe.')
+    if not webhook_url:
+        raise FocusNFeError('Informe a URL pública do webhook.')
+    cnpj = ''.join(c for c in (cfg.cnpj or '') if c.isdigit())
+    if len(cnpj) != 14:
+        raise FocusNFeError('CNPJ da loja é obrigatório para cadastrar gatilhos na Focus.')
+
+    eventos = eventos or ['nfe', 'nfce_contingencia', 'inutilizacao']
+    client = client_from_config(cfg)
+    criados = []
+    for event in eventos:
+        body = {'event': event, 'url': webhook_url, 'cnpj': cnpj}
+        try:
+            ret = client.cadastrar_webhook(body)
+            criados.append({'event': event, 'ok': True, 'retorno': ret})
+        except FocusNFeError as exc:
+            criados.append({'event': event, 'ok': False, 'erro': str(exc)})
+    cfg.webhook_url_configurada = webhook_url
+    cfg.save(update_fields=['webhook_url_configurada', 'atualizado_em'])
+    return criados
+
+
+def listar_gatilhos_focus(cfg: FiscalConfig):
+    if not cfg.focus_token:
+        return []
+    client = client_from_config(cfg)
+    data = client.listar_webhooks()
+    if isinstance(data, list):
+        return data
+    return data.get('hooks', []) if isinstance(data, dict) else []

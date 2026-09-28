@@ -6,7 +6,10 @@
 <p style="color:#aaa;">Ative quando a SEFAZ estiver indisponível. As próximas emissões serão marcadas em contingência.</p>
 <form method="post" class="card" style="max-width:520px;" data-submit-lock-msg="Salvando…">
     {% csrf_token %}
-    <label style="display:flex;gap:8px;align-items:center;margin-bottom:12px;">{{ form.contingencia_ativa }} Contingência ativa</label>
+    <div class="fiscal-check-row">
+        {{ form.contingencia_ativa }}
+        <label for="{{ form.contingencia_ativa.id_for_label }}">Contingência ativa</label>
+    </div>
     <div style="margin-bottom:12px;"><label>Tipo</label>{{ form.contingencia_tipo }}</div>
     <div style="margin-bottom:12px;"><label>Motivo</label>{{ form.contingencia_motivo }}</div>
     {% if fiscal_config.contingencia_inicio %}

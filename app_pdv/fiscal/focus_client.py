@@ -57,14 +57,21 @@ class FocusNFeClient:
             raise FocusNFeError(str(msg), status_code=resp.status_code, payload=data)
         return data
 
-    def emitir_nfe(self, ref: str, payload: dict) -> Any:
-        return self._request('POST', 'nfe', params={'ref': ref}, json_body=payload)
+    def testar_autenticacao(self) -> dict:
+        """Valida token via GET /hooks (documentação: listar gatilhos)."""
+        return self._request('GET', 'hooks')
 
-    def emitir_nfce(self, ref: str, payload: dict) -> Any:
-        return self._request('POST', 'nfce', params={'ref': ref}, json_body=payload)
+    def emitir_nfe(self, ref: str, payload: dict, *, query_params: dict | None = None) -> Any:
+        params = {'ref': ref, **(query_params or {})}
+        return self._request('POST', 'nfe', params=params, json_body=payload)
 
-    def emitir_nfse(self, ref: str, payload: dict) -> Any:
-        return self._request('POST', 'nfse', params={'ref': ref}, json_body=payload)
+    def emitir_nfce(self, ref: str, payload: dict, *, query_params: dict | None = None) -> Any:
+        params = {'ref': ref, **(query_params or {})}
+        return self._request('POST', 'nfce', params=params, json_body=payload)
+
+    def emitir_nfse(self, ref: str, payload: dict, *, query_params: dict | None = None) -> Any:
+        params = {'ref': ref, **(query_params or {})}
+        return self._request('POST', 'nfse', params=params, json_body=payload)
 
     def consultar(self, tipo: str, ref: str) -> Any:
         # tipo: nfe | nfce | nfse

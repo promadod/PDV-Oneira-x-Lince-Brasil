@@ -4,6 +4,7 @@ from . import views
 
 urlpatterns = [
     path('', views.fiscal_hub, name='fiscal_hub'),
+    path('focus/', views.fiscal_focus, name='fiscal_focus'),
     path('config/', views.fiscal_config, name='fiscal_config'),
     path('matriz/', views.fiscal_matriz, name='fiscal_matriz'),
     path('matriz/<int:pk>/excluir/', views.fiscal_matriz_excluir, name='fiscal_matriz_excluir'),

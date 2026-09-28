@@ -34,18 +34,18 @@
     </div>
     <div class="card" style="margin-bottom:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Focus NFe / Certificado</h3>
+        <p style="color:#aaa;font-size:0.9em;">
+            Token, ambiente, teste de conexão e cadastro de webhooks:
+            <a href="{% url 'fiscal_focus' %}" style="color:#03dac6;">Integração Focus API</a>.
+        </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div><label>Token Focus</label>{{ form.focus_token }}</div>
-            <div><label>ID empresa Focus</label>{{ form.focus_empresa_id }}</div>
             <div><label>CSC ID (NFC-e)</label>{{ form.csc_id }}</div>
             <div><label>CSC Token</label>{{ form.csc_token }}</div>
-            <div><label>Webhook URL</label>{{ form.webhook_url_configurada }}</div>
             <div><label>E-mail XML/DANFE</label>{{ form.email_envio_xml }}</div>
         </div>
         <p style="color:#888;font-size:0.85em;margin-top:10px;">Status certificado: <strong>{{ fiscal_config.certificado_status }}</strong>
             {% if fiscal_config.certificado_validade %} · validade {{ fiscal_config.certificado_validade|date:"d/m/Y" }}{% endif %}
         </p>
-        <p style="color:#888;font-size:0.85em;">Webhook do sistema: <code>/api/fiscal/webhooks/focus/</code></p>
     </div>
     <div class="card" style="margin-bottom:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Séries / numeração / tipos</h3>
@@ -57,12 +57,12 @@
             <div><label>Próx. NFC-e</label>{{ form.proximo_numero_nfce }}</div>
             <div><label>Próx. NFS-e</label>{{ form.proximo_numero_nfse }}</div>
         </div>
-        <div style="display:flex;flex-wrap:wrap;gap:18px;margin-top:16px;">
-            <label>{{ form.emite_nfe }} Emitir NF-e</label>
-            <label>{{ form.emite_nfce }} Emitir NFC-e</label>
-            <label>{{ form.emite_nfse }} Emitir NFS-e</label>
-            <label>{{ form.emite_nfse_nacional }} NFS-e Nacional</label>
-            <label>{{ form.enviar_whatsapp_danfe }} Enviar DANFE no WhatsApp</label>
+        <div class="fiscal-check-grid">
+            <label class="fiscal-check-row">{{ form.emite_nfe }} <span class="fiscal-check-label">Emitir NF-e</span></label>
+            <label class="fiscal-check-row">{{ form.emite_nfce }} <span class="fiscal-check-label">Emitir NFC-e</span></label>
+            <label class="fiscal-check-row">{{ form.emite_nfse }} <span class="fiscal-check-label">Emitir NFS-e</span></label>
+            <label class="fiscal-check-row">{{ form.emite_nfse_nacional }} <span class="fiscal-check-label">NFS-e Nacional</span></label>
+            <label class="fiscal-check-row">{{ form.enviar_whatsapp_danfe }} <span class="fiscal-check-label">Enviar DANFE no WhatsApp</span></label>
         </div>
     </div>
     <button type="submit" class="btn btn-success">Salvar configurações</button>

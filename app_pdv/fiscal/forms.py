@@ -15,19 +15,16 @@ class FiscalConfigForm(forms.ModelForm):
         fields = [
             'razao_social', 'nome_fantasia', 'cnpj', 'inscricao_estadual', 'inscricao_municipal',
             'cnae', 'crt', 'logradouro', 'numero', 'complemento', 'bairro', 'cep',
-            'municipio', 'uf', 'codigo_ibge', 'ambiente', 'focus_token', 'focus_empresa_id',
+            'municipio', 'uf', 'codigo_ibge',
             'serie_nfe', 'serie_nfce', 'serie_nfse',
             'proximo_numero_nfe', 'proximo_numero_nfce', 'proximo_numero_nfse',
             'csc_id', 'csc_token',
             'emite_nfe', 'emite_nfce', 'emite_nfse', 'emite_nfse_nacional',
             'email_envio_xml', 'enviar_whatsapp_danfe',
-            'webhook_url_configurada',
         ]
         widgets = {
-            'focus_token': forms.PasswordInput(render_value=True, attrs={'class': 'form-control', 'autocomplete': 'off'}),
             'csc_token': forms.PasswordInput(render_value=True, attrs={'class': 'form-control', 'autocomplete': 'off'}),
             'crt': forms.Select(attrs={'class': 'form-control'}),
-            'ambiente': forms.Select(attrs={'class': 'form-control'}),
             'uf': forms.TextInput(attrs={'class': 'form-control', 'maxlength': 2}),
         }
 
@@ -107,6 +104,25 @@ class ManifestacaoForm(forms.Form):
     )
 
 
+class FocusIntegracaoForm(forms.ModelForm):
+    """Credenciais e ambiente da API Focus NFe (Basic Auth — token como usuário, senha vazia)."""
+
+    class Meta:
+        model = FiscalConfig
+        fields = ['ambiente', 'focus_token', 'focus_empresa_id', 'webhook_url_configurada']
+        widgets = {
+            'focus_token': forms.PasswordInput(render_value=True, attrs={'class': 'form-control', 'autocomplete': 'off'}),
+            'ambiente': forms.Select(attrs={'class': 'form-control'}),
+            'focus_empresa_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional — painel Focus / API empresas'}),
+            'webhook_url_configurada': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://seu-dominio/api/fiscal/webhooks/focus/'}),
+        }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['ambiente'].help_text = 'Homologação para testes; produção gera documentos com validade fiscal.'
+        self.fields['focus_token'].help_text = 'Token alfanumérico da empresa na Focus (HTTP Basic, senha em branco).'
+
+
 class EmitirDocumentoForm(forms.Form):
     tipo = forms.ChoiceField(
         choices=[
@@ -119,8 +135,16 @@ class EmitirDocumentoForm(forms.Form):
     )
     venda_id = forms.IntegerField(
         required=False,
-        widget=forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'ID da venda (opcional)'}),
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'placeholder': 'ID da venda (obrigatório para NFC-e/NF-e)'}),
     )
+
+    def clean(self):
+        cleaned = super().clean()
+        tipo = cleaned.get('tipo')
+        venda_id = cleaned.get('venda_id')
+        if tipo in ('nfce', 'nfe') and not venda_id:
+            raise forms.ValidationError('Informe o ID da venda para emitir NFC-e ou NF-e com payload Focus completo.')
+        return cleaned
 
 
 class CartaCorrecaoForm(forms.Form):

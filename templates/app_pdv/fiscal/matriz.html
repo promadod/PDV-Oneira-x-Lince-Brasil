@@ -9,12 +9,19 @@
     <h3 style="color:#15a0a5;">Nova regra</h3>
     <form method="post" data-submit-lock-msg="Salvando regra…">
         {% csrf_token %}
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+        <div class="fiscal-form-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
             {% for field in form %}
+            {% if field.field.widget.input_type == 'checkbox' %}
+            <div class="fiscal-field-check fiscal-check-row">
+                {{ field }}
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
+            </div>
+            {% else %}
             <div {% if field.name == 'observacao' or field.name == 'nome' %}style="grid-column:1/-1"{% endif %}>
-                <label>{{ field.label }}</label>
+                <label for="{{ field.id_for_label }}">{{ field.label }}</label>
                 {{ field }}
             </div>
+            {% endif %}
             {% endfor %}
         </div>
         <button type="submit" class="btn" style="margin-top:12px;">Cadastrar regra</button>

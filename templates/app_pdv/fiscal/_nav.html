@@ -1,17 +1,21 @@
-{# Navegação interna do módulo fiscal #}
-<div class="card" style="margin-bottom:18px; padding:12px 16px;">
-    <div style="display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
-        <a href="{% url 'fiscal_hub' %}" class="btn" style="background:#333;">Hub</a>
-        <a href="{% url 'fiscal_config' %}" class="btn" style="background:#333;">Config</a>
-        <a href="{% url 'fiscal_matriz' %}" class="btn" style="background:#333;">Matriz</a>
-        <a href="{% url 'fiscal_produtos' %}" class="btn" style="background:#333;">Produtos</a>
-        <a href="{% url 'fiscal_documentos' %}" class="btn" style="background:#333;">Documentos</a>
-        <a href="{% url 'fiscal_emitir' %}" class="btn" style="background:#15a0a5;color:#000;">Emitir</a>
-        <a href="{% url 'fiscal_webhooks' %}" class="btn" style="background:#333;">Webhooks</a>
-        <a href="{% url 'fiscal_contingencia' %}" class="btn" style="background:#333;">Contingência</a>
-        <a href="{% url 'fiscal_arquivos' %}" class="btn" style="background:#333;">Arquivos</a>
-        <a href="{% url 'fiscal_reforma' %}" class="btn" style="background:#333;">Reforma</a>
-        <a href="{% url 'fiscal_inutilizacao' %}" class="btn" style="background:#333;">Inutilização</a>
-        <a href="{% url 'fiscal_manifestacao' %}" class="btn" style="background:#333;">Manifestação</a>
-    </div>
+{% load static %}
+<link rel="stylesheet" href="{% static 'css/fiscal.css' %}">
+{% with an=request.resolver_match.url_name %}
+<div class="card fiscal-nav-card">
+    <nav class="fiscal-nav" aria-label="Módulo fiscal">
+        <a href="{% url 'fiscal_hub' %}" class="fiscal-nav-btn{% if an == 'fiscal_hub' %} is-active{% endif %}">Hub</a>
+        <a href="{% url 'fiscal_focus' %}" class="fiscal-nav-btn{% if an == 'fiscal_focus' %} is-active{% endif %}">Focus API</a>
+        <a href="{% url 'fiscal_config' %}" class="fiscal-nav-btn{% if an == 'fiscal_config' %} is-active{% endif %}">Config</a>
+        <a href="{% url 'fiscal_matriz' %}" class="fiscal-nav-btn{% if an == 'fiscal_matriz' or an == 'fiscal_matriz_excluir' %} is-active{% endif %}">Matriz</a>
+        <a href="{% url 'fiscal_produtos' %}" class="fiscal-nav-btn{% if an == 'fiscal_produtos' or an == 'fiscal_produto_editar' %} is-active{% endif %}">Produtos</a>
+        <a href="{% url 'fiscal_documentos' %}" class="fiscal-nav-btn{% if an == 'fiscal_documentos' or an == 'fiscal_documento_detalhe' or an == 'fiscal_documento_cancelar' or an == 'fiscal_documento_cce' %} is-active{% endif %}">Documentos</a>
+        <a href="{% url 'fiscal_emitir' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir' %} is-active{% endif %}">Emitir</a>
+        <a href="{% url 'fiscal_webhooks' %}" class="fiscal-nav-btn{% if an == 'fiscal_webhooks' %} is-active{% endif %}">Webhooks</a>
+        <a href="{% url 'fiscal_contingencia' %}" class="fiscal-nav-btn{% if an == 'fiscal_contingencia' %} is-active{% endif %}">Contingência</a>
+        <a href="{% url 'fiscal_arquivos' %}" class="fiscal-nav-btn{% if an == 'fiscal_arquivos' %} is-active{% endif %}">Arquivos</a>
+        <a href="{% url 'fiscal_reforma' %}" class="fiscal-nav-btn{% if an == 'fiscal_reforma' %} is-active{% endif %}">Reforma</a>
+        <a href="{% url 'fiscal_inutilizacao' %}" class="fiscal-nav-btn{% if an == 'fiscal_inutilizacao' %} is-active{% endif %}">Inutilização</a>
+        <a href="{% url 'fiscal_manifestacao' %}" class="fiscal-nav-btn{% if an == 'fiscal_manifestacao' or an == 'fiscal_manifestar' %} is-active{% endif %}">Manifestação</a>
+    </nav>
 </div>
+{% endwith %}

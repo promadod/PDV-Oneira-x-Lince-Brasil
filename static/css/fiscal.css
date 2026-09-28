@@ -1,0 +1,92 @@
+/* Navegação interna do módulo fiscal */
+.fiscal-nav-card {
+    margin-bottom: 18px;
+    padding: 14px 16px;
+    background: #252532;
+    border: 1px solid #3d3d52;
+    border-radius: 10px;
+}
+
+.fiscal-nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.fiscal-nav-btn {
+    display: inline-block;
+    padding: 8px 14px;
+    border-radius: 8px;
+    font-size: 0.88rem;
+    font-weight: 600;
+    text-decoration: none;
+    color: #e8e8f0;
+    background: #3a3a50;
+    border: 1px solid #52526a;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+}
+
+.fiscal-nav-btn:hover {
+    background: #454560;
+    border-color: #03dac6;
+    color: #fff;
+}
+
+.fiscal-nav-btn.is-active {
+    background: #03dac6;
+    border-color: #03dac6;
+    color: #121212;
+    box-shadow: 0 0 0 1px rgba(3, 218, 198, 0.35);
+}
+
+/* Checkboxes / toggles (global input { width:100% } quebra layout) */
+.fiscal-nav-card ~ * input[type="checkbox"],
+.fiscal-nav-card ~ input[type="checkbox"] {
+    width: 18px !important;
+    height: 18px !important;
+    min-width: 18px;
+    max-width: 18px;
+    padding: 0 !important;
+    margin: 0 !important;
+    accent-color: #03dac6;
+    cursor: pointer;
+    flex-shrink: 0;
+    vertical-align: middle;
+}
+
+.fiscal-check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    background: rgba(3, 218, 198, 0.06);
+    border: 1px solid rgba(3, 218, 198, 0.22);
+    border-radius: 8px;
+}
+
+.fiscal-check-row label,
+.fiscal-check-label {
+    margin: 0 !important;
+    color: #fff;
+    font-weight: 500;
+    cursor: pointer;
+    display: inline;
+}
+
+.fiscal-check-grid {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 16px;
+}
+
+.fiscal-check-grid .fiscal-check-row {
+    margin-bottom: 0;
+    flex: 1 1 220px;
+}
+
+.fiscal-form-grid .fiscal-field-check {
+    grid-column: 1 / -1;
+}
