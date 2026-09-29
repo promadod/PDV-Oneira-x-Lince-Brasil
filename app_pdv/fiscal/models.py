@@ -252,6 +252,63 @@ class DocumentoFiscalEvento(models.Model):
         ordering = ['-criado_em']
 
 
+class LoteEmissaoFiscal(models.Model):
+    """Emissão fiscal em lote (SaaS — várias vendas de uma loja)."""
+    STATUS_LOTE = [
+        ('processando', 'Processando'),
+        ('concluido', 'Concluído'),
+        ('parcial', 'Parcial (com erros)'),
+        ('vazio', 'Nenhuma venda processada'),
+    ]
+    loja = models.ForeignKey('app_pdv.Loja', on_delete=models.CASCADE, related_name='lotes_emissao_fiscal')
+    tipo = models.CharField(max_length=20, choices=DocumentoFiscal.TIPO_CHOICES, default='nfce')
+    status = models.CharField(max_length=20, choices=STATUS_LOTE, default='processando')
+    data_venda_de = models.DateField(null=True, blank=True)
+    data_venda_ate = models.DateField(null=True, blank=True)
+    pular_ja_emitidas = models.BooleanField(default=True)
+    total_solicitado = models.PositiveIntegerField(default=0)
+    total_autorizado = models.PositiveIntegerField(default=0)
+    total_erro = models.PositiveIntegerField(default=0)
+    total_ignorado = models.PositiveIntegerField(default=0)
+    observacao = models.CharField(max_length=255, blank=True, default='')
+    criado_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+    finalizado_em = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ['-criado_em']
+        verbose_name = 'Lote de emissão fiscal'
+        verbose_name_plural = 'Lotes de emissão fiscal'
+
+    def __str__(self):
+        return f'Lote #{self.pk} — {self.get_tipo_display()} ({self.criado_em:%d/%m/%Y %H:%M})'
+
+
+class LoteEmissaoFiscalItem(models.Model):
+    STATUS_ITEM = [
+        ('pendente', 'Pendente'),
+        ('autorizado', 'Autorizado'),
+        ('processando', 'Processando'),
+        ('erro', 'Erro'),
+        ('ignorado', 'Ignorado'),
+    ]
+    lote = models.ForeignKey(LoteEmissaoFiscal, on_delete=models.CASCADE, related_name='itens')
+    venda = models.ForeignKey('app_pdv.Venda', on_delete=models.CASCADE, related_name='lote_emissao_itens')
+    documento = models.ForeignKey(
+        DocumentoFiscal, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='lote_emissao_itens',
+    )
+    status = models.CharField(max_length=20, choices=STATUS_ITEM, default='pendente')
+    mensagem = models.TextField(blank=True, default='')
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ['id']
+        constraints = [
+            models.UniqueConstraint(fields=['lote', 'venda'], name='fiscal_lote_item_venda_unica'),
+        ]
+
+
 class FiscalWebhookLog(models.Model):
     """Pilar 4 — Logs de callbacks Focus."""
     loja = models.ForeignKey(

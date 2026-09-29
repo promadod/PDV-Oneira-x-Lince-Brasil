@@ -1,0 +1,109 @@
+{% extends 'base.html' %}
+{% block title %}Emissão fiscal em lote{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2>Emissão em lote</h2>
+<p style="color:#aaa;max-width:720px;">
+    Emita NFC-e ou NF-e para várias vendas <strong>finalizadas</strong> da loja atual.
+    Máximo de <strong>{{ limite_lote }}</strong> notas por lote. Cada loja (CNPJ) usa sua própria configuração Focus.
+</p>
+
+<div class="card" style="max-width:640px;margin-bottom:20px;padding:20px;">
+    <h3 style="color:#15a0a5;margin-top:0;">Filtros</h3>
+    <form method="post" data-submit-lock-msg="Buscando vendas…">
+        {% csrf_token %}
+        <input type="hidden" name="acao" value="preview">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="grid-column:1/-1;"><label>Tipo de documento</label>{{ form.tipo }}</div>
+            <div><label>{{ form.data_de.label }}</label>{{ form.data_de }}</div>
+            <div><label>{{ form.data_ate.label }}</label>{{ form.data_ate }}</div>
+            <div style="grid-column:1/-1;">
+                <label>{{ form.venda_ids_texto.label }}</label>
+                {{ form.venda_ids_texto }}
+                <small style="color:#888;">{{ form.venda_ids_texto.help_text }}</small>
+            </div>
+            <div style="grid-column:1/-1;" class="fiscal-check-row">
+                {{ form.pular_ja_emitidas }}
+                <label for="{{ form.pular_ja_emitidas.id_for_label }}">{{ form.pular_ja_emitidas.label }}</label>
+            </div>
+        </div>
+        {% if form.non_field_errors %}
+        <div style="color:#cf6679;margin-top:12px;">{{ form.non_field_errors }}</div>
+        {% endif %}
+        <button type="submit" class="btn" style="margin-top:16px;">Listar vendas elegíveis</button>
+    </form>
+</div>
+
+{% if preview_vendas %}
+<div class="card" style="margin-bottom:20px;padding:20px;">
+    <h3 style="color:#15a0a5;margin-top:0;">Confirmar emissão ({{ preview_vendas|length }} venda(s))</h3>
+    <form method="post" data-submit-lock-msg="Emitindo lote… Aguarde.">
+        {% csrf_token %}
+        <input type="hidden" name="acao" value="emitir">
+        <input type="hidden" name="tipo" value="{{ form.tipo.value|default:'nfce' }}">
+        <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+            <thead>
+                <tr style="border-bottom:1px solid #444;text-align:left;">
+                    <th style="padding:10px;width:40px;">
+                        <input type="checkbox" id="lote-select-all" checked title="Marcar todas">
+                    </th>
+                    <th>Venda</th><th>Total</th><th>Status</th><th>Data</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for v in preview_vendas %}
+                <tr style="border-bottom:1px solid #333;">
+                    <td style="padding:8px;">
+                        <input type="checkbox" name="venda_ids" value="{{ v.id }}" checked class="lote-venda-cb">
+                    </td>
+                    <td style="padding:8px;">#{{ v.id }}</td>
+                    <td>R$ {{ v.total }}</td>
+                    <td>{{ v.get_status_display }}</td>
+                    <td>{{ v.data_venda|date:"d/m/Y H:i" }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+        <button type="submit" class="btn btn-success" style="margin-top:16px;">Emitir lote selecionado</button>
+    </form>
+</div>
+<script>
+(function () {
+    var all = document.getElementById('lote-select-all');
+    if (!all) return;
+    all.addEventListener('change', function () {
+        document.querySelectorAll('.lote-venda-cb').forEach(function (cb) {
+            cb.checked = all.checked;
+        });
+    });
+})();
+</script>
+{% endif %}
+
+<div class="card" style="padding:16px;">
+    <h3 style="color:#15a0a5;margin-top:0;">Lotes recentes desta loja</h3>
+    <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:8px;">#</th><th>Tipo</th><th>Status</th><th>OK</th><th>Erros</th><th>Quando</th><th></th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for l in lotes_recentes %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">{{ l.id }}</td>
+                <td>{{ l.get_tipo_display }}</td>
+                <td>{{ l.get_status_display }}</td>
+                <td>{{ l.total_autorizado }}</td>
+                <td>{{ l.total_erro }}</td>
+                <td>{{ l.criado_em|date:"d/m/Y H:i" }}</td>
+                <td><a href="{% url 'fiscal_lote_detalhe' l.id %}" style="color:#03dac6;">Detalhes</a></td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="7" style="padding:16px;color:#888;">Nenhum lote processado ainda.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

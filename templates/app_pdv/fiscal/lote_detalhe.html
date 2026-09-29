@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Lote fiscal #{{ lote.id }}{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2>Lote #{{ lote.id }} — {{ lote.get_tipo_display }}</h2>
+<p style="color:#aaa;">
+    Status: <strong>{{ lote.get_status_display }}</strong>
+    · {{ lote.total_autorizado }} autorizado(s)
+    · {{ lote.total_erro }} erro(s)
+    · {{ lote.total_ignorado }} ignorado(s)
+    · {{ lote.criado_em|date:"d/m/Y H:i" }}
+</p>
+
+<div class="card" style="padding:16px;">
+    <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:10px;">Venda</th><th>Resultado</th><th>Documento</th><th>Mensagem</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for item in lote.itens.all %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">#{{ item.venda_id }}</td>
+                <td>
+                    {% if item.status == 'autorizado' %}<span style="color:#03dac6;">{{ item.get_status_display }}</span>
+                    {% elif item.status == 'erro' %}<span style="color:#cf6679;">{{ item.get_status_display }}</span>
+                    {% else %}{{ item.get_status_display }}{% endif %}
+                </td>
+                <td>
+                    {% if item.documento %}
+                    <a href="{% url 'fiscal_documento_detalhe' item.documento_id %}" style="color:#03dac6;">{{ item.documento.ref }}</a>
+                    {% else %}—{% endif %}
+                </td>
+                <td style="font-size:0.85em;color:#aaa;">{{ item.mensagem|truncatechars:120 }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="padding:20px;">Sem itens.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<p style="margin-top:16px;">
+    <a href="{% url 'fiscal_emitir_lote' %}" class="btn" style="background:#333;">Novo lote</a>
+    <a href="{% url 'fiscal_documentos' %}" class="btn" style="background:#333;">Ver documentos</a>
+</p>
+{% endblock %}

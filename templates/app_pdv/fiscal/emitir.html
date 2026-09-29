@@ -3,7 +3,8 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 <h2>5. Emitir NFC-e / NF-e / NFS-e</h2>
-<p style="color:#aaa;">Envia o documento à Focus NFe (processamento assíncrono). Vincule a uma venda do PDV quando possível.</p>
+<p style="color:#aaa;">Envia o documento à Focus NFe. Vincule a uma venda do PDV quando possível.
+    <a href="{% url 'fiscal_emitir_lote' %}" style="color:#03dac6;">Emissão em lote</a> para várias vendas.</p>
 <form method="post" class="card" style="max-width:520px;margin-bottom:20px;" data-submit-lock-msg="Emitindo…">
     {% csrf_token %}
     <div style="margin-bottom:12px;"><label>Tipo</label>{{ form.tipo }}</div>

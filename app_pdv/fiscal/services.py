@@ -14,9 +14,15 @@ from .models import (
     DocumentoFiscalEvento,
     FiscalConfig,
     FiscalWebhookLog,
+    LoteEmissaoFiscal,
+    LoteEmissaoFiscalItem,
     ProdutoDadosFiscais,
     RegraTributaria,
 )
+
+LOTE_EMISSAO_MAX_VENDAS = 50
+_STATUS_VENDA_FATURADA = ('FINALIZADO', 'RETIRADO_NA_LOJA')
+_DOC_BLOQUEIA_REEMISSAO = ('autorizado', 'processando')
 
 
 def get_or_create_config(loja) -> FiscalConfig:
@@ -311,6 +317,118 @@ def registrar_gatilhos_focus(cfg: FiscalConfig, webhook_url: str, eventos: list[
     cfg.webhook_url_configurada = webhook_url
     cfg.save(update_fields=['webhook_url_configurada', 'atualizado_em'])
     return criados
+
+
+def venda_ja_tem_documento_tipo(venda, tipo: str) -> bool:
+    return DocumentoFiscal.objects.filter(
+        venda=venda, tipo=tipo, status__in=_DOC_BLOQUEIA_REEMISSAO,
+    ).exists()
+
+
+def buscar_vendas_elegiveis_lote(
+    loja,
+    *,
+    tipo: str,
+    data_de=None,
+    data_ate=None,
+    venda_ids=None,
+    pular_ja_emitidas=True,
+    limite=LOTE_EMISSAO_MAX_VENDAS,
+):
+    """Vendas finalizadas, com itens, opcionalmente sem documento do mesmo tipo."""
+    from app_pdv.models import ItemVenda, Venda
+
+    qs = Venda.objects.filter(loja=loja, status__in=_STATUS_VENDA_FATURADA)
+    qs = qs.filter(itens__isnull=False).distinct()
+    if data_de:
+        qs = qs.filter(data_venda__date__gte=data_de)
+    if data_ate:
+        qs = qs.filter(data_venda__date__lte=data_ate)
+    if venda_ids:
+        qs = qs.filter(pk__in=venda_ids)
+    qs = qs.order_by('data_venda', 'id')
+    elegiveis = []
+    for venda in qs[: limite * 3]:
+        if len(elegiveis) >= limite:
+            break
+        if not ItemVenda.objects.filter(venda=venda).exists():
+            continue
+        if pular_ja_emitidas and venda_ja_tem_documento_tipo(venda, tipo):
+            continue
+        elegiveis.append(venda)
+    return elegiveis
+
+
+def processar_lote_emissao(loja, usuario, *, tipo, vendas, filtros_meta=None):
+    """Emite documentos sequencialmente; persiste lote e itens para auditoria SaaS."""
+    filtros_meta = filtros_meta or {}
+    lote = LoteEmissaoFiscal.objects.create(
+        loja=loja,
+        tipo=tipo,
+        status='processando',
+        data_venda_de=filtros_meta.get('data_de'),
+        data_venda_ate=filtros_meta.get('data_ate'),
+        pular_ja_emitidas=filtros_meta.get('pular_ja_emitidas', True),
+        total_solicitado=len(vendas),
+        criado_por=usuario if getattr(usuario, 'is_authenticated', False) else None,
+        observacao=filtros_meta.get('observacao', '')[:255],
+    )
+    if not vendas:
+        lote.status = 'vazio'
+        lote.finalizado_em = timezone.now()
+        lote.save(update_fields=['status', 'finalizado_em'])
+        return lote
+
+    for venda in vendas:
+        if venda.loja_id != loja.id:
+            LoteEmissaoFiscalItem.objects.create(
+                lote=lote, venda=venda, status='ignorado',
+                mensagem='Venda de outra loja.',
+            )
+            lote.total_ignorado += 1
+            continue
+        if lote.pular_ja_emitidas and venda_ja_tem_documento_tipo(venda, tipo):
+            LoteEmissaoFiscalItem.objects.create(
+                lote=lote, venda=venda, status='ignorado',
+                mensagem='Já existe documento autorizado ou em processamento para este tipo.',
+            )
+            lote.total_ignorado += 1
+            continue
+        item = LoteEmissaoFiscalItem.objects.create(lote=lote, venda=venda, status='pendente')
+        try:
+            doc = emitir_documento(loja, usuario, tipo=tipo, venda=venda)
+            item.documento = doc
+            if doc.status == 'autorizado':
+                item.status = 'autorizado'
+                lote.total_autorizado += 1
+            elif doc.status == 'processando':
+                item.status = 'processando'
+            else:
+                item.status = 'erro'
+                item.mensagem = doc.mensagem_sefaz or doc.status
+                lote.total_erro += 1
+            item.save(update_fields=['documento', 'status', 'mensagem'])
+        except FocusNFeError as exc:
+            item.status = 'erro'
+            item.mensagem = str(exc)
+            item.save(update_fields=['status', 'mensagem'])
+            lote.total_erro += 1
+
+    if lote.total_autorizado + lote.total_erro + lote.total_ignorado == 0:
+        lote.status = 'vazio'
+    elif lote.total_erro == 0:
+        lote.status = 'concluido'
+    elif lote.total_autorizado == 0 and lote.total_erro > 0:
+        lote.status = 'parcial'
+    else:
+        lote.status = 'parcial'
+    lote.finalizado_em = timezone.now()
+    lote.save(
+        update_fields=[
+            'status', 'total_autorizado', 'total_erro', 'total_ignorado', 'finalizado_em',
+        ],
+    )
+    return lote
 
 
 def listar_gatilhos_focus(cfg: FiscalConfig):

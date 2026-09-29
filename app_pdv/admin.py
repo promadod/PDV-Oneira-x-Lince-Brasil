@@ -10,6 +10,7 @@ from .models import (
 )
 from .fiscal.models import (
     FiscalConfig, DocumentoFiscal, RegraTributaria, FiscalWebhookLog, NFeRecebida,
+    LoteEmissaoFiscal, LoteEmissaoFiscalItem,
 )
 from .seguranca import descongelar_conta, liberar_ip
 
@@ -445,3 +446,18 @@ class FiscalWebhookLogAdmin(SaasAdmin):
 @admin.register(NFeRecebida)
 class NFeRecebidaAdmin(SaasAdmin):
     list_display = ('chave_acesso', 'nome_emitente', 'valor_total', 'situacao', 'manifestacao', 'loja')
+
+
+@admin.register(LoteEmissaoFiscal)
+class LoteEmissaoFiscalAdmin(SaasAdmin):
+    list_display = (
+        'id', 'loja', 'tipo', 'status', 'total_autorizado', 'total_erro', 'total_solicitado', 'criado_em',
+    )
+    list_filter = ('tipo', 'status')
+    readonly_fields = ('criado_em', 'finalizado_em')
+
+
+@admin.register(LoteEmissaoFiscalItem)
+class LoteEmissaoFiscalItemAdmin(SaasAdmin):
+    list_display = ('lote', 'venda', 'status', 'documento', 'criado_em')
+    list_filter = ('status',)

@@ -123,6 +123,62 @@ class FocusIntegracaoForm(forms.ModelForm):
         self.fields['focus_token'].help_text = 'Token alfanumérico da empresa na Focus (HTTP Basic, senha em branco).'
 
 
+class EmitirLoteForm(forms.Form):
+    tipo = forms.ChoiceField(
+        choices=[
+            ('nfce', 'NFC-e (65) — cupom consumidor'),
+            ('nfe', 'NF-e (55)'),
+        ],
+        initial='nfce',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+    data_de = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+        label='Vendas de',
+    )
+    data_ate = forms.DateField(
+        required=False,
+        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'date'}),
+        label='Vendas até',
+    )
+    venda_ids_texto = forms.CharField(
+        required=False,
+        label='IDs das vendas (opcional)',
+        help_text='Separados por vírgula ou espaço. Se informado, ignora o filtro por data.',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'placeholder': 'Ex.: 1201, 1202, 1203',
+        }),
+    )
+    pular_ja_emitidas = forms.BooleanField(
+        required=False,
+        initial=True,
+        label='Pular vendas que já possuem documento autorizado ou em processamento',
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        texto = (cleaned.get('venda_ids_texto') or '').strip()
+        ids = []
+        if texto:
+            import re
+            for part in re.split(r'[,\s;]+', texto):
+                part = part.strip().lstrip('#')
+                if part.isdigit():
+                    ids.append(int(part))
+            if not ids:
+                raise forms.ValidationError('Informe IDs numéricos válidos ou use o filtro por data.')
+            cleaned['venda_ids_parsed'] = ids
+        else:
+            if not cleaned.get('data_de') or not cleaned.get('data_ate'):
+                raise forms.ValidationError('Informe o período (de/até) ou a lista de IDs das vendas.')
+            if cleaned['data_de'] > cleaned['data_ate']:
+                raise forms.ValidationError('A data inicial não pode ser posterior à data final.')
+            cleaned['venda_ids_parsed'] = None
+        return cleaned
+
+
 class EmitirDocumentoForm(forms.Form):
     tipo = forms.ChoiceField(
         choices=[

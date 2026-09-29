@@ -19,6 +19,7 @@ from .forms import (
     CartaCorrecaoForm,
     ContingenciaForm,
     EmitirDocumentoForm,
+    EmitirLoteForm,
     FocusIntegracaoForm,
     FiscalConfigForm,
     InutilizacaoForm,
@@ -30,6 +31,7 @@ from .models import (
     DocumentoFiscal,
     FiscalWebhookLog,
     InutilizacaoNumeracao,
+    LoteEmissaoFiscal,
     NFeRecebida,
     ProdutoDadosFiscais,
     RegraTributaria,
@@ -37,8 +39,11 @@ from .models import (
 from .services import (
     cancelar_documento,
     carta_correcao_documento,
+    LOTE_EMISSAO_MAX_VENDAS,
+    buscar_vendas_elegiveis_lote,
     emitir_documento,
     get_or_create_config,
+    processar_lote_emissao,
     listar_gatilhos_focus,
     processar_webhook,
     registrar_gatilhos_focus,
@@ -69,6 +74,7 @@ def fiscal_hub(request):
         {'titulo': '3. Documentos', 'desc': 'NF-e / NFC-e / NFS-e emitidos', 'url': 'fiscal_documentos', 'icone': 'fa-file-invoice'},
         {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da Focus', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt'},
         {'titulo': '5. NFC-e', 'desc': 'Cupom fiscal eletrônico do consumidor', 'url': 'fiscal_emitir', 'icone': 'fa-receipt'},
+        {'titulo': 'Emissão em lote', 'desc': 'Várias vendas de uma vez (SaaS)', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group'},
         {'titulo': '6. Cancelamento / CC-e / Inutilização', 'desc': 'Ciclo de vida legal das notas', 'url': 'fiscal_inutilizacao', 'icone': 'fa-ban'},
         {'titulo': '7. Contingência', 'desc': 'Operação offline / SVC', 'url': 'fiscal_contingencia', 'icone': 'fa-wifi'},
         {'titulo': '8. Arquivos', 'desc': 'XML, DANFE/DANFCE e envio', 'url': 'fiscal_arquivos', 'icone': 'fa-folder-open'},
@@ -337,6 +343,94 @@ def fiscal_emitir(request):
     return render(
         request, 'app_pdv/fiscal/emitir.html',
         _ctx(request, loja, form=form, vendas_recentes=vendas_recentes),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_emitir_lote(request):
+    loja = check_loja(request)
+    form = EmitirLoteForm(request.POST or None)
+    preview_vendas = []
+    limite = LOTE_EMISSAO_MAX_VENDAS
+
+    if request.method == 'POST':
+        acao = request.POST.get('acao', 'preview')
+        if acao == 'emitir':
+            venda_ids = []
+            for raw in request.POST.getlist('venda_ids'):
+                raw = str(raw).strip()
+                if raw.isdigit():
+                    venda_ids.append(int(raw))
+            tipo = request.POST.get('tipo') or 'nfce'
+            if not venda_ids:
+                messages.error(request, 'Selecione ao menos uma venda para emitir em lote.')
+            else:
+                from app_pdv.models import Venda
+                vendas = list(
+                    Venda.objects.filter(loja=loja, pk__in=venda_ids).order_by('data_venda', 'id'),
+                )
+                if len(vendas) > limite:
+                    messages.error(request, f'Máximo de {limite} vendas por lote.')
+                else:
+                    lote = processar_lote_emissao(
+                        loja, request.user,
+                        tipo=tipo,
+                        vendas=vendas,
+                        filtros_meta={'observacao': f'Lote manual — {len(vendas)} venda(s)'},
+                    )
+                    messages.success(
+                        request,
+                        f'Lote #{lote.id} finalizado: {lote.total_autorizado} autorizado(s), '
+                        f'{lote.total_erro} erro(s), {lote.total_ignorado} ignorado(s).',
+                    )
+                    return redirect('fiscal_lote_detalhe', pk=lote.id)
+        elif form.is_valid():
+            preview_vendas = buscar_vendas_elegiveis_lote(
+                loja,
+                tipo=form.cleaned_data['tipo'],
+                data_de=form.cleaned_data.get('data_de'),
+                data_ate=form.cleaned_data.get('data_ate'),
+                venda_ids=form.cleaned_data.get('venda_ids_parsed'),
+                pular_ja_emitidas=form.cleaned_data.get('pular_ja_emitidas', True),
+                limite=limite,
+            )
+            if not preview_vendas:
+                messages.warning(request, 'Nenhuma venda elegível encontrada para os filtros informados.')
+            else:
+                messages.info(
+                    request,
+                    f'{len(preview_vendas)} venda(s) elegível(eis). Revise a lista e confirme a emissão.',
+                )
+
+    lotes_recentes = LoteEmissaoFiscal.objects.filter(loja=loja)[:15]
+    return render(
+        request,
+        'app_pdv/fiscal/emitir_lote.html',
+        _ctx(
+            request,
+            loja,
+            form=form,
+            preview_vendas=preview_vendas,
+            limite_lote=limite,
+            lotes_recentes=lotes_recentes,
+        ),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_lote_detalhe(request, pk):
+    loja = check_loja(request)
+    lote = get_object_or_404(
+        LoteEmissaoFiscal.objects.prefetch_related('itens__venda', 'itens__documento'),
+        pk=pk,
+        loja=loja,
+    )
+    return render(
+        request,
+        'app_pdv/fiscal/lote_detalhe.html',
+        _ctx(request, loja, lote=lote),
     )
 
 
