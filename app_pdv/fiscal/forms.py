@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 from django import forms
 
 from .models import (
@@ -60,13 +62,61 @@ class ProdutoDadosFiscaisForm(forms.ModelForm):
         model = ProdutoDadosFiscais
         fields = [
             'tipo', 'ncm', 'cest', 'origem', 'unidade_tributavel',
-            'codigo_servico', 'descricao_servico', 'nbs', 'codigo_class_trib',
+            'cfop_venda', 'cfop_interestadual', 'codigo_beneficio_fiscal',
+            'csosn', 'cst_icms', 'cst_pis', 'cst_cofins',
+            'aliquota_icms', 'aliquota_pis', 'aliquota_cofins',
+            'cst_ibs_cbs', 'codigo_class_trib', 'nbs',
+            'codigo_servico', 'descricao_servico',
+            'codigo_anp', 'descricao_anp', 'icms_aliquota_ad_rem',
+            'pct_glp', 'pct_gn_nacional', 'pct_gn_importado',
         ]
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         for field in self.fields.values():
             field.widget.attrs.setdefault('class', 'form-control')
+
+
+class EmitirAvulsaForm(forms.Form):
+    produto_id = forms.ChoiceField(label='Produto', choices=[])
+    quantidade = forms.DecimalField(
+        min_value=Decimal('0.001'),
+        initial=Decimal('1'),
+        decimal_places=3,
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001'}),
+    )
+    preco_unitario = forms.DecimalField(
+        min_value=Decimal('0.01'),
+        decimal_places=2,
+        required=False,
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+        label='Preço unitário (R$)',
+        help_text='Se vazio, usa o preço de venda do produto.',
+    )
+    forma_pagamento = forms.ChoiceField(
+        choices=[
+            ('01', '01 — Dinheiro'),
+            ('17', '17 — PIX'),
+            ('03', '03 — Cartão crédito'),
+            ('04', '04 — Cartão débito'),
+            ('99', '99 — Outros'),
+        ],
+        initial='99',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+    operacao_interestadual = forms.BooleanField(
+        required=False,
+        label='Operação interestadual (CFOP interestadual do produto)',
+    )
+
+    def __init__(self, *args, loja=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from app_pdv.models import Produto
+        qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
+        self.fields['produto_id'].widget = forms.Select(
+            choices=[('', '— Selecione —')] + [(p.id, f'{p.nome_venda} (#{p.id})') for p in qs],
+            attrs={'class': 'form-control'},
+        )
 
 
 class ContingenciaForm(forms.ModelForm):

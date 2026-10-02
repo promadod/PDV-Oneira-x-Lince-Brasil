@@ -18,6 +18,7 @@ from .forms import (
     CancelarDocumentoForm,
     CartaCorrecaoForm,
     ContingenciaForm,
+    EmitirAvulsaForm,
     EmitirDocumentoForm,
     EmitirLoteForm,
     FocusIntegracaoForm,
@@ -75,6 +76,7 @@ def fiscal_hub(request):
         {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da Focus', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt'},
         {'titulo': '5. NFC-e', 'desc': 'Cupom fiscal eletrônico do consumidor', 'url': 'fiscal_emitir', 'icone': 'fa-receipt'},
         {'titulo': 'Emissão em lote', 'desc': 'Várias vendas de uma vez (SaaS)', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group'},
+        {'titulo': 'Emissão avulsa', 'desc': 'NFC-e por produto (sem venda PDV)', 'url': 'fiscal_emitir_avulsa', 'icone': 'fa-box-open'},
         {'titulo': '6. Cancelamento / CC-e / Inutilização', 'desc': 'Ciclo de vida legal das notas', 'url': 'fiscal_inutilizacao', 'icone': 'fa-ban'},
         {'titulo': '7. Contingência', 'desc': 'Operação offline / SVC', 'url': 'fiscal_contingencia', 'icone': 'fa-wifi'},
         {'titulo': '8. Arquivos', 'desc': 'XML, DANFE/DANFCE e envio', 'url': 'fiscal_arquivos', 'icone': 'fa-folder-open'},
@@ -255,11 +257,45 @@ def fiscal_produto_editar(request, produto_id):
 
 @login_required
 @requer_acesso_fiscal
+def fiscal_emitir_avulsa(request):
+    loja = check_loja(request)
+    initial = {}
+    pid = request.GET.get('produto')
+    if pid and str(pid).isdigit():
+        initial['produto_id'] = str(pid)
+    form = EmitirAvulsaForm(request.POST or None, loja=loja, initial=initial)
+    if request.method == 'POST' and form.is_valid():
+        produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
+        preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
+        try:
+            doc = emitir_documento(
+                loja, request.user,
+                tipo='nfce',
+                avulso={
+                    'produto': produto,
+                    'quantidade': float(form.cleaned_data['quantidade']),
+                    'preco_unitario': float(preco),
+                    'forma_pagamento': form.cleaned_data['forma_pagamento'],
+                    'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+                },
+            )
+            messages.success(request, f'NFC-e avulsa enviada — ref {doc.ref} ({doc.status}).')
+            return redirect('fiscal_documento_detalhe', pk=doc.id)
+        except FocusNFeError as exc:
+            messages.error(request, str(exc))
+    return render(
+        request, 'app_pdv/fiscal/emitir_avulsa.html',
+        _ctx(request, loja, form=form),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
 def fiscal_documentos(request):
     loja = check_loja(request)
     tipo = (request.GET.get('tipo') or '').strip()
     status = (request.GET.get('status') or '').strip()
-    qs = DocumentoFiscal.objects.filter(loja=loja).select_related('venda')
+    qs = DocumentoFiscal.objects.filter(loja=loja).select_related('venda', 'produto_avulso')
     if tipo:
         qs = qs.filter(tipo=tipo)
     if status:
@@ -274,7 +310,10 @@ def fiscal_documentos(request):
 @requer_acesso_fiscal
 def fiscal_documento_detalhe(request, pk):
     loja = check_loja(request)
-    doc = get_object_or_404(DocumentoFiscal.objects.prefetch_related('eventos'), pk=pk, loja=loja)
+    doc = get_object_or_404(
+        DocumentoFiscal.objects.select_related('produto_avulso', 'venda').prefetch_related('eventos'),
+        pk=pk, loja=loja,
+    )
     cancel_form = CancelarDocumentoForm()
     cce_form = CartaCorrecaoForm()
     return render(

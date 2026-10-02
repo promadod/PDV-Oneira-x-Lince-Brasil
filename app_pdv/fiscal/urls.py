@@ -15,6 +15,7 @@ urlpatterns = [
     path('documentos/<int:pk>/cancelar/', views.fiscal_documento_cancelar, name='fiscal_documento_cancelar'),
     path('documentos/<int:pk>/cce/', views.fiscal_documento_cce, name='fiscal_documento_cce'),
     path('emitir/', views.fiscal_emitir, name='fiscal_emitir'),
+    path('emitir/avulsa/', views.fiscal_emitir_avulsa, name='fiscal_emitir_avulsa'),
     path('emitir/lote/', views.fiscal_emitir_lote, name='fiscal_emitir_lote'),
     path('emitir/lote/<int:pk>/', views.fiscal_lote_detalhe, name='fiscal_lote_detalhe'),
     path('webhooks/', views.fiscal_webhooks, name='fiscal_webhooks'),

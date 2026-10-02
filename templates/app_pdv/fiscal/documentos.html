@@ -32,7 +32,7 @@
     <table style="width:100%;border-collapse:collapse;color:#fff;">
         <thead>
             <tr style="border-bottom:1px solid #444;text-align:left;">
-                <th style="padding:12px;">Ref</th><th>Tipo</th><th>Número</th><th>Status</th><th>Valor</th><th>Venda</th><th></th>
+                <th style="padding:12px;">Ref</th><th>Tipo</th><th>Número</th><th>Status</th><th>Valor</th><th>Origem</th><th></th>
             </tr>
         </thead>
         <tbody>
@@ -43,7 +43,11 @@
                 <td>{{ d.numero|default:"—" }}</td>
                 <td style="color:{% if d.status == 'autorizado' %}#03dac6{% elif d.status == 'erro' %}#cf6679{% else %}#ffbb33{% endif %};">{{ d.get_status_display }}</td>
                 <td>R$ {{ d.valor_total }}</td>
-                <td>{% if d.venda_id %}#{{ d.venda_id }}{% else %}—{% endif %}</td>
+                <td>
+                    {% if d.venda_id %}Venda #{{ d.venda_id }}
+                    {% elif d.produto_avulso_id %}Avulsa · {{ d.produto_avulso.nome_venda }}
+                    {% else %}—{% endif %}
+                </td>
                 <td><a href="{% url 'fiscal_documento_detalhe' d.id %}" style="color:#03dac6;">Abrir</a></td>
             </tr>
             {% empty %}

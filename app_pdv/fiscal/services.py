@@ -97,7 +97,7 @@ def _endpoint_tipo(tipo: str) -> str:
 
 
 @transaction.atomic
-def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, payload_extra=None):
+def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, payload_extra=None):
     cfg = get_or_create_config(loja)
     if not cfg.focus_token:
         raise FocusNFeError('Configure o token Focus NFe em Configurações Fiscais.')
@@ -109,12 +109,32 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, payload_extra=No
     if tipo.startswith('nfse') and not (cfg.emite_nfse or cfg.emite_nfse_nacional):
         raise FocusNFeError('Emissão de NFS-e desabilitada nesta loja.')
 
-    snapshot = montar_snapshot_itens(loja, venda) if venda else {'itens': []}
-    valor = Decimal(str(venda.total)) if venda else Decimal('0')
-    ref = _nova_ref(loja, tipo, getattr(venda, 'id', None))
+    produto_avulso = None
+    if avulso:
+        produto_avulso = avulso['produto']
+        if produto_avulso.loja_id != loja.id:
+            raise FocusNFeError('Produto não pertence à loja atual.')
+        valor = Decimal(str(round(
+            float(avulso['quantidade']) * float(avulso['preco_unitario']), 2,
+        )))
+        ref = _nova_ref(loja, tipo, f'av{produto_avulso.id}')
+        snapshot = {
+            'emissao_avulsa': True,
+            'produto_id': produto_avulso.id,
+            'quantidade': str(avulso['quantidade']),
+            'preco_unitario': str(avulso['preco_unitario']),
+        }
+    elif venda:
+        snapshot = montar_snapshot_itens(loja, venda)
+        valor = Decimal(str(venda.total))
+        ref = _nova_ref(loja, tipo, getattr(venda, 'id', None))
+    else:
+        raise FocusNFeError('Informe a venda ou uma emissão avulsa por produto.')
 
     try:
-        payload = montar_payload_emissao(cfg, loja, tipo=tipo, venda=venda)
+        payload = montar_payload_emissao(
+            cfg, loja, tipo=tipo, venda=venda, avulso=avulso if avulso else None,
+        )
     except ValueError as exc:
         raise FocusNFeError(str(exc)) from exc
     params_extra = {}
@@ -132,6 +152,7 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, payload_extra=No
     doc = DocumentoFiscal.objects.create(
         loja=loja,
         venda=venda,
+        produto_avulso=produto_avulso,
         tipo=tipo,
         ref=ref,
         status='processando',

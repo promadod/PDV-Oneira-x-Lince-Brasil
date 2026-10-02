@@ -1,17 +1,64 @@
 {% extends 'base.html' %}
-{% block title %}Dados fiscais produto{% endblock %}
+{% block title %}Cadastro fiscal — {{ produto.nome_venda }}{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
-<h2>Dados fiscais — {{ produto.nome_venda }}</h2>
-<form method="post" class="card" style="max-width:640px;" data-submit-lock-msg="Salvando…">
-    {% csrf_token %}
-    {% for field in form %}
-    <div style="margin-bottom:12px;">
-        <label>{{ field.label }}</label>
-        {{ field }}
+
+<div style="display:flex;justify-content:space-between;align-items:flex-start;flex-wrap:wrap;gap:12px;margin-bottom:16px;">
+    <div>
+        <h2 style="margin:0;">Cadastro fiscal por produto</h2>
+        <p style="color:#aaa;margin:6px 0 0;">{{ produto.nome_venda }} · #{{ produto.id }}
+            {% if produto.codigo_barras %} · EAN {{ produto.codigo_barras }}{% endif %}
+            · Venda R$ {{ produto.preco_venda }}</p>
     </div>
-    {% endfor %}
-    <button type="submit" class="btn btn-success">Salvar</button>
-    <a href="{% url 'fiscal_produtos' %}" class="btn" style="background:#444;">Voltar</a>
+    <a href="{% url 'fiscal_emitir_avulsa' %}?produto={{ produto.id }}" class="btn btn-success">Emitir NFC-e avulsa</a>
+</div>
+
+<form method="post" data-submit-lock-msg="Salvando cadastro fiscal…">
+    {% csrf_token %}
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Tributação</h3>
+        <p style="color:#888;font-size:0.9em;">Campos preenchidos aqui têm prioridade sobre a matriz tributária da loja.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Tipo</label>{{ form.tipo }}</div>
+            <div><label>Unidade tributável</label>{{ form.unidade_tributavel }}</div>
+            <div><label>NCM *</label>{{ form.ncm }}</div>
+            <div><label>CEST</label>{{ form.cest }}</div>
+            <div><label>Origem</label>{{ form.origem }}</div>
+            <div><label>cBenef</label>{{ form.codigo_beneficio_fiscal }}</div>
+            <div><label>CFOP venda</label>{{ form.cfop_venda }}</div>
+            <div><label>CFOP interestadual</label>{{ form.cfop_interestadual }}</div>
+            <div><label>CSOSN (Simples)</label>{{ form.csosn }}</div>
+            <div><label>CST ICMS</label>{{ form.cst_icms }}</div>
+            <div><label>CST PIS</label>{{ form.cst_pis }}</div>
+            <div><label>CST COFINS</label>{{ form.cst_cofins }}</div>
+            <div><label>Alíquota ICMS (%)</label>{{ form.aliquota_icms }}</div>
+            <div><label>Alíquota PIS (%)</label>{{ form.aliquota_pis }}</div>
+            <div><label>Alíquota COFINS (%)</label>{{ form.aliquota_cofins }}</div>
+            <div><label>CST IBS/CBS</label>{{ form.cst_ibs_cbs }}</div>
+            <div><label>cClassTrib</label>{{ form.codigo_class_trib }}</div>
+        </div>
+    </div>
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Combustível (ANP)</h3>
+        <p style="color:#888;font-size:0.9em;">Preencha apenas para GLP, gasolina, etanol etc.</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Código ANP</label>{{ form.codigo_anp }}</div>
+            <div><label>Descrição ANP</label>{{ form.descricao_anp }}</div>
+            <div><label>ICMS ad rem (R$)</label>{{ form.icms_aliquota_ad_rem }}</div>
+            <div><label>% GLP</label>{{ form.pct_glp }}</div>
+            <div><label>% GN nacional</label>{{ form.pct_gn_nacional }}</div>
+            <div><label>% GN importado</label>{{ form.pct_gn_importado }}</div>
+        </div>
+    </div>
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Serviço / reforma</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Código serviço</label>{{ form.codigo_servico }}</div>
+            <div><label>Descrição serviço</label>{{ form.descricao_servico }}</div>
+            <div><label>NBS</label>{{ form.nbs }}</div>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-success">Salvar cadastro fiscal</button>
+    <a href="{% url 'fiscal_produtos' %}" class="btn" style="background:#444;">Voltar à lista</a>
 </form>
 {% endblock %}

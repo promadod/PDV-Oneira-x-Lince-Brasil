@@ -5,21 +5,8 @@ from decimal import Decimal
 
 from django.utils import timezone
 
-from .models import FiscalConfig, ProdutoDadosFiscais, RegraTributaria
-
-
-def resolver_regra(loja, ncm='', uf_destino='', operacao='venda'):
-    qs = RegraTributaria.objects.filter(loja=loja, ativa=True, operacao=operacao)
-    if ncm:
-        especifica = qs.filter(ncm=ncm).first()
-        if especifica:
-            if not especifica.uf_destino or especifica.uf_destino.upper() == (uf_destino or '').upper():
-                return especifica
-    if uf_destino:
-        por_uf = qs.filter(ncm='', uf_destino__iexact=uf_destino).first()
-        if por_uf:
-            return por_uf
-    return qs.filter(ncm='', uf_destino='').first()
+from .models import FiscalConfig
+from .produto_fiscal import montar_item_focus_json, resolver_regra
 
 # Códigos internos PDV → tabela SEFAZ (forma_pagamento)
 _MAP_FORMA_PAGAMENTO = {
@@ -41,16 +28,6 @@ def _map_forma_pagamento(codigo: str | None) -> str:
         return '99'
     key = (codigo or '').strip().upper()
     return _MAP_FORMA_PAGAMENTO.get(key, '99')
-
-
-def _unidade(produto) -> str:
-    um = getattr(produto, 'unidade_medida', None) or 'UN'
-    um = str(um).upper()
-    if um == 'KG':
-        return 'kg'
-    if um == 'L':
-        return 'l'
-    return 'un'
 
 
 def _formas_pagamento_venda(venda) -> list[dict]:
@@ -92,35 +69,14 @@ def montar_payload_nfce(cfg: FiscalConfig, loja, venda) -> dict:
         ItemVenda.objects.filter(venda=venda).select_related('produto'),
         start=1,
     ):
-        try:
-            dados = item.produto.dados_fiscais
-        except ProdutoDadosFiscais.DoesNotExist:
-            dados = None
-        ncm = (dados.ncm if dados and dados.ncm else '00000000').replace('.', '')[:8]
-        regra = resolver_regra(loja, ncm=ncm, operacao='venda')
-        cfop = (regra.cfop if regra and regra.cfop else '5102')
-        csosn = (regra.csosn if regra and regra.csosn else '102')
-        origem = (dados.origem if dados else '0')
-        qtd = float(item.quantidade)
-        v_unit = float(item.preco_unitario)
-        v_bruto = round(qtd * v_unit, 2)
-        un = _unidade(item.produto)
-        items.append({
-            'numero_item': str(idx),
-            'codigo_produto': str(item.produto_id),
-            'codigo_ncm': ncm,
-            'descricao': (item.produto.nome_venda or item.produto.nome)[:120],
-            'quantidade_comercial': qtd,
-            'quantidade_tributavel': qtd,
-            'valor_unitario_comercial': v_unit,
-            'valor_unitario_tributavel': v_unit,
-            'valor_bruto': v_bruto,
-            'unidade_comercial': un,
-            'unidade_tributavel': un,
-            'cfop': cfop,
-            'icms_origem': origem,
-            'icms_situacao_tributaria': csosn,
-        })
+        items.append(
+            montar_item_focus_json(
+                loja, item.produto,
+                quantidade=float(item.quantidade),
+                preco_unitario=float(item.preco_unitario),
+                numero_item=idx,
+            )
+        )
 
     if not items:
         raise ValueError('A venda não possui itens para emitir NFC-e.')
@@ -143,7 +99,58 @@ def montar_payload_nfce(cfg: FiscalConfig, loja, venda) -> dict:
     return payload
 
 
-def montar_payload_emissao(cfg: FiscalConfig, loja, *, tipo: str, venda=None) -> dict:
+def montar_payload_nfce_avulso(
+    cfg: FiscalConfig,
+    loja,
+    produto,
+    *,
+    quantidade: float,
+    preco_unitario: float,
+    forma_pagamento: str = '99',
+    interestadual: bool = False,
+) -> dict:
+    """NFC-e avulsa — um produto (padrão NetFiscal / balcão sem venda PDV)."""
+    cnpj = _digits(cfg.cnpj or loja.cnpj)
+    if len(cnpj) != 14:
+        raise ValueError('CNPJ do emitente inválido ou não configurado.')
+    tz = timezone.get_current_timezone()
+    data_emissao = timezone.localtime(timezone.now(), tz).isoformat(timespec='seconds')
+    item = montar_item_focus_json(
+        loja, produto,
+        quantidade=quantidade,
+        preco_unitario=preco_unitario,
+        numero_item=1,
+        interestadual=interestadual,
+    )
+    total = round(float(quantidade) * float(preco_unitario), 2)
+    payload = {
+        'cnpj_emitente': cnpj,
+        'data_emissao': data_emissao,
+        'natureza_operacao': 'VENDA AO CONSUMIDOR',
+        'presenca_comprador': '1',
+        'modalidade_frete': '9',
+        'local_destino': '2' if interestadual else '1',
+        'indicador_inscricao_estadual_destinatario': '9',
+        'items': [item],
+        'formas_pagamento': [{'forma_pagamento': forma_pagamento, 'valor_pagamento': total}],
+    }
+    if cfg.serie_nfce:
+        payload['serie'] = str(cfg.serie_nfce)
+    if cfg.proximo_numero_nfce:
+        payload['numero'] = str(cfg.proximo_numero_nfce)
+    return payload
+
+
+def montar_payload_emissao(cfg: FiscalConfig, loja, *, tipo: str, venda=None, avulso=None) -> dict:
+    if avulso:
+        produto = avulso['produto']
+        return montar_payload_nfce_avulso(
+            cfg, loja, produto,
+            quantidade=avulso['quantidade'],
+            preco_unitario=avulso['preco_unitario'],
+            forma_pagamento=avulso.get('forma_pagamento', '99'),
+            interestadual=avulso.get('interestadual', False),
+        )
     if tipo == 'nfce':
         return montar_payload_nfce(cfg, loja, venda)
     if tipo == 'nfe':

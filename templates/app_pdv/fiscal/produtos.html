@@ -3,16 +3,20 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-    <h2 style="margin:0;">Produtos — dados fiscais (NCM)</h2>
+    <div>
+        <h2 style="margin:0;">Produtos — cadastro fiscal</h2>
+        <p style="color:#888;margin:4px 0 0;font-size:0.9em;">NCM, CFOP, tributos e ANP por item (como NetFiscal).</p>
+    </div>
+    <a href="{% url 'fiscal_emitir_avulsa' %}" class="btn btn-success">Emissão avulsa</a>
 </div>
 <div class="card">
     <table style="width:100%;border-collapse:collapse;color:#fff;">
         <thead>
             <tr style="border-bottom:1px solid #444;text-align:left;">
                 <th style="padding:12px;">Produto</th>
-                <th>Tipo</th>
                 <th>NCM</th>
-                <th>Origem</th>
+                <th>CFOP</th>
+                <th>ANP</th>
                 <th>Ações</th>
             </tr>
         </thead>
@@ -20,10 +24,13 @@
             {% for p in produtos %}
             <tr style="border-bottom:1px solid #333;">
                 <td style="padding:10px;">{{ p.nome_venda }}</td>
-                <td>{% if p.dados_fiscais %}{{ p.dados_fiscais.get_tipo_display }}{% else %}—{% endif %}</td>
                 <td style="color:#03dac6;">{% if p.dados_fiscais %}{{ p.dados_fiscais.ncm|default:"—" }}{% else %}—{% endif %}</td>
-                <td>{% if p.dados_fiscais %}{{ p.dados_fiscais.origem }}{% else %}—{% endif %}</td>
-                <td><a href="{% url 'fiscal_produto_editar' p.id %}" style="color:#03dac6;">Editar fiscal</a></td>
+                <td>{% if p.dados_fiscais %}{{ p.dados_fiscais.cfop_venda|default:"—" }}{% else %}—{% endif %}</td>
+                <td>{% if p.dados_fiscais and p.dados_fiscais.codigo_anp %}{{ p.dados_fiscais.codigo_anp }}{% else %}—{% endif %}</td>
+                <td>
+                    <a href="{% url 'fiscal_produto_editar' p.id %}" style="color:#03dac6;">Cadastro fiscal</a>
+                    · <a href="{% url 'fiscal_emitir_avulsa' %}?produto={{ p.id }}" style="color:#03dac6;">Emitir avulsa</a>
+                </td>
             </tr>
             {% empty %}
             <tr><td colspan="5" style="padding:20px;text-align:center;">Nenhum produto.</td></tr>

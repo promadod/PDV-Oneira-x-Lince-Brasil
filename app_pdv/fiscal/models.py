@@ -127,6 +127,33 @@ class ProdutoDadosFiscais(models.Model):
     # Pilar 9 — reforma (extensível)
     nbs = models.CharField(max_length=20, blank=True, default='', verbose_name='NBS (reforma)')
     codigo_class_trib = models.CharField(max_length=20, blank=True, default='', verbose_name='cClassTrib')
+    cst_ibs_cbs = models.CharField(
+        max_length=10, blank=True, default='',
+        verbose_name='CST IBS/CBS (reforma)',
+    )
+
+    cfop_venda = models.CharField(max_length=5, blank=True, default='', verbose_name='CFOP venda')
+    cfop_interestadual = models.CharField(max_length=5, blank=True, default='', verbose_name='CFOP interestadual')
+    codigo_beneficio_fiscal = models.CharField(
+        max_length=10, blank=True, default='', verbose_name='cBenef',
+    )
+    csosn = models.CharField(max_length=4, blank=True, default='', verbose_name='CSOSN (Simples)')
+    cst_icms = models.CharField(max_length=3, blank=True, default='', verbose_name='CST ICMS')
+    cst_pis = models.CharField(max_length=2, blank=True, default='', verbose_name='CST PIS')
+    cst_cofins = models.CharField(max_length=2, blank=True, default='', verbose_name='CST COFINS')
+    aliquota_icms = models.DecimalField(max_digits=8, decimal_places=4, default=0, verbose_name='Alíquota ICMS (%)')
+    aliquota_pis = models.DecimalField(max_digits=8, decimal_places=4, default=0, verbose_name='Alíquota PIS (%)')
+    aliquota_cofins = models.DecimalField(max_digits=8, decimal_places=4, default=0, verbose_name='Alíquota COFINS (%)')
+
+    codigo_anp = models.CharField(max_length=9, blank=True, default='', verbose_name='Código ANP')
+    descricao_anp = models.CharField(max_length=95, blank=True, default='', verbose_name='Descrição ANP')
+    icms_aliquota_ad_rem = models.DecimalField(
+        max_digits=10, decimal_places=4, default=0,
+        verbose_name='ICMS alíquota ad rem (R$)',
+    )
+    pct_glp = models.DecimalField(max_digits=6, decimal_places=2, default=0, verbose_name='% GLP')
+    pct_gn_nacional = models.DecimalField(max_digits=6, decimal_places=2, default=0, verbose_name='% GN nacional')
+    pct_gn_importado = models.DecimalField(max_digits=6, decimal_places=2, default=0, verbose_name='% GN importado')
 
     class Meta:
         verbose_name = 'Dados fiscais do produto'
@@ -194,6 +221,11 @@ class DocumentoFiscal(models.Model):
     venda = models.ForeignKey(
         'app_pdv.Venda', on_delete=models.SET_NULL, null=True, blank=True,
         related_name='documentos_fiscais',
+    )
+    produto_avulso = models.ForeignKey(
+        'app_pdv.Produto', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='documentos_fiscais_avulsos',
+        verbose_name='Produto (emissão avulsa)',
     )
     tipo = models.CharField(max_length=20, choices=TIPO_CHOICES, default='nfce')
     ref = models.CharField(max_length=64, verbose_name='Referência Focus (única)')

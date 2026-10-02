@@ -8,6 +8,7 @@
         <a href="{% url 'fiscal_config' %}" class="fiscal-nav-btn{% if an == 'fiscal_config' %} is-active{% endif %}">Config</a>
         <a href="{% url 'fiscal_matriz' %}" class="fiscal-nav-btn{% if an == 'fiscal_matriz' or an == 'fiscal_matriz_excluir' %} is-active{% endif %}">Matriz</a>
         <a href="{% url 'fiscal_produtos' %}" class="fiscal-nav-btn{% if an == 'fiscal_produtos' or an == 'fiscal_produto_editar' %} is-active{% endif %}">Produtos</a>
+        <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_avulsa' %} is-active{% endif %}">Avulsa</a>
         <a href="{% url 'fiscal_documentos' %}" class="fiscal-nav-btn{% if an == 'fiscal_documentos' or an == 'fiscal_documento_detalhe' or an == 'fiscal_documento_cancelar' or an == 'fiscal_documento_cce' %} is-active{% endif %}">Documentos</a>
         <a href="{% url 'fiscal_emitir' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir' %} is-active{% endif %}">Emitir</a>
         <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_lote' or an == 'fiscal_lote_detalhe' %} is-active{% endif %}">Lote</a>

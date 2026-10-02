@@ -1,0 +1,29 @@
+{% extends 'base.html' %}
+{% block title %}Emissão avulsa por produto{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2>Emissão avulsa (NFC-e por produto)</h2>
+<p style="color:#aaa;max-width:720px;">
+    Padrão comum em sistemas como NetFiscal: emite cupom fiscal de <strong>um produto</strong> usando o
+    cadastro fiscal do item, sem vincular a uma venda do PDV. Configure NCM, CFOP e ANP em
+    <a href="{% url 'fiscal_produtos' %}" style="color:#03dac6;">Fiscal → Produtos</a>.
+</p>
+
+<form method="post" class="card" style="max-width:560px;padding:20px;" data-submit-lock-msg="Emitindo NFC-e avulsa…">
+    {% csrf_token %}
+    <div style="margin-bottom:14px;"><label>Produto</label>{{ form.produto_id }}</div>
+    <div style="margin-bottom:14px;"><label>Quantidade</label>{{ form.quantidade }}</div>
+    <div style="margin-bottom:14px;">
+        <label>{{ form.preco_unitario.label }}</label>
+        {{ form.preco_unitario }}
+        <small style="color:#888;">{{ form.preco_unitario.help_text }}</small>
+    </div>
+    <div style="margin-bottom:14px;"><label>Forma de pagamento</label>{{ form.forma_pagamento }}</div>
+    <div class="fiscal-check-row" style="margin-bottom:16px;">
+        {{ form.operacao_interestadual }}
+        <label for="{{ form.operacao_interestadual.id_for_label }}">{{ form.operacao_interestadual.label }}</label>
+    </div>
+    <button type="submit" class="btn btn-success">Enviar NFC-e à Focus</button>
+</form>
+{% endblock %}
