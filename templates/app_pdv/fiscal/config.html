@@ -3,7 +3,7 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 <h2 style="margin-bottom:16px;">1. Configurações Fiscais (Empresa e Certificado)</h2>
-<p style="color:#aaa;margin-bottom:20px;">Cadastro do emitente e integração Focus NFe. O certificado A1 é gerenciado na Focus; informe o token da empresa aqui.</p>
+<p style="color:#aaa;margin-bottom:20px;">Cadastro do emitente e parâmetros fiscais. Certificado A1 e token da API em Integração fiscal.</p>
 <form method="post" data-submit-lock-msg="Salvando configuração fiscal…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;">
@@ -33,10 +33,10 @@
         </div>
     </div>
     <div class="card" style="margin-bottom:16px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Focus NFe / Certificado</h3>
+        <h3 style="color:#15a0a5;margin-top:0;">API fiscal / Certificado</h3>
         <p style="color:#aaa;font-size:0.9em;">
             Token, ambiente, teste de conexão e cadastro de webhooks:
-            <a href="{% url 'fiscal_focus' %}" style="color:#03dac6;">Integração Focus API</a>.
+            <a href="{% url 'fiscal_focus' %}" style="color:#03dac6;">Integração API fiscal</a>.
         </p>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
             <div><label>CSC ID (NFC-e)</label>{{ form.csc_id }}</div>

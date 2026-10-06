@@ -4,16 +4,17 @@
 {% include 'app_pdv/fiscal/_nav.html' %}
 
 <h2>NF-e (modelo 55)</h2>
-<p style="color:#aaa;">Emissão com destinatário, natureza, CFOP e item (campos obrigatórios Focus/SEFAZ).</p>
+<p style="color:#aaa;">Emissão com destinatário, natureza, CFOP e item (exigências SEFAZ).</p>
 
 <form method="post" data-submit-lock-msg="Emitindo NF-e…">
     {% csrf_token %}
     <div class="card" style="padding:20px;margin-bottom:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Natureza</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
-            <div><label>Natureza</label>{{ form.natureza_operacao }}</div>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;">
+            <div><label>Natureza</label>{{ form.natureza_cfop }}</div>
             <div><label>CFOP</label>{{ form.cfop }}</div>
-            <div><label>Finalidade</label>{{ form.finalidade_emissao }}</div>
+            <div><label>Série</label>{{ form.serie }}</div>
+            <div><label>Finalidade da NF-e</label>{{ form.finalidade_emissao }}</div>
         </div>
     </div>
     <div class="card" style="padding:20px;margin-bottom:16px;">
@@ -42,6 +43,16 @@
             <div class="fiscal-check-row"><label>{{ form.operacao_interestadual }} Interestadual</label></div>
         </div>
     </div>
-    <button type="submit" class="btn btn-success">Enviar NF-e à Focus</button>
+    <button type="submit" class="btn btn-success">Emitir NF-e</button>
 </form>
+<script>
+(function () {
+    var sel = document.getElementById('id_natureza_cfop');
+    var cfop = document.getElementById('id_cfop');
+    if (!sel || !cfop) return;
+    function sync() { cfop.value = sel.value || ''; }
+    sel.addEventListener('change', sync);
+    sync();
+})();
+</script>
 {% endblock %}

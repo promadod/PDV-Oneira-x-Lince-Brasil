@@ -3,19 +3,21 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 <h2>5. Emitir NFC-e / NF-e / NFS-e</h2>
-<p style="color:#aaa;">Envia o documento à Focus NFe. Vincule a uma venda do PDV quando possível.
+<p style="color:#aaa;">Emissão eletrônica vinculada ao PDV quando possível.
     <a href="{% url 'fiscal_emitir_lote' %}" style="color:#03dac6;">Emissão em lote</a> ·
     <a href="{% url 'fiscal_emitir_avulsa' %}" style="color:#03dac6;">Emissão avulsa por produto</a>.</p>
 <form method="post" class="card" style="max-width:520px;margin-bottom:20px;" data-submit-lock-msg="Emitindo…">
     {% csrf_token %}
     <div style="margin-bottom:12px;"><label>Tipo</label>{{ form.tipo }}</div>
     <div style="margin-bottom:12px;"><label>ID da venda (opcional)</label>{{ form.venda_id }}</div>
-    <button type="submit" class="btn btn-success">Enviar à Focus</button>
+    <button type="submit" class="btn btn-success">Emitir documento</button>
 </form>
 <div class="card">
     <h3 style="color:#15a0a5;">Vendas recentes</h3>
     <table style="width:100%;border-collapse:collapse;color:#fff;">
-        <thead><tr style="border-bottom:1px solid #444;text-align:left;"><th style="padding:10px;">ID</th><th>Total</th><th>Status</th><th>Data</th></tr></thead>
+        <thead><tr style="border-bottom:1px solid #444;text-align:left;">
+            <th style="padding:10px;">ID</th><th>Total</th><th>Status</th><th>Data</th><th></th>
+        </tr></thead>
         <tbody>
             {% for v in vendas_recentes %}
             <tr style="border-bottom:1px solid #333;">
@@ -23,11 +25,18 @@
                 <td>R$ {{ v.total }}</td>
                 <td>{{ v.status }}</td>
                 <td>{{ v.data_venda|date:"d/m/Y H:i" }}</td>
+                <td style="padding:8px;text-align:right;">
+                    <button type="button" class="btn btn-ver-venda-fiscal" data-venda-id="{{ v.id }}"
+                            style="padding:6px 10px;font-size:0.85em;" title="Ver produtos da venda">
+                        <i class="fas fa-eye"></i> Ver venda
+                    </button>
+                </td>
             </tr>
             {% empty %}
-            <tr><td colspan="4" style="padding:16px;">Sem vendas.</td></tr>
+            <tr><td colspan="5" style="padding:16px;">Sem vendas.</td></tr>
             {% endfor %}
         </tbody>
     </table>
 </div>
+{% include 'app_pdv/fiscal/partials/venda_modal_lote.html' %}
 {% endblock %}

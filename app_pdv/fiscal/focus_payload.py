@@ -259,7 +259,7 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         payload['indicador_inscricao_estadual_destinatario'] = '9'
     else:
         raise ValueError('Informe CPF ou CNPJ do destinatário para NF-e.')
-    payload['serie'] = str(cfg.serie_nfe)
+    payload['serie'] = str(dados.get('serie') or cfg.serie_nfe)
     if cfg.proximo_numero_nfe:
         payload['numero'] = str(cfg.proximo_numero_nfe)
     return payload

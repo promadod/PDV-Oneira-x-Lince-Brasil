@@ -6,7 +6,7 @@
 <h2>Emissão em lote</h2>
 <p style="color:#aaa;max-width:720px;">
     Emita NFC-e ou NF-e para várias vendas <strong>finalizadas</strong> da loja atual.
-    Máximo de <strong>{{ limite_lote }}</strong> notas por lote. Cada loja (CNPJ) usa sua própria configuração Focus.
+    Máximo de <strong>{{ limite_lote }}</strong> notas por lote. Cada loja (CNPJ) usa sua própria configuração fiscal.
 </p>
 
 <div class="card" style="max-width:640px;margin-bottom:20px;padding:20px;">
@@ -62,7 +62,7 @@
                     <td>{{ v.get_status_display }}</td>
                     <td>{{ v.data_venda|date:"d/m/Y H:i" }}</td>
                     <td style="padding:8px;text-align:right;">
-                        <button type="button" class="btn btn-ver-venda-lote" data-venda-id="{{ v.id }}"
+                        <button type="button" class="btn btn-ver-venda-fiscal" data-venda-id="{{ v.id }}"
                                 style="padding:6px 10px;font-size:0.85em;" title="Ver produtos da venda">
                             <i class="fas fa-eye"></i> Ver venda
                         </button>
@@ -74,75 +74,15 @@
         <button type="submit" class="btn btn-success" style="margin-top:16px;">Emitir lote selecionado</button>
     </form>
 </div>
-<div id="modal-venda-lote" class="fiscal-modal-venda" hidden aria-hidden="true">
-    <div class="fiscal-modal-venda-backdrop" data-fechar-modal="1"></div>
-    <div class="fiscal-modal-venda-box" role="dialog" aria-labelledby="modal-venda-titulo">
-        <div class="fiscal-modal-venda-header">
-            <h3 id="modal-venda-titulo" style="margin:0;color:#03dac6;">Detalhes da venda</h3>
-            <button type="button" class="btn" style="background:#444;color:#fff;padding:6px 12px;" data-fechar-modal="1">Fechar</button>
-        </div>
-        <div id="modal-venda-conteudo" style="padding:16px;max-height:70vh;overflow:auto;background:#1e1e1e;">
-            <p style="color:#888;">Carregando…</p>
-        </div>
-        <p style="padding:0 16px 16px;margin:0;">
-            <a id="modal-venda-link-full" href="#" target="_blank" style="color:#03dac6;font-size:0.9em;">Abrir no histórico de vendas</a>
-        </p>
-    </div>
-</div>
-<style>
-.fiscal-modal-venda { position: fixed; inset: 0; z-index: 9999; display: flex; align-items: center; justify-content: center; }
-.fiscal-modal-venda[hidden] { display: none !important; }
-.fiscal-modal-venda-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.75); }
-.fiscal-modal-venda-box {
-    position: relative; z-index: 1; width: min(420px, 94vw); background: #252532;
-    border: 1px solid #444; border-radius: 10px; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
-}
-.fiscal-modal-venda-header {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 14px 16px; border-bottom: 1px solid #444;
-}
-</style>
+{% include 'app_pdv/fiscal/partials/venda_modal_lote.html' %}
 <script>
 (function () {
     var all = document.getElementById('lote-select-all');
-    if (all) {
-        all.addEventListener('change', function () {
-            document.querySelectorAll('.lote-venda-cb').forEach(function (cb) {
-                cb.checked = all.checked;
-            });
+    if (!all) return;
+    all.addEventListener('change', function () {
+        document.querySelectorAll('.lote-venda-cb').forEach(function (cb) {
+            cb.checked = all.checked;
         });
-    }
-    var modal = document.getElementById('modal-venda-lote');
-    var conteudo = document.getElementById('modal-venda-conteudo');
-    var linkFull = document.getElementById('modal-venda-link-full');
-    if (!modal || !conteudo) return;
-
-    function fecharModal() {
-        modal.hidden = true;
-        modal.setAttribute('aria-hidden', 'true');
-    }
-    function abrirModal(vendaId) {
-        modal.hidden = false;
-        modal.setAttribute('aria-hidden', 'false');
-        conteudo.innerHTML = '<p style="color:#888;">Carregando…</p>';
-        if (linkFull) linkFull.href = '/vendas/detalhes/' + vendaId + '/';
-        fetch('/fiscal/vendas/' + vendaId + '/preview/', {
-            headers: { 'X-Requested-With': 'XMLHttpRequest' },
-            credentials: 'same-origin',
-        })
-            .then(function (r) { return r.text(); })
-            .then(function (html) { conteudo.innerHTML = html; })
-            .catch(function () {
-                conteudo.innerHTML = '<p style="color:#cf6679;">Não foi possível carregar a venda.</p>';
-            });
-    }
-    document.querySelectorAll('.btn-ver-venda-lote').forEach(function (btn) {
-        btn.addEventListener('click', function () {
-            abrirModal(btn.getAttribute('data-venda-id'));
-        });
-    });
-    modal.querySelectorAll('[data-fechar-modal]').forEach(function (el) {
-        el.addEventListener('click', fecharModal);
     });
 })();
 </script>

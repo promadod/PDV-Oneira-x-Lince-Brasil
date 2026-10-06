@@ -1,13 +1,13 @@
 {% extends 'base.html' %}
-{% block title %}Integração Focus API{% endblock %}
+{% block title %}Integração API fiscal{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 
-<h2 style="margin-bottom:20px;">Integração Focus NFe (API v2)</h2>
+<h2 style="margin-bottom:20px;">Integração API fiscal (v2)</h2>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
     <div class="card" style="padding:16px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Checklist integração real</h3>
+        <h3 style="color:#15a0a5;margin-top:0;">Checklist integração</h3>
         <ul style="list-style:none;padding:0;margin:0;">
             {% for item in checklist %}
             <li style="padding:6px 0;border-bottom:1px solid #333;">
@@ -17,7 +17,7 @@
             {% endfor %}
         </ul>
         <p style="color:#888;font-size:0.85em;margin-top:12px;">
-            Certificado A1 e CSC são configurados na Focus / SEFAZ. Campos CSC também em
+            Certificado A1 e CSC são configurados junto à SEFAZ / provedor. Campos CSC também em
             <a href="{% url 'fiscal_config' %}" style="color:#03dac6;">Config. Fiscal</a>.
         </p>
     </div>
@@ -28,7 +28,7 @@
     </div>
 </div>
 
-<form method="post" action="{% url 'fiscal_focus_salvar' %}" data-submit-lock-msg="Salvando integração Focus…">
+<form method="post" action="{% url 'fiscal_focus_salvar' %}" data-submit-lock-msg="Salvando integração…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;padding:20px;">
         <h3 style="color:#15a0a5;margin-top:0;">Credenciais API</h3>
@@ -39,11 +39,11 @@
                 <small style="color:#888;">{{ form.ambiente.help_text }}</small>
             </div>
             <div>
-                <label>ID empresa Focus (opcional)</label>
+                <label>{{ form.focus_empresa_id.label }}</label>
                 {{ form.focus_empresa_id }}
             </div>
             <div style="grid-column:1/-1;">
-                <label>Token Focus NFe</label>
+                <label>{{ form.focus_token.label }}</label>
                 {{ form.focus_token }}
                 <small style="color:#888;">{{ form.focus_token.help_text }} Deixe em branco para manter o token já salvo.</small>
             </div>
@@ -54,18 +54,18 @@
             </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
-            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão Focus…">Testar conexão</button>
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão…">Testar conexão</button>
             <button type="submit" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar credenciais</button>
-            <span style="color:#888;font-size:0.85em;">Testar chama <code>GET /v2/hooks</code> em homologação/produção conforme o ambiente.</span>
+            <span style="color:#888;font-size:0.85em;">Testar valida o token via <code>GET /v2/hooks</code> (homologação ou produção).</span>
         </div>
     </div>
 </form>
 
-<form method="post" action="{% url 'fiscal_focus_registrar_webhooks' %}" data-submit-lock-msg="Registrando gatilhos na Focus…">
+<form method="post" action="{% url 'fiscal_focus_registrar_webhooks' %}" data-submit-lock-msg="Registrando gatilhos…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;padding:20px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Cadastrar gatilhos na Focus</h3>
-        <p style="color:#aaa;font-size:0.9em;">Eventos suportados pela API (<code>POST /v2/hooks</code>). Salve o token antes.</p>
+        <h3 style="color:#15a0a5;margin-top:0;">Cadastrar gatilhos (webhooks)</h3>
+        <p style="color:#aaa;font-size:0.9em;">Eventos suportados (<code>POST /v2/hooks</code>). Salve o token antes.</p>
         <label style="display:block;margin:10px 0;">URL do webhook</label>
         <input type="url" name="webhook_url" class="form-control" value="{{ form.webhook_url_configurada.value|default:webhook_sugerida }}" style="margin-bottom:12px;">
         <div class="fiscal-check-grid" style="margin:12px 0;">
@@ -74,13 +74,13 @@
             <label class="fiscal-check-row"><input type="checkbox" name="eventos_webhook" value="inutilizacao"> <span class="fiscal-check-label">Inutilização</span></label>
             <label class="fiscal-check-row"><input type="checkbox" name="eventos_webhook" value="nfe_recebida"> <span class="fiscal-check-label">NF-e recebida</span></label>
         </div>
-        <button type="submit" class="btn" style="background:#15a0a5;color:#000;">Registrar na Focus</button>
+        <button type="submit" class="btn" style="background:#15a0a5;color:#000;">Registrar gatilhos</button>
     </div>
 </form>
 
 {% if gatilhos %}
 <div class="card" style="padding:16px;">
-    <h3 style="color:#15a0a5;margin-top:0;">Gatilhos ativos na Focus</h3>
+    <h3 style="color:#15a0a5;margin-top:0;">Gatilhos ativos</h3>
     <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
         <thead>
             <tr style="border-bottom:1px solid #444;text-align:left;">

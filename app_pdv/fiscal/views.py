@@ -73,11 +73,11 @@ def fiscal_hub(request):
     cfg = get_or_create_config(loja)
     docs = DocumentoFiscal.objects.filter(loja=loja)
     pilares = [
-        {'titulo': 'Integração Focus API', 'desc': 'Token, ambiente, teste de conexão e gatilhos', 'url': 'fiscal_focus', 'icone': 'fa-plug'},
-        {'titulo': '1. Configurações', 'desc': 'Empresa, CRT, endereço e certificado Focus', 'url': 'fiscal_config', 'icone': 'fa-building'},
+        {'titulo': 'Integração API fiscal', 'desc': 'Token, ambiente, teste de conexão e gatilhos', 'url': 'fiscal_focus', 'icone': 'fa-plug'},
+        {'titulo': '1. Configurações', 'desc': 'Empresa, CRT, endereço e certificado digital', 'url': 'fiscal_config', 'icone': 'fa-building'},
         {'titulo': '2. Matriz tributária', 'desc': 'NCM, CFOP, CSOSN/CST e alíquotas', 'url': 'fiscal_matriz', 'icone': 'fa-table'},
         {'titulo': '3. Documentos', 'desc': 'NF-e / NFC-e / NFS-e emitidos', 'url': 'fiscal_documentos', 'icone': 'fa-file-invoice'},
-        {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da Focus', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt'},
+        {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da SEFAZ/API', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt'},
         {'titulo': '5. NFC-e', 'desc': 'Cupom fiscal eletrônico do consumidor', 'url': 'fiscal_emitir', 'icone': 'fa-receipt'},
         {'titulo': 'Emissão em lote', 'desc': 'Vendas PDV ou lote avulso por produto', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group'},
         {'titulo': 'Emissão avulsa', 'desc': 'NFC-e por produto (sem venda PDV)', 'url': 'fiscal_emitir_avulsa', 'icone': 'fa-box-open'},
@@ -126,7 +126,7 @@ def _focus_integracao_page(request, loja, *, form=None):
         except FocusNFeError:
             gatilhos = []
     checklist = [
-        {'ok': bool(cfg.focus_token), 'texto': 'Token Focus configurado (Basic Auth)'},
+        {'ok': bool(cfg.focus_token), 'texto': 'Token da API fiscal configurado (Basic Auth)'},
         {'ok': bool(''.join(c for c in (cfg.cnpj or loja.cnpj or '') if c.isdigit())), 'texto': 'CNPJ do emitente preenchido'},
         {'ok': cfg.ambiente == 'homologacao' or cfg.ambiente == 'producao', 'texto': f'Ambiente: {cfg.get_ambiente_display()}'},
         {'ok': bool(cfg.emite_nfce or cfg.emite_nfe), 'texto': 'Tipo de documento habilitado (NF-e / NFC-e)'},
@@ -173,7 +173,7 @@ def fiscal_focus_salvar(request):
     if form.is_valid():
         form.save()
         _log_focus_acao('salvar_ok', loja.id, ambiente=form.instance.ambiente)
-        messages.success(request, 'Integração Focus salva.')
+        messages.success(request, 'Integração fiscal salva.')
     else:
         _log_focus_acao('salvar_invalid', loja.id, erros=form.errors.as_json())
         messages.error(request, 'Corrija os campos antes de salvar.')
@@ -203,7 +203,7 @@ def fiscal_focus_testar(request):
         messages.success(
             request,
             f'Conexão OK ({cfg.get_ambiente_display()}). '
-            f'Gatilhos na Focus: {teste["gatilhos_cadastrados"]}.',
+            f'Gatilhos ativos: {teste["gatilhos_cadastrados"]}.',
         )
     except FocusNFeError as exc:
         _log_focus_acao('testar_falhou', loja.id, ambiente=cfg.ambiente, erro=str(exc))
@@ -225,7 +225,7 @@ def fiscal_focus_registrar_webhooks(request):
         resultados = registrar_gatilhos_focus(cfg, url_hook, eventos=eventos or None)
         ok = sum(1 for r in resultados if r.get('ok'))
         _log_focus_acao('registrar_webhooks_ok', loja.id, registrados=ok)
-        messages.success(request, f'{ok} gatilho(s) registrado(s) na Focus.')
+        messages.success(request, f'{ok} gatilho(s) registrado(s) na API.')
     except FocusNFeError as exc:
         _log_focus_acao('registrar_webhooks_falhou', loja.id, erro=str(exc))
         messages.error(request, str(exc))
@@ -406,7 +406,7 @@ def fiscal_documento_cancelar(request, pk):
         return redirect('fiscal_documento_detalhe', pk=pk)
     try:
         cancelar_documento(doc, form.cleaned_data['justificativa'])
-        messages.success(request, 'Cancelamento enviado à Focus NFe.')
+        messages.success(request, 'Cancelamento enviado à SEFAZ.')
     except FocusNFeError as exc:
         messages.error(request, str(exc))
     return redirect('fiscal_documento_detalhe', pk=pk)
@@ -610,11 +610,11 @@ def fiscal_documento_arquivo(request, pk, formato):
     if formato not in ('xml', 'pdf'):
         return HttpResponse(status=404)
     if not cfg.focus_token:
-        messages.error(request, 'Token Focus não configurado.')
+        messages.error(request, 'Token da API fiscal não configurado.')
         return redirect('fiscal_documento_detalhe', pk=pk)
     conteudo, content_type, fname = obter_conteudo_documento(cfg, doc, formato=formato, refresh=True)
     if not conteudo:
-        messages.error(request, 'Arquivo não disponível na Focus para este documento.')
+        messages.error(request, 'Arquivo não disponível para este documento.')
         return redirect('fiscal_documento_detalhe', pk=pk)
     response = HttpResponse(conteudo, content_type=content_type)
     response['Content-Disposition'] = f'inline; filename="{fname}"'
@@ -853,6 +853,7 @@ def fiscal_emitir_nfe(request):
             'uf': form.cleaned_data['uf'],
             'cep': form.cleaned_data['cep'],
             'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+            'serie': form.cleaned_data.get('serie'),
         }
         try:
             doc = emitir_documento(loja, request.user, nfe_dados=nfe_dados)

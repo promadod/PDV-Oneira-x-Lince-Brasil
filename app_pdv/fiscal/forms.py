@@ -231,22 +231,24 @@ class ContabilidadePeriodoForm(forms.Form):
 
 
 class EmitirNFeForm(forms.Form):
-    FINALIDADE = [
-        ('1', '1 — Normal'),
-        ('2', '2 — Complementar'),
-        ('3', '3 — Ajuste'),
-        ('4', '4 — Devolução'),
-    ]
-    natureza_operacao = forms.CharField(
-        initial='VENDA',
+    natureza_cfop = forms.ChoiceField(
         label='Natureza da operação',
-        widget=forms.TextInput(attrs={'class': 'form-control'}),
+        choices=[],
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'id_natureza_cfop'}),
     )
     cfop = forms.CharField(
         label='CFOP',
-        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '5102'}),
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_cfop', 'readonly': 'readonly'}),
     )
-    finalidade_emissao = forms.ChoiceField(choices=FINALIDADE, initial='1', widget=forms.Select(attrs={'class': 'form-control'}))
+    serie = forms.CharField(
+        label='Série',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+    finalidade_emissao = forms.ChoiceField(
+        choices=[],
+        initial='1',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
     produto_id = forms.ChoiceField(label='Produto', choices=[])
     quantidade = forms.DecimalField(min_value=Decimal('0.001'), decimal_places=3, initial=Decimal('1'))
     preco_unitario = forms.DecimalField(min_value=Decimal('0.01'), decimal_places=2, required=False)
@@ -271,8 +273,27 @@ class EmitirNFeForm(forms.Form):
     def __init__(self, *args, loja=None, **kwargs):
         super().__init__(*args, **kwargs)
         from app_pdv.models import Produto
+
+        from .nfe_catalog import FINALIDADE_NFE, NATUREZAS_NFE_UNICAS
+        from .services import get_or_create_config
+
+        self.fields['natureza_cfop'].choices = [('', '— Selecione —')] + [
+            (cfop, f'{cfop} — {desc}') for cfop, desc in NATUREZAS_NFE_UNICAS
+        ]
+        self.fields['finalidade_emissao'].choices = FINALIDADE_NFE
+        cfg = get_or_create_config(loja) if loja else None
+        serie = str(cfg.serie_nfe if cfg else 1)
+        self.fields['serie'].widget = forms.Select(
+            attrs={'class': 'form-control'},
+            choices=[(str(s), str(s)) for s in range(1, 100)],
+        )
+        self.fields['serie'].initial = serie
+
         for name, field in self.fields.items():
-            if name not in ('operacao_interestadual', 'finalidade_emissao', 'forma_pagamento', 'produto_id'):
+            if name not in (
+                'operacao_interestadual', 'finalidade_emissao', 'forma_pagamento',
+                'produto_id', 'natureza_cfop', 'serie',
+            ):
                 field.widget.attrs.setdefault('class', 'form-control')
         qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
         self.fields['produto_id'].choices = [('', '— Selecione —')] + [
@@ -282,6 +303,13 @@ class EmitirNFeForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        cfop = (cleaned.get('natureza_cfop') or cleaned.get('cfop') or '').strip()
+        if not cfop:
+            raise forms.ValidationError('Selecione a natureza da operação (CFOP).')
+        from .nfe_catalog import natureza_por_cfop
+
+        cleaned['cfop'] = cfop
+        cleaned['natureza_operacao'] = natureza_por_cfop(cfop)
         cpf = ''.join(c for c in (cleaned.get('cpf_destinatario') or '') if c.isdigit())
         cnpj = ''.join(c for c in (cleaned.get('cnpj_destinatario') or '') if c.isdigit())
         if not cpf and not cnpj:
@@ -331,7 +359,7 @@ class ManifestacaoForm(forms.Form):
 
 
 class FocusIntegracaoForm(forms.ModelForm):
-    """Credenciais e ambiente da API Focus NFe (Basic Auth — token como usuário, senha vazia)."""
+    """Credenciais e ambiente da API fiscal (Basic Auth — token como usuário, senha vazia)."""
 
     class Meta:
         model = FiscalConfig
@@ -339,14 +367,16 @@ class FocusIntegracaoForm(forms.ModelForm):
         widgets = {
             'focus_token': forms.PasswordInput(render_value=True, attrs={'class': 'form-control', 'autocomplete': 'off'}),
             'ambiente': forms.Select(attrs={'class': 'form-control'}),
-            'focus_empresa_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional — painel Focus / API empresas'}),
+            'focus_empresa_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional — ID da empresa no provedor'}),
             'webhook_url_configurada': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://seu-dominio/api/fiscal/webhooks/focus/'}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['focus_token'].label = 'Token da API fiscal'
+        self.fields['focus_empresa_id'].label = 'ID empresa (provedor)'
         self.fields['ambiente'].help_text = 'Homologação para testes; produção gera documentos com validade fiscal.'
-        self.fields['focus_token'].help_text = 'Token alfanumérico da empresa na Focus (HTTP Basic, senha em branco).'
+        self.fields['focus_token'].help_text = 'Token alfanumérico da loja (HTTP Basic, senha em branco).'
         self.fields['focus_token'].required = False
 
     def clean_focus_token(self):
