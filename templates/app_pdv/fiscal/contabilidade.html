@@ -4,13 +4,14 @@
 {% include 'app_pdv/fiscal/_nav.html' %}
 
 <h2>Contabilidade</h2>
-<p style="color:#aaa;">Pacote mensal com XMLs, PDFs e listagem (padrão NetFiscal).</p>
+<p style="color:#aaa;">Pacote mensal com XMLs, PDFs/DANFCE e listagem (padrão NetFiscal).</p>
 
-<form method="post" class="card" style="padding:20px;margin-bottom:20px;max-width:720px;">
+<form method="post" class="card" style="padding:20px;margin-bottom:20px;max-width:720px;" id="form-contabilidade-mes">
     {% csrf_token %}
     <div style="margin-bottom:14px;">
         <label>{{ form.mes_referencia.label }}</label>
-        {{ form.mes_referencia }}
+        <input type="month" name="mes_referencia" id="id_mes_referencia" class="form-control"
+               value="{{ mes_referencia|default:form.mes_referencia.value }}" required>
     </div>
     {% if stats %}
     <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
@@ -24,26 +25,39 @@
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;">
         <div class="card" style="padding:16px;">
             <h3 style="color:#15a0a5;margin-top:0;">Baixar pacote</h3>
-            <p style="color:#888;font-size:0.9em;">.zip com XMLs + PDFs + LISTAGEM.txt</p>
-            <button type="submit" name="acao" value="baixar" class="btn btn-success" style="width:100%;">Baixar pacote (.zip)</button>
+            <p style="color:#888;font-size:0.9em;">.zip com XMLs + PDFs/DANFCE + LISTAGEM.txt</p>
+            <button type="button" class="btn" style="width:100%;" id="btn-baixar-pacote">Baixar pacote (.zip)</button>
         </div>
         <div class="card" style="padding:16px;">
             <h3 style="color:#15a0a5;margin-top:0;">Enviar por e-mail</h3>
             <label>{{ form.email_destino.label }}</label>
-            {{ form.email_destino }}
-            <button type="submit" name="acao" value="email" class="btn" style="width:100%;margin-top:12px;background:#333;">Enviar por e-mail</button>
+            <input type="email" name="email_destino" class="form-control" value="{{ form.email_destino.value|default:'' }}">
+            <button type="submit" name="acao" value="email" class="btn" style="width:100%;margin-top:12px;">Enviar por e-mail</button>
         </div>
     </div>
     <div class="card" style="padding:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Enviar por WhatsApp</h3>
         <label>{{ form.whatsapp_destino.label }}</label>
-        {{ form.whatsapp_destino }}
-        <button type="submit" name="acao" value="whatsapp" class="btn" style="width:100%;margin-top:12px;background:#333;">Abrir WhatsApp com aviso</button>
-        {% if whatsapp_link %}
-        <p style="margin-top:12px;"><a href="{{ whatsapp_link }}" target="_blank" class="btn btn-success">Continuar no WhatsApp</a></p>
-        {% endif %}
-        <p style="color:#888;font-size:0.85em;margin-top:8px;">Anexe o ZIP baixado manualmente após abrir a conversa (integração API WhatsApp em evolução).</p>
+        <input type="text" name="whatsapp_destino" class="form-control" placeholder="5511999999999"
+               value="{{ form.whatsapp_destino.value|default:'' }}">
+        <button type="submit" name="acao" value="whatsapp" class="btn" style="width:100%;margin-top:12px;">Abrir WhatsApp com aviso</button>
+        <p style="color:#888;font-size:0.85em;margin-top:8px;">Baixe o ZIP acima e anexe na conversa (integração API WhatsApp em evolução).</p>
     </div>
-    <button type="submit" name="acao" value="atualizar" class="btn" style="margin-top:12px;background:#444;">Atualizar resumo</button>
+    <button type="submit" name="acao" value="atualizar" class="btn" style="margin-top:12px;background:#444;color:#fff;">Atualizar resumo</button>
 </form>
+<script>
+(function () {
+    var btn = document.getElementById('btn-baixar-pacote');
+    var mes = document.getElementById('id_mes_referencia');
+    if (!btn || !mes) return;
+    btn.addEventListener('click', function () {
+        var v = (mes.value || '').trim();
+        if (!v) {
+            alert('Selecione o mês de referência.');
+            return;
+        }
+        window.location.href = '{% url "fiscal_contabilidade_baixar" %}?mes=' + encodeURIComponent(v);
+    });
+})();
+</script>
 {% endblock %}

@@ -1,0 +1,69 @@
+<style>
+.fiscal-venda-modal-nota,
+.fiscal-venda-modal-nota p,
+.fiscal-venda-modal-nota td,
+.fiscal-venda-modal-nota th,
+.fiscal-venda-modal-nota h3 {
+    color: #111 !important;
+    font-family: Arial, Helvetica, sans-serif !important;
+}
+.fiscal-venda-modal-nota {
+    font-size: 14px;
+    line-height: 1.35;
+    padding: 12px 10px !important;
+    background: #fff;
+    border-radius: 8px;
+    max-width: 72mm;
+    margin: 0 auto;
+}
+.fiscal-venda-modal-nota .nota-separador {
+    display: block;
+    overflow: hidden;
+    white-space: nowrap;
+    font-size: 11px;
+    margin: 8px 0;
+}
+.fiscal-venda-modal-nota .nota-totais-linha {
+    display: flex;
+    justify-content: space-between;
+    margin: 4px 0;
+    font-weight: 600;
+}
+</style>
+<div class="fiscal-venda-modal-nota">
+    <div style="text-align: center; margin-bottom: 8px;">
+        <h3 style="margin: 0;">{{ venda.loja.nome }}</h3>
+        <p style="margin: 5px 0;">Venda #{{ venda.id }}</p>
+        <p>{{ venda.data_venda|date:"d/m/Y H:i" }}</p>
+    </div>
+    <div class="nota-separador">----------------------------------------------------------------</div>
+    <p style="margin: 3px 0;"><strong>Cliente:</strong> {{ venda.cliente.nome|default:"Venda na loja" }}</p>
+    <p style="margin: 3px 0;"><strong>Status:</strong> {{ venda.get_status_display }}</p>
+    <p style="margin: 3px 0;"><strong>Vendedor:</strong> {{ venda.vendedor.username|default:"—" }}</p>
+    <div class="nota-separador">----------------------------------------------------------------</div>
+    <table style="width: 100%; border-collapse: collapse;">
+        <tr style="font-weight: bold;">
+            <td>Item</td>
+            <td style="text-align: center;">Qtd</td>
+            <td style="text-align: right;">Val</td>
+        </tr>
+        {% for item in itens %}
+        <tr>
+            <td>{{ item.produto.nome_venda }}</td>
+            <td style="text-align: center;">{{ item.quantidade }}</td>
+            <td style="text-align: right;">{{ item.preco_unitario }}</td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="3" style="text-align:center;color:#666;">Sem itens</td></tr>
+        {% endfor %}
+    </table>
+    <div class="nota-separador">----------------------------------------------------------------</div>
+    <div class="nota-totais-linha">
+        <span>{% if modo_taxa_servico %}TOTAL DO CONSUMO{% else %}TOTAL DA COMPRA{% endif %}</span>
+        <span>R$ {{ subtotal_consumo|floatformat:2 }}</span>
+    </div>
+    <div class="nota-totais-linha" style="font-size: 15px;">
+        <span><strong>Total Geral</strong></span>
+        <span><strong>R$ {{ venda.total|floatformat:2 }}</strong></span>
+    </div>
+</div>

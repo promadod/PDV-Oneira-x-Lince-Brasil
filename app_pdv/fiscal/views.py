@@ -9,8 +9,8 @@ from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
 
-from app_pdv.models import Produto, Venda
-from app_pdv.views import check_loja
+from app_pdv.models import ItemVenda, Produto, Venda
+from app_pdv.views import check_loja, loja_usa_taxa_servico
 
 from .access import requer_acesso_fiscal
 from .focus_client import FocusNFeError
@@ -83,6 +83,7 @@ def fiscal_hub(request):
         {'titulo': 'Emissão avulsa', 'desc': 'NFC-e por produto (sem venda PDV)', 'url': 'fiscal_emitir_avulsa', 'icone': 'fa-box-open'},
         {'titulo': 'NF-e completa', 'desc': 'Modelo 55 com destinatário', 'url': 'fiscal_emitir_nfe', 'icone': 'fa-file-invoice'},
         {'titulo': 'Contabilidade', 'desc': 'ZIP XML/PDF, e-mail e WhatsApp', 'url': 'fiscal_contabilidade', 'icone': 'fa-balance-scale'},
+        {'titulo': 'Relatórios fiscais', 'desc': 'Compras, documentos, vendas, SPED/Sintegra', 'url': 'fiscal_relatorios', 'icone': 'fa-chart-bar'},
         {'titulo': '6. Cancelamento / CC-e / Inutilização', 'desc': 'Ciclo de vida legal das notas', 'url': 'fiscal_inutilizacao', 'icone': 'fa-ban'},
         {'titulo': '7. Contingência', 'desc': 'Operação offline / SVC', 'url': 'fiscal_contingencia', 'icone': 'fa-wifi'},
         {'titulo': '8. Arquivos', 'desc': 'XML, DANFE/DANFCE e envio', 'url': 'fiscal_arquivos', 'icone': 'fa-folder-open'},
@@ -600,36 +601,22 @@ def fiscal_contingencia(request):
 @login_required
 @requer_acesso_fiscal
 def fiscal_documento_arquivo(request, pk, formato):
-    """Proxy autenticado para XML/PDF na Focus (paths relativos)."""
-    import requests
-
+    """Proxy autenticado para XML/DANFE na Focus (PDF ou HTML DANFCE)."""
     loja = check_loja(request)
     doc = get_object_or_404(DocumentoFiscal, pk=pk, loja=loja)
     cfg = get_or_create_config(loja)
-    from .focus_arquivos import url_pdf_documento, url_xml_documento
+    from .focus_arquivos import obter_conteudo_documento
 
-    if formato == 'xml':
-        url = url_xml_documento(cfg, doc)
-        content_type = 'application/xml'
-        fname = f'{doc.chave_acesso or doc.ref}.xml'
-    elif formato == 'pdf':
-        url = url_pdf_documento(cfg, doc)
-        content_type = 'application/pdf'
-        fname = f'{doc.chave_acesso or doc.ref}.pdf'
-    else:
+    if formato not in ('xml', 'pdf'):
         return HttpResponse(status=404)
-    if not url or not cfg.focus_token:
-        messages.error(request, 'Arquivo não disponível ou token Focus não configurado.')
+    if not cfg.focus_token:
+        messages.error(request, 'Token Focus não configurado.')
         return redirect('fiscal_documento_detalhe', pk=pk)
-    try:
-        resp = requests.get(url, auth=(cfg.focus_token.strip(), ''), timeout=90)
-    except requests.RequestException as exc:
-        messages.error(request, f'Falha ao baixar arquivo: {exc}')
+    conteudo, content_type, fname = obter_conteudo_documento(cfg, doc, formato=formato, refresh=True)
+    if not conteudo:
+        messages.error(request, 'Arquivo não disponível na Focus para este documento.')
         return redirect('fiscal_documento_detalhe', pk=pk)
-    if resp.status_code != 200:
-        messages.error(request, f'Focus retornou HTTP {resp.status_code} ao baixar o arquivo.')
-        return redirect('fiscal_documento_detalhe', pk=pk)
-    response = HttpResponse(resp.content, content_type=content_type)
+    response = HttpResponse(conteudo, content_type=content_type)
     response['Content-Disposition'] = f'inline; filename="{fname}"'
     return response
 
@@ -640,6 +627,35 @@ def fiscal_arquivos(request):
     loja = check_loja(request)
     docs = DocumentoFiscal.objects.filter(loja=loja, status='autorizado').order_by('-criado_em')[:100]
     return render(request, 'app_pdv/fiscal/arquivos.html', _ctx(request, loja, documentos=docs))
+
+
+def _parse_mes_referencia(mes_ref: str) -> tuple[int, int] | None:
+    try:
+        ano, mes = [int(x) for x in (mes_ref or '').split('-', 1)]
+        if 1 <= mes <= 12:
+            return ano, mes
+    except (ValueError, IndexError):
+        pass
+    return None
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_contabilidade_baixar(request):
+    """Download do ZIP via GET (evita falha silenciosa de validação do form POST)."""
+    loja = check_loja(request)
+    cfg = get_or_create_config(loja)
+    parsed = _parse_mes_referencia(request.GET.get('mes', ''))
+    if not parsed:
+        messages.error(request, 'Informe o mês no formato AAAA-MM.')
+        return redirect('fiscal_contabilidade')
+    ano, mes = parsed
+    from .contabilidade_service import montar_zip_contabilidade
+
+    zip_bytes, nome = montar_zip_contabilidade(loja, cfg, ano=ano, mes=mes)
+    response = HttpResponse(zip_bytes, content_type='application/zip')
+    response['Content-Disposition'] = f'attachment; filename="{nome}"'
+    return response
 
 
 @login_required
@@ -656,13 +672,20 @@ def fiscal_contabilidade(request):
     form = ContabilidadePeriodoForm(request.POST or None, initial=initial)
     stats = None
     whatsapp_link = None
-    if request.method == 'POST' and form.is_valid():
-        mes_ref = form.cleaned_data['mes_referencia']
-        try:
-            ano, mes = [int(x) for x in mes_ref.split('-', 1)]
-        except (ValueError, IndexError):
+    mes_ref_atual = (request.POST.get('mes_referencia') if request.method == 'POST' else None) or initial['mes_referencia']
+    parsed_atual = _parse_mes_referencia(mes_ref_atual)
+    if parsed_atual:
+        from .contabilidade_service import resumo_contabilidade
+        stats = resumo_contabilidade(loja, ano=parsed_atual[0], mes=parsed_atual[1])
+
+    if request.method == 'POST':
+        acao = request.POST.get('acao', 'atualizar')
+        mes_ref = request.POST.get('mes_referencia', '').strip() or initial['mes_referencia']
+        parsed = _parse_mes_referencia(mes_ref)
+        if not parsed:
             messages.error(request, 'Mês de referência inválido.')
             return redirect('fiscal_contabilidade')
+        ano, mes = parsed
         from .contabilidade_service import (
             enviar_zip_por_email,
             montar_zip_contabilidade,
@@ -670,16 +693,11 @@ def fiscal_contabilidade(request):
         )
 
         stats = resumo_contabilidade(loja, ano=ano, mes=mes)
-        acao = request.POST.get('acao', 'atualizar')
         if acao == 'atualizar':
             messages.info(request, f'{stats["autorizados"]} documento(s) autorizado(s) no período.')
-        elif acao == 'baixar':
-            zip_bytes, nome = montar_zip_contabilidade(loja, cfg, ano=ano, mes=mes)
-            response = HttpResponse(zip_bytes, content_type='application/zip')
-            response['Content-Disposition'] = f'attachment; filename="{nome}"'
-            return response
-        elif acao == 'email':
-            dest = form.cleaned_data.get('email_destino') or cfg.email_contabilidade
+            return redirect('fiscal_contabilidade')
+        if acao == 'email':
+            dest = (request.POST.get('email_destino') or '').strip() or cfg.email_contabilidade
             if not dest:
                 messages.error(request, 'Informe o e-mail da contabilidade.')
             else:
@@ -698,31 +716,112 @@ def fiscal_contabilidade(request):
                 except Exception as exc:
                     messages.error(request, f'Falha ao enviar e-mail: {exc}')
             return redirect('fiscal_contabilidade')
-        elif acao == 'whatsapp':
+        if acao == 'whatsapp':
             from app_pdv.whatsapp_service import gerar_link_whatsapp
 
-            tel = form.cleaned_data.get('whatsapp_destino') or cfg.whatsapp_contabilidade
+            tel = (request.POST.get('whatsapp_destino') or '').strip() or cfg.whatsapp_contabilidade
             if not tel:
                 messages.error(request, 'Informe o WhatsApp da contabilidade.')
             else:
                 msg = (
                     f'Pacote fiscal {mes:02d}/{ano} — {stats["autorizados"]} NFC-e/NF-e autorizadas. '
-                    f'Acesse Oneira > Fiscal > Contabilidade para baixar o ZIP (XML + PDF).'
+                    f'Baixe o ZIP em Oneira > Fiscal > Contabilidade e anexe aqui.'
                 )
-                whatsapp_link = gerar_link_whatsapp(tel, msg)
                 cfg.whatsapp_contabilidade = tel
                 cfg.save(update_fields=['whatsapp_contabilidade', 'atualizado_em'])
-    elif request.method != 'POST':
-        try:
-            ano, mes = [int(x) for x in initial['mes_referencia'].split('-')]
-            from .contabilidade_service import resumo_contabilidade
-            stats = resumo_contabilidade(loja, ano=ano, mes=mes)
-        except ValueError:
-            stats = None
+                link = gerar_link_whatsapp(tel, msg)
+                return redirect(link)
     return render(
         request,
         'app_pdv/fiscal/contabilidade.html',
-        _ctx(request, loja, form=form, stats=stats, whatsapp_link=whatsapp_link, fiscal_config=cfg),
+        _ctx(
+            request,
+            loja,
+            form=form,
+            stats=stats,
+            whatsapp_link=whatsapp_link,
+            fiscal_config=cfg,
+            mes_referencia=mes_ref_atual,
+        ),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_venda_preview(request, venda_id):
+    """Resumo da venda para modal no lote fiscal (mesmo layout da nota do histórico)."""
+    from decimal import Decimal
+
+    loja = check_loja(request)
+    venda = get_object_or_404(Venda, pk=venda_id, loja=loja)
+    itens = ItemVenda.objects.filter(venda=venda).select_related('produto', 'produto__item_estoque')
+    liquidacoes = list(venda.liquidacoes.all())
+    subtotal_consumo = sum(
+        (item.quantidade * item.preco_unitario for item in itens),
+        Decimal('0'),
+    )
+    ctx = {
+        'venda': venda,
+        'itens': itens,
+        'liquidacoes': liquidacoes,
+        'subtotal_consumo': subtotal_consumo,
+        'modo_taxa_servico': loja_usa_taxa_servico(loja),
+    }
+    return render(request, 'app_pdv/fiscal/partials/venda_resumo_modal.html', ctx)
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_relatorios(request):
+    loja = check_loja(request)
+    from .relatorio_service import RELATORIOS_FISCAIS
+
+    return render(
+        request,
+        'app_pdv/fiscal/relatorios.html',
+        _ctx(request, loja, relatorios=RELATORIOS_FISCAIS),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_relatorio(request, slug):
+    from datetime import datetime
+
+    loja = check_loja(request)
+    from .relatorio_service import RELATORIOS_FISCAIS, gerar_relatorio
+
+    slugs = {s for s, _, _ in RELATORIOS_FISCAIS}
+    if slug not in slugs:
+        messages.error(request, 'Relatório não encontrado.')
+        return redirect('fiscal_relatorios')
+
+    data_de = data_ate = None
+    de_raw = request.GET.get('de', '')
+    ate_raw = request.GET.get('ate', '')
+    if de_raw:
+        try:
+            data_de = datetime.strptime(de_raw, '%Y-%m-%d').date()
+        except ValueError:
+            messages.error(request, 'Data inicial inválida.')
+    if ate_raw:
+        try:
+            data_ate = datetime.strptime(ate_raw, '%Y-%m-%d').date()
+        except ValueError:
+            messages.error(request, 'Data final inválida.')
+
+    ctx = gerar_relatorio(loja, slug, data_de=data_de, data_ate=data_ate)
+    if slug in ('sped-efd', 'sintegra') and request.GET.get('download') == '1':
+        texto = ctx.get('arquivo_texto', '')
+        nome = ctx.get('nome_arquivo', f'{slug}.txt')
+        response = HttpResponse(texto, content_type='text/plain; charset=utf-8')
+        response['Content-Disposition'] = f'attachment; filename="{nome}"'
+        return response
+
+    return render(
+        request,
+        'app_pdv/fiscal/relatorio_detalhe.html',
+        _ctx(request, loja, **ctx),
     )
 
 

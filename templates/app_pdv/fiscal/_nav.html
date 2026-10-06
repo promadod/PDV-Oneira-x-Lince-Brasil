@@ -13,7 +13,8 @@
         <a href="{% url 'fiscal_emitir' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir' %} is-active{% endif %}">Emitir</a>
         <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_lote' or an == 'fiscal_lote_detalhe' %} is-active{% endif %}">Lote</a>
         <a href="{% url 'fiscal_emitir_nfe' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_nfe' %} is-active{% endif %}">NF-e</a>
-        <a href="{% url 'fiscal_contabilidade' %}" class="fiscal-nav-btn{% if an == 'fiscal_contabilidade' %} is-active{% endif %}">Contabilidade</a>
+        <a href="{% url 'fiscal_contabilidade' %}" class="fiscal-nav-btn{% if an == 'fiscal_contabilidade' or an == 'fiscal_contabilidade_baixar' %} is-active{% endif %}">Contabilidade</a>
+        <a href="{% url 'fiscal_relatorios' %}" class="fiscal-nav-btn{% if an == 'fiscal_relatorios' or an == 'fiscal_relatorio' %} is-active{% endif %}">Relatórios</a>
         <a href="{% url 'fiscal_webhooks' %}" class="fiscal-nav-btn{% if an == 'fiscal_webhooks' %} is-active{% endif %}">Webhooks</a>
         <a href="{% url 'fiscal_contingencia' %}" class="fiscal-nav-btn{% if an == 'fiscal_contingencia' %} is-active{% endif %}">Contingência</a>
         <a href="{% url 'fiscal_arquivos' %}" class="fiscal-nav-btn{% if an == 'fiscal_arquivos' %} is-active{% endif %}">Arquivos</a>

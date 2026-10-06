@@ -1,0 +1,149 @@
+{% extends 'base.html' %}
+{% block title %}{{ titulo }}{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<p><a href="{% url 'fiscal_relatorios' %}" style="color:#03dac6;">← Relatórios fiscais</a></p>
+<h2>{{ titulo }}</h2>
+
+<form method="get" class="card" style="padding:16px;margin:16px 0;max-width:520px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+    <div><label>De</label><input type="date" name="de" class="form-control" value="{{ data_de|date:'Y-m-d' }}"></div>
+    <div><label>Até</label><input type="date" name="ate" class="form-control" value="{{ data_ate|date:'Y-m-d' }}"></div>
+    <button type="submit" class="btn">Filtrar</button>
+    {% if slug == 'sped-efd' or slug == 'sintegra' %}
+    <a href="?de={{ data_de|date:'Y-m-d' }}&amp;ate={{ data_ate|date:'Y-m-d' }}&amp;download=1" class="btn" style="background:#444;color:#fff;">Baixar arquivo</a>
+    {% endif %}
+</form>
+
+{% if erro %}<p style="color:#cf6679;">{{ erro }}</p>{% endif %}
+
+{% if slug == 'resumo-vendas-pis-cofins' %}
+<div class="card" style="padding:20px;max-width:480px;">
+    <p><strong>Base (vendas):</strong> R$ {{ base|floatformat:2 }}</p>
+    <p><strong>PIS (estimado):</strong> R$ {{ pis|floatformat:2 }}</p>
+    <p><strong>COFINS (estimado):</strong> R$ {{ cofins|floatformat:2 }}</p>
+    <p style="color:#888;font-size:0.9em;">{{ observacao }}</p>
+</div>
+{% elif slug == 'resumo-vendas' %}
+<p><strong>{{ qtd }}</strong> venda(s) — total <strong>R$ {{ total|floatformat:2 }}</strong></p>
+<table style="width:100%;border-collapse:collapse;color:#fff;margin-top:12px;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;text-align:left;">Dia</th><th>Qtd</th><th>Total</th></tr></thead>
+    <tbody>
+        {% for row in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ row.dia|date:"d/m/Y" }}</td>
+            <td style="padding:8px;">{{ row.qtd }}</td>
+            <td style="padding:8px;">R$ {{ row.total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="3" style="padding:16px;color:#888;">Sem dados no período.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'resumo-documentos' %}
+<p style="color:#888;">SAT: emissão SAT não integrada neste módulo (quantidade 0).</p>
+<table style="width:100%;border-collapse:collapse;color:#fff;margin-top:12px;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;">Tipo</th><th>Status</th><th>Qtd</th><th>Total</th></tr></thead>
+    <tbody>
+        {% for row in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ row.tipo }}</td>
+            <td style="padding:8px;">{{ row.status }}</td>
+            <td style="padding:8px;">{{ row.qtd }}</td>
+            <td style="padding:8px;">R$ {{ row.total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="4" style="padding:16px;color:#888;">Sem documentos.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'documentos-detalhado' %}
+<table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+    <thead><tr style="border-bottom:1px solid #444;text-align:left;">
+        <th style="padding:8px;">Data</th><th>Tipo</th><th>Nº</th><th>Status</th><th>Valor</th><th>Chave</th>
+    </tr></thead>
+    <tbody>
+        {% for d in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ d.criado_em|date:"d/m/Y H:i" }}</td>
+            <td>{{ d.get_tipo_display }}</td>
+            <td>{{ d.numero }}</td>
+            <td>{{ d.get_status_display }}</td>
+            <td>R$ {{ d.valor_total }}</td>
+            <td style="font-size:0.85em;">{{ d.chave_acesso|default:"—" }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="6" style="padding:16px;color:#888;">Sem documentos.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'movimentacao-produtos' %}
+<table style="width:100%;border-collapse:collapse;color:#fff;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;text-align:left;">Produto</th><th>Qtd</th><th>Total</th></tr></thead>
+    <tbody>
+        {% for row in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ row.produto__nome_venda }}</td>
+            <td style="padding:8px;">{{ row.qtd }}</td>
+            <td style="padding:8px;">R$ {{ row.total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="3" style="padding:16px;color:#888;">Sem movimentação.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'tributos' %}
+<p>Total autorizado no período: <strong>R$ {{ total_autorizado|floatformat:2 }}</strong></p>
+<table style="width:100%;border-collapse:collapse;color:#fff;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;">Tipo doc.</th><th>Qtd</th><th>Valor</th></tr></thead>
+    <tbody>
+        {% for row in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ row.tipo }}</td>
+            <td>{{ row.qtd }}</td>
+            <td>R$ {{ row.total|floatformat:2 }}</td>
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'resumo-compras' %}
+<table style="width:100%;border-collapse:collapse;color:#fff;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;">CNPJ</th><th>Emitente</th><th>Qtd</th><th>Total</th></tr></thead>
+    <tbody>
+        {% for row in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ row.cnpj_emitente }}</td>
+            <td>{{ row.nome_emitente }}</td>
+            <td>{{ row.qtd }}</td>
+            <td>R$ {{ row.total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="4" style="padding:16px;color:#888;">Sem compras registradas.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'compras' or slug == 'devolucao-compras' %}
+<p>{% if slug == 'compras' %}Total: <strong>R$ {{ total|floatformat:2 }}</strong>{% endif %}</p>
+<table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;">Emissão</th><th>Emitente</th><th>Valor</th><th>Chave</th><th>Manifestação</th></tr></thead>
+    <tbody>
+        {% for n in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ n.data_emissao|date:"d/m/Y"|default:"—" }}</td>
+            <td>{{ n.nome_emitente|default:n.cnpj_emitente }}</td>
+            <td>R$ {{ n.valor_total }}</td>
+            <td style="font-size:0.85em;">{{ n.chave_acesso }}</td>
+            <td>{{ n.manifestacao|default:"—" }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="5" style="padding:16px;color:#888;">Nenhum registro.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'resumo-nfse' %}
+<table style="width:100%;border-collapse:collapse;color:#fff;margin-bottom:20px;">
+    <thead><tr style="border-bottom:1px solid #444;"><th style="padding:8px;">Tipo</th><th>Status</th><th>Qtd</th><th>Total</th></tr></thead>
+    <tbody>
+        {% for row in linhas %}
+        <tr style="border-bottom:1px solid #333;">
+            <td style="padding:8px;">{{ row.tipo }}</td>
+            <td>{{ row.status }}</td>
+            <td>{{ row.qtd }}</td>
+            <td>R$ {{ row.total|floatformat:2 }}</td>
+        </tr>
+        {% empty %}<tr><td colspan="4" style="padding:16px;color:#888;">Sem NFS-e.</td></tr>{% endfor %}
+    </tbody>
+</table>
+{% elif slug == 'sped-efd' or slug == 'sintegra' %}
+<p style="color:#888;">Pré-exportação em texto para conferência. A geração oficial SPED/Sintegra exige validação contábil.</p>
+<pre class="card" style="padding:16px;overflow:auto;max-height:400px;font-size:0.8em;color:#ccc;">{{ arquivo_texto|default:"Sem registros." }}</pre>
+{% endif %}
+{% endblock %}

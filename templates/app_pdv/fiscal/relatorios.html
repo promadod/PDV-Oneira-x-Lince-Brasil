@@ -1,0 +1,17 @@
+{% extends 'base.html' %}
+{% block title %}Relatórios fiscais{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2>Relatórios fiscais</h2>
+<p style="color:#aaa;max-width:720px;">Consultas por período com base em documentos emitidos (Focus), NF-e recebidas e vendas do PDV.</p>
+
+<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-top:20px;">
+    {% for slug, titulo, desc in relatorios %}
+    <a href="{% url 'fiscal_relatorio' slug %}" class="card" style="padding:18px;text-decoration:none;color:inherit;display:block;border:1px solid #444;">
+        <h3 style="color:#03dac6;margin:0 0 8px;font-size:1.05rem;">{{ titulo }}</h3>
+        <p style="color:#888;font-size:0.88em;margin:0;">{{ desc }}</p>
+    </a>
+    {% endfor %}
+</div>
+{% endblock %}

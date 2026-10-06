@@ -5,11 +5,10 @@ import io
 import zipfile
 from datetime import date
 
-import requests
 from django.core.mail import EmailMessage
 from django.utils import timezone
 
-from .focus_arquivos import url_pdf_documento, url_xml_documento
+from .focus_arquivos import obter_conteudo_documento
 from .models import DocumentoFiscal, FiscalConfig
 
 
@@ -51,22 +50,6 @@ def resumo_contabilidade(loja, *, ano: int, mes: int) -> dict:
     }
 
 
-def _baixar_arquivo(cfg: FiscalConfig, url: str) -> bytes | None:
-    if not url or not cfg.focus_token:
-        return None
-    try:
-        resp = requests.get(
-            url,
-            auth=(cfg.focus_token.strip(), ''),
-            timeout=90,
-        )
-        if resp.status_code == 200:
-            return resp.content
-    except requests.RequestException:
-        return None
-    return None
-
-
 def montar_zip_contabilidade(loja, cfg: FiscalConfig, *, ano: int, mes: int) -> tuple[bytes, str]:
     docs = list(documentos_contabilidade_periodo(loja, ano=ano, mes=mes))
     buf = io.BytesIO()
@@ -78,17 +61,18 @@ def montar_zip_contabilidade(loja, cfg: FiscalConfig, *, ano: int, mes: int) -> 
             linhas.append(
                 f'{doc.get_tipo_display()} nº {doc.numero} — R$ {doc.valor_total} — {chave}',
             )
-            xml_url = url_xml_documento(cfg, doc)
-            pdf_url = url_pdf_documento(cfg, doc)
-            xml_bytes = _baixar_arquivo(cfg, xml_url)
+            xml_bytes, _, xml_nome = obter_conteudo_documento(cfg, doc, formato='xml', refresh=True)
             if xml_bytes:
-                nome = f'XML/{chave or doc.ref}.xml'
-                zf.writestr(nome, xml_bytes)
+                nome_xml = xml_nome or f'{chave or doc.ref}.xml'
+                if not nome_xml.lower().endswith('.xml'):
+                    nome_xml = f'{nome_xml}.xml'
+                zf.writestr(f'XML/{nome_xml}', xml_bytes)
                 incluidos += 1
-            pdf_bytes = _baixar_arquivo(cfg, pdf_url)
+            pdf_bytes, _, pdf_nome = obter_conteudo_documento(cfg, doc, formato='pdf', refresh=False)
             if pdf_bytes:
-                nome_pdf = f'PDF/{chave or doc.ref}.pdf'
-                zf.writestr(nome_pdf, pdf_bytes)
+                nome_arq = pdf_nome or f'{chave or doc.ref}.pdf'
+                pasta = 'DANFCE' if nome_arq.lower().endswith('.html') else 'PDF'
+                zf.writestr(f'{pasta}/{nome_arq}', pdf_bytes)
                 incluidos += 1
         zf.writestr(
             'LISTAGEM.txt',
