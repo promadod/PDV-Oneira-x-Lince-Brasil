@@ -81,6 +81,24 @@
 </script>
 {% endif %}
 
+<div class="card" style="max-width:640px;margin-bottom:20px;padding:20px;">
+    <h3 style="color:#15a0a5;margin-top:0;">Lote avulso por produto (NetFiscal)</h3>
+    <p style="color:#888;font-size:0.9em;">Divide a quantidade total em vários cupons NFC-e (ex.: 99 un × 3 por cupom = 33 notas).</p>
+    <form method="post" data-submit-lock-msg="Gerando lote avulso…">
+        {% csrf_token %}
+        <input type="hidden" name="acao" value="lote_avulso">
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="grid-column:1/-1;"><label>Produto</label>{{ form_avulso.produto_id }}</div>
+            <div><label>{{ form_avulso.quantidade_total.label }}</label>{{ form_avulso.quantidade_total }}</div>
+            <div><label>{{ form_avulso.quantidade_por_cupom.label }}</label>{{ form_avulso.quantidade_por_cupom }}</div>
+            <div><label>{{ form_avulso.preco_unitario.label }}</label>{{ form_avulso.preco_unitario }}</div>
+            <div><label>{{ form_avulso.desconto_unitario.label }}</label>{{ form_avulso.desconto_unitario }}</div>
+            <div style="grid-column:1/-1;"><label>Pagamento</label>{{ form_avulso.forma_pagamento }}</div>
+        </div>
+        <button type="submit" class="btn btn-success" style="margin-top:16px;">Salvar e enviar lote avulso</button>
+    </form>
+</div>
+
 <div class="card" style="padding:16px;">
     <h3 style="color:#15a0a5;margin-top:0;">Lotes recentes desta loja</h3>
     <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">

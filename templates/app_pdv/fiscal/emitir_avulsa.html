@@ -5,9 +5,7 @@
 
 <h2>Emissão avulsa (NFC-e por produto)</h2>
 <p style="color:#aaa;max-width:720px;">
-    Padrão comum em sistemas como NetFiscal: emite cupom fiscal de <strong>um produto</strong> usando o
-    cadastro fiscal do item, sem vincular a uma venda do PDV. Configure NCM, CFOP e ANP em
-    <a href="{% url 'fiscal_produtos' %}" style="color:#03dac6;">Fiscal → Produtos</a>.
+    Emite cupom fiscal de <strong>um produto</strong> com desconto, acréscimo e identificação do consumidor (CPF/CNPJ).
 </p>
 
 {% if form.errors %}
@@ -21,13 +19,23 @@
 <form method="post" class="card" style="max-width:560px;padding:20px;" data-submit-lock-msg="Emitindo NFC-e avulsa…">
     {% csrf_token %}
     <div style="margin-bottom:14px;"><label>Produto</label>{{ form.produto_id }}</div>
-    <div style="margin-bottom:14px;"><label>Quantidade</label>{{ form.quantidade }}</div>
-    <div style="margin-bottom:14px;">
-        <label>{{ form.preco_unitario.label }}</label>
-        {{ form.preco_unitario }}
-        <small style="color:#888;">{{ form.preco_unitario.help_text }}</small>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div><label>Quantidade</label>{{ form.quantidade }}</div>
+        <div><label>{{ form.preco_unitario.label }}</label>{{ form.preco_unitario }}</div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:14px;">
+        <div><label>{{ form.valor_desconto.label }}</label>{{ form.valor_desconto }}</div>
+        <div><label>{{ form.valor_acrescimo.label }}</label>{{ form.valor_acrescimo }}</div>
     </div>
     <div style="margin-bottom:14px;"><label>Forma de pagamento</label>{{ form.forma_pagamento }}</div>
+    <div class="card" style="padding:14px;margin-bottom:14px;background:#1a1a1a;">
+        <h4 style="margin:0 0 10px;color:#15a0a5;">Consumidor (opcional)</h4>
+        <div style="margin-bottom:10px;"><label>{{ form.nome_destinatario.label }}</label>{{ form.nome_destinatario }}</div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>{{ form.cpf_destinatario.label }}</label>{{ form.cpf_destinatario }}</div>
+            <div><label>{{ form.cnpj_destinatario.label }}</label>{{ form.cnpj_destinatario }}</div>
+        </div>
+    </div>
     <div class="fiscal-check-row" style="margin-bottom:16px;">
         {{ form.operacao_interestadual }}
         <label for="{{ form.operacao_interestadual.id_for_label }}">{{ form.operacao_interestadual.label }}</label>

@@ -14,8 +14,8 @@
     {% endif %}
     {% if doc.em_contingencia %}<p style="color:#ff9800;">Emitido em contingência</p>{% endif %}
     <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
-        {% if doc.url_xml or doc.caminho_xml %}<a class="btn" style="background:#333;" href="{{ doc.url_xml|default:doc.caminho_xml }}" target="_blank">XML</a>{% endif %}
-        {% if doc.url_pdf or doc.caminho_pdf %}<a class="btn" style="background:#333;" href="{{ doc.url_pdf|default:doc.caminho_pdf }}" target="_blank">DANFE/PDF</a>{% endif %}
+        {% if doc.url_xml or doc.caminho_xml %}<a class="btn" style="background:#333;" href="{% url 'fiscal_documento_arquivo' doc.id 'xml' %}" target="_blank">XML</a>{% endif %}
+        {% if doc.url_pdf or doc.caminho_pdf %}<a class="btn" style="background:#333;" href="{% url 'fiscal_documento_arquivo' doc.id 'pdf' %}" target="_blank">DANFE/PDF</a>{% endif %}
         <a href="{% url 'fiscal_documentos' %}" class="btn" style="background:#444;">Voltar</a>
     </div>
 </div>

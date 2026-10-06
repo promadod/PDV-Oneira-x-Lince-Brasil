@@ -97,7 +97,7 @@ def _endpoint_tipo(tipo: str) -> str:
 
 
 @transaction.atomic
-def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, payload_extra=None):
+def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe_dados=None, payload_extra=None):
     cfg = get_or_create_config(loja)
     if not cfg.focus_token:
         raise FocusNFeError('Configure o token Focus NFe em Configurações Fiscais.')
@@ -110,13 +110,23 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, pay
         raise FocusNFeError('Emissão de NFS-e desabilitada nesta loja.')
 
     produto_avulso = None
-    if avulso:
+    if nfe_dados:
+        produto_avulso = nfe_dados.get('produto')
+        bruto = float(nfe_dados['quantidade']) * float(nfe_dados['preco_unitario'])
+        desconto = float(nfe_dados.get('valor_desconto') or 0)
+        acrescimo = float(nfe_dados.get('valor_acrescimo') or 0)
+        valor = Decimal(str(round(max(bruto - desconto + acrescimo, 0.01), 2)))
+        ref = _nova_ref(loja, 'nfe', f'nfe{produto_avulso.id if produto_avulso else "x"}')
+        snapshot = {'emissao_nfe_form': True, 'produto_id': getattr(produto_avulso, 'id', None)}
+        tipo = 'nfe'
+    elif avulso:
         produto_avulso = avulso['produto']
         if produto_avulso.loja_id != loja.id:
             raise FocusNFeError('Produto não pertence à loja atual.')
-        valor = Decimal(str(round(
-            float(avulso['quantidade']) * float(avulso['preco_unitario']), 2,
-        )))
+        bruto = float(avulso['quantidade']) * float(avulso['preco_unitario'])
+        desconto = float(avulso.get('valor_desconto') or 0)
+        acrescimo = float(avulso.get('valor_acrescimo') or 0)
+        valor = Decimal(str(round(max(bruto - desconto + acrescimo, 0.01), 2)))
         ref = _nova_ref(loja, tipo, f'av{produto_avulso.id}')
         snapshot = {
             'emissao_avulsa': True,
@@ -129,12 +139,16 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, pay
         valor = Decimal(str(venda.total))
         ref = _nova_ref(loja, tipo, getattr(venda, 'id', None))
     else:
-        raise FocusNFeError('Informe a venda ou uma emissão avulsa por produto.')
+        raise FocusNFeError('Informe a venda, emissão avulsa ou dados NF-e.')
 
     try:
-        payload = montar_payload_emissao(
-            cfg, loja, tipo=tipo, venda=venda, avulso=avulso if avulso else None,
-        )
+        if nfe_dados:
+            from .focus_payload import montar_payload_nfe_form
+            payload = montar_payload_nfe_form(cfg, loja, nfe_dados)
+        else:
+            payload = montar_payload_emissao(
+                cfg, loja, tipo=tipo, venda=venda, avulso=avulso if avulso else None,
+            )
     except ValueError as exc:
         raise FocusNFeError(str(exc)) from exc
     params_extra = {}
@@ -212,14 +226,15 @@ def _aplicar_retorno_focus(doc: DocumentoFiscal, retorno: dict):
     doc.protocolo = str(retorno.get('protocolo') or doc.protocolo or '')
     doc.status_sefaz = str(retorno.get('status_sefaz') or '')
     doc.mensagem_sefaz = str(retorno.get('mensagem_sefaz') or retorno.get('mensagem') or '')
+    from .focus_arquivos import resolver_url_arquivo_focus
+
+    cfg = get_or_create_config(doc.loja)
     caminho_xml = retorno.get('caminho_xml_nota_fiscal') or retorno.get('caminho_xml') or ''
     caminho_pdf = retorno.get('caminho_danfe') or retorno.get('caminho_pdf') or ''
     doc.caminho_xml = str(caminho_xml)
     doc.caminho_pdf = str(caminho_pdf)
-    if caminho_xml and str(caminho_xml).startswith('http'):
-        doc.url_xml = str(caminho_xml)
-    if caminho_pdf and str(caminho_pdf).startswith('http'):
-        doc.url_pdf = str(caminho_pdf)
+    doc.url_xml = resolver_url_arquivo_focus(cfg, str(caminho_xml))
+    doc.url_pdf = resolver_url_arquivo_focus(cfg, str(caminho_pdf))
     doc.save()
     DocumentoFiscalEvento.objects.create(
         documento=doc, tipo='retorno_focus', descricao=f'Status: {doc.status}', payload=retorno,
@@ -449,6 +464,88 @@ def processar_lote_emissao(loja, usuario, *, tipo, vendas, filtros_meta=None):
             'status', 'total_autorizado', 'total_erro', 'total_ignorado', 'finalizado_em',
         ],
     )
+    return lote
+
+
+def processar_lote_avulso_emissao(
+    loja,
+    usuario,
+    *,
+    produto,
+    quantidade_total: float,
+    quantidade_por_cupom: float,
+    preco_unitario: float,
+    desconto_unitario: float = 0,
+    forma_pagamento: str = '99',
+    **avulso_extra,
+):
+    """Divide quantidade total em vários cupons NFC-e (padrão NetFiscal)."""
+    import math
+
+    if quantidade_por_cupom <= 0:
+        raise FocusNFeError('Quantidade por cupom deve ser maior que zero.')
+    if produto.loja_id != loja.id:
+        raise FocusNFeError('Produto não pertence à loja atual.')
+
+    q_total = float(quantidade_total)
+    q_cupom = float(quantidade_por_cupom)
+    n_cupons = max(1, int(math.ceil(q_total / q_cupom)))
+    lote = LoteEmissaoFiscal.objects.create(
+        loja=loja,
+        tipo='nfce',
+        modo='avulso',
+        status='processando',
+        total_solicitado=n_cupons,
+        observacao=f'Lote avulso — {produto.nome_venda} ({q_total} un / {q_cupom} por cupom)'[:255],
+        criado_por=usuario if getattr(usuario, 'is_authenticated', False) else None,
+    )
+    restante = q_total
+    for _ in range(n_cupons):
+        qtd = min(q_cupom, restante)
+        restante = max(0, restante - qtd)
+        desconto_cupom = round(float(desconto_unitario or 0) * qtd, 2)
+        item = LoteEmissaoFiscalItem.objects.create(
+            lote=lote, venda=None, produto=produto,
+            quantidade_emitida=qtd, status='pendente',
+        )
+        try:
+            doc = emitir_documento(
+                loja, usuario,
+                tipo='nfce',
+                avulso={
+                    'produto': produto,
+                    'quantidade': qtd,
+                    'preco_unitario': float(preco_unitario),
+                    'forma_pagamento': forma_pagamento,
+                    'valor_desconto': desconto_cupom,
+                    **avulso_extra,
+                },
+            )
+            item.documento = doc
+            if doc.status == 'autorizado':
+                item.status = 'autorizado'
+                lote.total_autorizado += 1
+            elif doc.status == 'processando':
+                item.status = 'processando'
+            else:
+                item.status = 'erro'
+                item.mensagem = doc.mensagem_sefaz or doc.status
+                lote.total_erro += 1
+            item.save(update_fields=['documento', 'status', 'mensagem'])
+        except FocusNFeError as exc:
+            item.status = 'erro'
+            item.mensagem = str(exc)
+            item.save(update_fields=['status', 'mensagem'])
+            lote.total_erro += 1
+
+    if lote.total_erro == 0 and lote.total_autorizado > 0:
+        lote.status = 'concluido'
+    elif lote.total_autorizado == 0:
+        lote.status = 'parcial' if lote.total_erro else 'vazio'
+    else:
+        lote.status = 'parcial'
+    lote.finalizado_em = timezone.now()
+    lote.save(update_fields=['status', 'total_autorizado', 'total_erro', 'finalizado_em'])
     return lote
 
 

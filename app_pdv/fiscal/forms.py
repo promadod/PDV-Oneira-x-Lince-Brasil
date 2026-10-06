@@ -22,7 +22,8 @@ class FiscalConfigForm(forms.ModelForm):
             'proximo_numero_nfe', 'proximo_numero_nfce', 'proximo_numero_nfse',
             'csc_id', 'csc_token',
             'emite_nfe', 'emite_nfce', 'emite_nfse', 'emite_nfse_nacional',
-            'email_envio_xml', 'enviar_whatsapp_danfe',
+            'email_envio_xml', 'email_contabilidade', 'whatsapp_contabilidade',
+            'enviar_whatsapp_danfe',
         ]
         widgets = {
             'csc_token': forms.PasswordInput(render_value=True, attrs={'class': 'form-control', 'autocomplete': 'off'}),
@@ -77,6 +78,15 @@ class ProdutoDadosFiscaisForm(forms.ModelForm):
             field.widget.attrs.setdefault('class', 'form-control')
 
 
+FORMA_PAGAMENTO_FISCAL = [
+    ('01', '01 — Dinheiro'),
+    ('17', '17 — PIX'),
+    ('03', '03 — Cartão crédito'),
+    ('04', '04 — Cartão débito'),
+    ('99', '99 — Outros'),
+]
+
+
 class EmitirAvulsaForm(forms.Form):
     produto_id = forms.ChoiceField(label='Produto', choices=[])
     quantidade = forms.DecimalField(
@@ -94,13 +104,7 @@ class EmitirAvulsaForm(forms.Form):
         help_text='Se vazio, usa o preço de venda do produto.',
     )
     forma_pagamento = forms.ChoiceField(
-        choices=[
-            ('01', '01 — Dinheiro'),
-            ('17', '17 — PIX'),
-            ('03', '03 — Cartão crédito'),
-            ('04', '04 — Cartão débito'),
-            ('99', '99 — Outros'),
-        ],
+        choices=FORMA_PAGAMENTO_FISCAL,
         initial='99',
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
@@ -108,6 +112,49 @@ class EmitirAvulsaForm(forms.Form):
         required=False,
         label='Operação interestadual (CFOP interestadual do produto)',
     )
+    valor_desconto = forms.DecimalField(
+        min_value=Decimal('0'),
+        initial=Decimal('0'),
+        decimal_places=2,
+        required=False,
+        label='Desconto (R$)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+    )
+    valor_acrescimo = forms.DecimalField(
+        min_value=Decimal('0'),
+        initial=Decimal('0'),
+        decimal_places=2,
+        required=False,
+        label='Acréscimo (R$)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+    )
+    cpf_destinatario = forms.CharField(
+        required=False,
+        label='CPF do consumidor',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional'}),
+    )
+    cnpj_destinatario = forms.CharField(
+        required=False,
+        label='CNPJ do consumidor',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional'}),
+    )
+    nome_destinatario = forms.CharField(
+        required=False,
+        label='Nome / razão social na nota',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Substitui "Consumidor não identificado"'}),
+    )
+
+    def clean(self):
+        cleaned = super().clean()
+        cpf = ''.join(c for c in (cleaned.get('cpf_destinatario') or '') if c.isdigit())
+        cnpj = ''.join(c for c in (cleaned.get('cnpj_destinatario') or '') if c.isdigit())
+        if cpf and cnpj:
+            raise forms.ValidationError('Informe apenas CPF ou CNPJ do destinatário, não ambos.')
+        if cpf and len(cpf) != 11:
+            raise forms.ValidationError('CPF inválido.')
+        if cnpj and len(cnpj) != 14:
+            raise forms.ValidationError('CNPJ inválido.')
+        return cleaned
 
     def __init__(self, *args, loja=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -118,6 +165,134 @@ class EmitirAvulsaForm(forms.Form):
         ]
         self.fields['produto_id'].choices = produto_choices
         self.fields['produto_id'].widget.attrs.setdefault('class', 'form-control')
+
+
+class LoteAvulsoForm(forms.Form):
+    produto_id = forms.ChoiceField(label='Produto', choices=[])
+    quantidade_total = forms.DecimalField(
+        min_value=Decimal('0.001'),
+        decimal_places=3,
+        label='Quantidade total',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001'}),
+    )
+    quantidade_por_cupom = forms.DecimalField(
+        min_value=Decimal('0.001'),
+        decimal_places=3,
+        initial=Decimal('1'),
+        label='Quantidade por cupom',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001'}),
+    )
+    preco_unitario = forms.DecimalField(
+        min_value=Decimal('0.01'),
+        decimal_places=2,
+        required=False,
+        label='Preço unitário (R$)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+    )
+    desconto_unitario = forms.DecimalField(
+        min_value=Decimal('0'),
+        initial=Decimal('0'),
+        decimal_places=2,
+        required=False,
+        label='Desconto unitário (R$)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01'}),
+    )
+    forma_pagamento = forms.ChoiceField(
+        choices=FORMA_PAGAMENTO_FISCAL,
+        initial='99',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+
+    def __init__(self, *args, loja=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from app_pdv.models import Produto
+        qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
+        self.fields['produto_id'].choices = [('', '— Selecione —')] + [
+            (str(p.id), f'{p.nome_venda} (#{p.id})') for p in qs
+        ]
+        self.fields['produto_id'].widget.attrs.setdefault('class', 'form-control')
+
+
+class ContabilidadePeriodoForm(forms.Form):
+    mes_referencia = forms.CharField(
+        label='Mês de referência',
+        widget=forms.DateInput(attrs={'class': 'form-control', 'type': 'month'}),
+    )
+    email_destino = forms.EmailField(
+        required=False,
+        label='E-mail da contabilidade',
+        widget=forms.EmailInput(attrs={'class': 'form-control'}),
+    )
+    whatsapp_destino = forms.CharField(
+        required=False,
+        label='WhatsApp da contabilidade',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '5511999999999'}),
+    )
+
+
+class EmitirNFeForm(forms.Form):
+    FINALIDADE = [
+        ('1', '1 — Normal'),
+        ('2', '2 — Complementar'),
+        ('3', '3 — Ajuste'),
+        ('4', '4 — Devolução'),
+    ]
+    natureza_operacao = forms.CharField(
+        initial='VENDA',
+        label='Natureza da operação',
+        widget=forms.TextInput(attrs={'class': 'form-control'}),
+    )
+    cfop = forms.CharField(
+        label='CFOP',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'placeholder': '5102'}),
+    )
+    finalidade_emissao = forms.ChoiceField(choices=FINALIDADE, initial='1', widget=forms.Select(attrs={'class': 'form-control'}))
+    produto_id = forms.ChoiceField(label='Produto', choices=[])
+    quantidade = forms.DecimalField(min_value=Decimal('0.001'), decimal_places=3, initial=Decimal('1'))
+    preco_unitario = forms.DecimalField(min_value=Decimal('0.01'), decimal_places=2, required=False)
+    valor_desconto = forms.DecimalField(min_value=Decimal('0'), initial=Decimal('0'), decimal_places=2, required=False)
+    valor_acrescimo = forms.DecimalField(min_value=Decimal('0'), initial=Decimal('0'), decimal_places=2, required=False)
+    forma_pagamento = forms.ChoiceField(
+        choices=FORMA_PAGAMENTO_FISCAL,
+        initial='99',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
+    cpf_destinatario = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
+    cnpj_destinatario = forms.CharField(required=False, label='CNPJ destinatário *', widget=forms.TextInput(attrs={'class': 'form-control'}))
+    nome_destinatario = forms.CharField(label='Nome / razão social *', widget=forms.TextInput(attrs={'class': 'form-control'}))
+    logradouro = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
+    numero = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
+    bairro = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
+    municipio = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
+    uf = forms.CharField(max_length=2, widget=forms.TextInput(attrs={'class': 'form-control', 'maxlength': '2'}))
+    cep = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
+    operacao_interestadual = forms.BooleanField(required=False, label='Interestadual')
+
+    def __init__(self, *args, loja=None, **kwargs):
+        super().__init__(*args, **kwargs)
+        from app_pdv.models import Produto
+        for name, field in self.fields.items():
+            if name not in ('operacao_interestadual', 'finalidade_emissao', 'forma_pagamento', 'produto_id'):
+                field.widget.attrs.setdefault('class', 'form-control')
+        qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
+        self.fields['produto_id'].choices = [('', '— Selecione —')] + [
+            (str(p.id), p.nome_venda) for p in qs
+        ]
+        self.fields['produto_id'].widget.attrs.setdefault('class', 'form-control')
+
+    def clean(self):
+        cleaned = super().clean()
+        cpf = ''.join(c for c in (cleaned.get('cpf_destinatario') or '') if c.isdigit())
+        cnpj = ''.join(c for c in (cleaned.get('cnpj_destinatario') or '') if c.isdigit())
+        if not cpf and not cnpj:
+            raise forms.ValidationError('Informe CPF ou CNPJ do destinatário.')
+        if cnpj and len(cnpj) != 14:
+            raise forms.ValidationError('CNPJ destinatário inválido.')
+        if cpf and len(cpf) != 11:
+            raise forms.ValidationError('CPF destinatário inválido.')
+        if not (cleaned.get('nome_destinatario') or '').strip():
+            raise forms.ValidationError('Nome do destinatário é obrigatório.')
+        return cleaned
 
 
 class ContingenciaForm(forms.ModelForm):

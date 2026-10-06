@@ -16,13 +16,17 @@
     <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
         <thead>
             <tr style="border-bottom:1px solid #444;text-align:left;">
-                <th style="padding:10px;">Venda</th><th>Resultado</th><th>Documento</th><th>Mensagem</th>
+                <th style="padding:10px;">Origem</th><th>Resultado</th><th>Documento</th><th>Mensagem</th>
             </tr>
         </thead>
         <tbody>
             {% for item in lote.itens.all %}
             <tr style="border-bottom:1px solid #333;">
-                <td style="padding:8px;">#{{ item.venda_id }}</td>
+                <td style="padding:8px;">
+                    {% if item.venda_id %}Venda #{{ item.venda_id }}
+                    {% elif item.produto %}Avulsa · {{ item.produto.nome_venda }} ({{ item.quantidade_emitida }})
+                    {% else %}—{% endif %}
+                </td>
                 <td>
                     {% if item.status == 'autorizado' %}<span style="color:#03dac6;">{{ item.get_status_display }}</span>
                     {% elif item.status == 'erro' %}<span style="color:#cf6679;">{{ item.get_status_display }}</span>

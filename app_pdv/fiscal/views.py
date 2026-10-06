@@ -3,7 +3,7 @@ import logging
 
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
-from django.http import JsonResponse
+from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
@@ -17,10 +17,13 @@ from .focus_client import FocusNFeError
 from .forms import (
     CancelarDocumentoForm,
     CartaCorrecaoForm,
+    ContabilidadePeriodoForm,
     ContingenciaForm,
     EmitirAvulsaForm,
     EmitirDocumentoForm,
     EmitirLoteForm,
+    EmitirNFeForm,
+    LoteAvulsoForm,
     FocusIntegracaoForm,
     FiscalConfigForm,
     InutilizacaoForm,
@@ -44,6 +47,7 @@ from .services import (
     buscar_vendas_elegiveis_lote,
     emitir_documento,
     get_or_create_config,
+    processar_lote_avulso_emissao,
     processar_lote_emissao,
     listar_gatilhos_focus,
     processar_webhook,
@@ -75,8 +79,10 @@ def fiscal_hub(request):
         {'titulo': '3. Documentos', 'desc': 'NF-e / NFC-e / NFS-e emitidos', 'url': 'fiscal_documentos', 'icone': 'fa-file-invoice'},
         {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da Focus', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt'},
         {'titulo': '5. NFC-e', 'desc': 'Cupom fiscal eletrônico do consumidor', 'url': 'fiscal_emitir', 'icone': 'fa-receipt'},
-        {'titulo': 'Emissão em lote', 'desc': 'Várias vendas de uma vez (SaaS)', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group'},
+        {'titulo': 'Emissão em lote', 'desc': 'Vendas PDV ou lote avulso por produto', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group'},
         {'titulo': 'Emissão avulsa', 'desc': 'NFC-e por produto (sem venda PDV)', 'url': 'fiscal_emitir_avulsa', 'icone': 'fa-box-open'},
+        {'titulo': 'NF-e completa', 'desc': 'Modelo 55 com destinatário', 'url': 'fiscal_emitir_nfe', 'icone': 'fa-file-invoice'},
+        {'titulo': 'Contabilidade', 'desc': 'ZIP XML/PDF, e-mail e WhatsApp', 'url': 'fiscal_contabilidade', 'icone': 'fa-balance-scale'},
         {'titulo': '6. Cancelamento / CC-e / Inutilização', 'desc': 'Ciclo de vida legal das notas', 'url': 'fiscal_inutilizacao', 'icone': 'fa-ban'},
         {'titulo': '7. Contingência', 'desc': 'Operação offline / SVC', 'url': 'fiscal_contingencia', 'icone': 'fa-wifi'},
         {'titulo': '8. Arquivos', 'desc': 'XML, DANFE/DANFCE e envio', 'url': 'fiscal_arquivos', 'icone': 'fa-folder-open'},
@@ -323,6 +329,11 @@ def fiscal_emitir_avulsa(request):
                         'preco_unitario': float(preco),
                         'forma_pagamento': form.cleaned_data['forma_pagamento'],
                         'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+                        'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
+                        'valor_acrescimo': float(form.cleaned_data.get('valor_acrescimo') or 0),
+                        'cpf_destinatario': form.cleaned_data.get('cpf_destinatario') or '',
+                        'cnpj_destinatario': form.cleaned_data.get('cnpj_destinatario') or '',
+                        'nome_destinatario': form.cleaned_data.get('nome_destinatario') or '',
                     },
                 )
                 logging.getLogger('app_pdv.fiscal').info(
@@ -450,12 +461,35 @@ def fiscal_emitir(request):
 def fiscal_emitir_lote(request):
     loja = check_loja(request)
     form = EmitirLoteForm(request.POST or None)
+    form_avulso = LoteAvulsoForm(request.POST or None, loja=loja)
     preview_vendas = []
     limite = LOTE_EMISSAO_MAX_VENDAS
 
     if request.method == 'POST':
         acao = request.POST.get('acao', 'preview')
-        if acao == 'emitir':
+        if acao == 'lote_avulso' and form_avulso.is_valid():
+            produto = get_object_or_404(
+                Produto, pk=int(form_avulso.cleaned_data['produto_id']), loja=loja,
+            )
+            preco = form_avulso.cleaned_data.get('preco_unitario') or produto.preco_venda
+            try:
+                lote = processar_lote_avulso_emissao(
+                    loja, request.user,
+                    produto=produto,
+                    quantidade_total=float(form_avulso.cleaned_data['quantidade_total']),
+                    quantidade_por_cupom=float(form_avulso.cleaned_data['quantidade_por_cupom']),
+                    preco_unitario=float(preco),
+                    desconto_unitario=float(form_avulso.cleaned_data.get('desconto_unitario') or 0),
+                    forma_pagamento=form_avulso.cleaned_data['forma_pagamento'],
+                )
+                messages.success(
+                    request,
+                    f'Lote avulso #{lote.id}: {lote.total_autorizado} autorizado(s), {lote.total_erro} erro(s).',
+                )
+                return redirect('fiscal_lote_detalhe', pk=lote.id)
+            except FocusNFeError as exc:
+                messages.error(request, str(exc))
+        elif acao == 'emitir':
             venda_ids = []
             for raw in request.POST.getlist('venda_ids'):
                 raw = str(raw).strip()
@@ -510,6 +544,7 @@ def fiscal_emitir_lote(request):
             request,
             loja,
             form=form,
+            form_avulso=form_avulso,
             preview_vendas=preview_vendas,
             limite_lote=limite,
             lotes_recentes=lotes_recentes,
@@ -522,7 +557,7 @@ def fiscal_emitir_lote(request):
 def fiscal_lote_detalhe(request, pk):
     loja = check_loja(request)
     lote = get_object_or_404(
-        LoteEmissaoFiscal.objects.prefetch_related('itens__venda', 'itens__documento'),
+        LoteEmissaoFiscal.objects.prefetch_related('itens__venda', 'itens__documento', 'itens__produto'),
         pk=pk,
         loja=loja,
     )
@@ -564,14 +599,169 @@ def fiscal_contingencia(request):
 
 @login_required
 @requer_acesso_fiscal
+def fiscal_documento_arquivo(request, pk, formato):
+    """Proxy autenticado para XML/PDF na Focus (paths relativos)."""
+    import requests
+
+    loja = check_loja(request)
+    doc = get_object_or_404(DocumentoFiscal, pk=pk, loja=loja)
+    cfg = get_or_create_config(loja)
+    from .focus_arquivos import url_pdf_documento, url_xml_documento
+
+    if formato == 'xml':
+        url = url_xml_documento(cfg, doc)
+        content_type = 'application/xml'
+        fname = f'{doc.chave_acesso or doc.ref}.xml'
+    elif formato == 'pdf':
+        url = url_pdf_documento(cfg, doc)
+        content_type = 'application/pdf'
+        fname = f'{doc.chave_acesso or doc.ref}.pdf'
+    else:
+        return HttpResponse(status=404)
+    if not url or not cfg.focus_token:
+        messages.error(request, 'Arquivo não disponível ou token Focus não configurado.')
+        return redirect('fiscal_documento_detalhe', pk=pk)
+    try:
+        resp = requests.get(url, auth=(cfg.focus_token.strip(), ''), timeout=90)
+    except requests.RequestException as exc:
+        messages.error(request, f'Falha ao baixar arquivo: {exc}')
+        return redirect('fiscal_documento_detalhe', pk=pk)
+    if resp.status_code != 200:
+        messages.error(request, f'Focus retornou HTTP {resp.status_code} ao baixar o arquivo.')
+        return redirect('fiscal_documento_detalhe', pk=pk)
+    response = HttpResponse(resp.content, content_type=content_type)
+    response['Content-Disposition'] = f'inline; filename="{fname}"'
+    return response
+
+
+@login_required
+@requer_acesso_fiscal
 def fiscal_arquivos(request):
     loja = check_loja(request)
-    docs = DocumentoFiscal.objects.filter(loja=loja).exclude(
-        caminho_xml='', caminho_pdf='', url_xml='', url_pdf='',
-    ).order_by('-criado_em')[:100]
-    # also include authorized with any path
     docs = DocumentoFiscal.objects.filter(loja=loja, status='autorizado').order_by('-criado_em')[:100]
     return render(request, 'app_pdv/fiscal/arquivos.html', _ctx(request, loja, documentos=docs))
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_contabilidade(request):
+    loja = check_loja(request)
+    cfg = get_or_create_config(loja)
+    hoje = timezone.localdate()
+    initial = {
+        'mes_referencia': hoje.strftime('%Y-%m'),
+        'email_destino': cfg.email_contabilidade or cfg.email_envio_xml or '',
+        'whatsapp_destino': cfg.whatsapp_contabilidade or '',
+    }
+    form = ContabilidadePeriodoForm(request.POST or None, initial=initial)
+    stats = None
+    whatsapp_link = None
+    if request.method == 'POST' and form.is_valid():
+        mes_ref = form.cleaned_data['mes_referencia']
+        try:
+            ano, mes = [int(x) for x in mes_ref.split('-', 1)]
+        except (ValueError, IndexError):
+            messages.error(request, 'Mês de referência inválido.')
+            return redirect('fiscal_contabilidade')
+        from .contabilidade_service import (
+            enviar_zip_por_email,
+            montar_zip_contabilidade,
+            resumo_contabilidade,
+        )
+
+        stats = resumo_contabilidade(loja, ano=ano, mes=mes)
+        acao = request.POST.get('acao', 'atualizar')
+        if acao == 'atualizar':
+            messages.info(request, f'{stats["autorizados"]} documento(s) autorizado(s) no período.')
+        elif acao == 'baixar':
+            zip_bytes, nome = montar_zip_contabilidade(loja, cfg, ano=ano, mes=mes)
+            response = HttpResponse(zip_bytes, content_type='application/zip')
+            response['Content-Disposition'] = f'attachment; filename="{nome}"'
+            return response
+        elif acao == 'email':
+            dest = form.cleaned_data.get('email_destino') or cfg.email_contabilidade
+            if not dest:
+                messages.error(request, 'Informe o e-mail da contabilidade.')
+            else:
+                zip_bytes, nome = montar_zip_contabilidade(loja, cfg, ano=ano, mes=mes)
+                try:
+                    enviar_zip_por_email(
+                        dest,
+                        f'Pacote fiscal {mes:02d}/{ano} — {loja.nome}',
+                        f'Segue ZIP com XMLs/PDFs autorizados em {mes:02d}/{ano}.',
+                        zip_bytes,
+                        nome,
+                    )
+                    cfg.email_contabilidade = dest
+                    cfg.save(update_fields=['email_contabilidade', 'atualizado_em'])
+                    messages.success(request, f'Pacote enviado para {dest}.')
+                except Exception as exc:
+                    messages.error(request, f'Falha ao enviar e-mail: {exc}')
+            return redirect('fiscal_contabilidade')
+        elif acao == 'whatsapp':
+            from app_pdv.whatsapp_service import gerar_link_whatsapp
+
+            tel = form.cleaned_data.get('whatsapp_destino') or cfg.whatsapp_contabilidade
+            if not tel:
+                messages.error(request, 'Informe o WhatsApp da contabilidade.')
+            else:
+                msg = (
+                    f'Pacote fiscal {mes:02d}/{ano} — {stats["autorizados"]} NFC-e/NF-e autorizadas. '
+                    f'Acesse Oneira > Fiscal > Contabilidade para baixar o ZIP (XML + PDF).'
+                )
+                whatsapp_link = gerar_link_whatsapp(tel, msg)
+                cfg.whatsapp_contabilidade = tel
+                cfg.save(update_fields=['whatsapp_contabilidade', 'atualizado_em'])
+    elif request.method != 'POST':
+        try:
+            ano, mes = [int(x) for x in initial['mes_referencia'].split('-')]
+            from .contabilidade_service import resumo_contabilidade
+            stats = resumo_contabilidade(loja, ano=ano, mes=mes)
+        except ValueError:
+            stats = None
+    return render(
+        request,
+        'app_pdv/fiscal/contabilidade.html',
+        _ctx(request, loja, form=form, stats=stats, whatsapp_link=whatsapp_link, fiscal_config=cfg),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_emitir_nfe(request):
+    loja = check_loja(request)
+    form = EmitirNFeForm(request.POST or None, loja=loja)
+    if request.method == 'POST' and form.is_valid():
+        produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
+        preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
+        nfe_dados = {
+            'produto': produto,
+            'quantidade': float(form.cleaned_data['quantidade']),
+            'preco_unitario': float(preco),
+            'natureza_operacao': form.cleaned_data['natureza_operacao'],
+            'cfop': form.cleaned_data['cfop'],
+            'finalidade_emissao': form.cleaned_data['finalidade_emissao'],
+            'forma_pagamento': form.cleaned_data['forma_pagamento'],
+            'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
+            'valor_acrescimo': float(form.cleaned_data.get('valor_acrescimo') or 0),
+            'cpf_destinatario': form.cleaned_data.get('cpf_destinatario') or '',
+            'cnpj_destinatario': form.cleaned_data.get('cnpj_destinatario') or '',
+            'nome_destinatario': form.cleaned_data.get('nome_destinatario') or '',
+            'logradouro': form.cleaned_data['logradouro'],
+            'numero': form.cleaned_data['numero'],
+            'bairro': form.cleaned_data['bairro'],
+            'municipio': form.cleaned_data['municipio'],
+            'uf': form.cleaned_data['uf'],
+            'cep': form.cleaned_data['cep'],
+            'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+        }
+        try:
+            doc = emitir_documento(loja, request.user, nfe_dados=nfe_dados)
+            messages.success(request, f'NF-e enviada — ref {doc.ref} ({doc.status}).')
+            return redirect('fiscal_documento_detalhe', pk=doc.id)
+        except FocusNFeError as exc:
+            messages.error(request, str(exc))
+    return render(request, 'app_pdv/fiscal/emitir_nfe.html', _ctx(request, loja, form=form))
 
 
 @login_required

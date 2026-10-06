@@ -1,0 +1,49 @@
+{% extends 'base.html' %}
+{% block title %}Contabilidade fiscal{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2>Contabilidade</h2>
+<p style="color:#aaa;">Pacote mensal com XMLs, PDFs e listagem (padrão NetFiscal).</p>
+
+<form method="post" class="card" style="padding:20px;margin-bottom:20px;max-width:720px;">
+    {% csrf_token %}
+    <div style="margin-bottom:14px;">
+        <label>{{ form.mes_referencia.label }}</label>
+        {{ form.mes_referencia }}
+    </div>
+    {% if stats %}
+    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
+        <div class="card" style="padding:12px;text-align:center;"><strong style="color:#03dac6;">{{ stats.autorizados }}</strong><br><small>Autorizadas</small></div>
+        <div class="card" style="padding:12px;text-align:center;"><strong>{{ stats.cancelados }}</strong><br><small>Canceladas</small></div>
+        <div class="card" style="padding:12px;text-align:center;"><strong>{{ stats.inutilizados }}</strong><br><small>Inutilizadas</small></div>
+        <div class="card" style="padding:12px;text-align:center;"><strong style="color:#cf6679;">{{ stats.erros }}</strong><br><small>Com erro</small></div>
+    </div>
+    <p style="color:#888;font-size:0.9em;">{{ stats.total_pacote }} documento(s) no pacote (com XML quando disponível na Focus).</p>
+    {% endif %}
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;">
+        <div class="card" style="padding:16px;">
+            <h3 style="color:#15a0a5;margin-top:0;">Baixar pacote</h3>
+            <p style="color:#888;font-size:0.9em;">.zip com XMLs + PDFs + LISTAGEM.txt</p>
+            <button type="submit" name="acao" value="baixar" class="btn btn-success" style="width:100%;">Baixar pacote (.zip)</button>
+        </div>
+        <div class="card" style="padding:16px;">
+            <h3 style="color:#15a0a5;margin-top:0;">Enviar por e-mail</h3>
+            <label>{{ form.email_destino.label }}</label>
+            {{ form.email_destino }}
+            <button type="submit" name="acao" value="email" class="btn" style="width:100%;margin-top:12px;background:#333;">Enviar por e-mail</button>
+        </div>
+    </div>
+    <div class="card" style="padding:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Enviar por WhatsApp</h3>
+        <label>{{ form.whatsapp_destino.label }}</label>
+        {{ form.whatsapp_destino }}
+        <button type="submit" name="acao" value="whatsapp" class="btn" style="width:100%;margin-top:12px;background:#333;">Abrir WhatsApp com aviso</button>
+        {% if whatsapp_link %}
+        <p style="margin-top:12px;"><a href="{{ whatsapp_link }}" target="_blank" class="btn btn-success">Continuar no WhatsApp</a></p>
+        {% endif %}
+        <p style="color:#888;font-size:0.85em;margin-top:8px;">Anexe o ZIP baixado manualmente após abrir a conversa (integração API WhatsApp em evolução).</p>
+    </div>
+    <button type="submit" name="acao" value="atualizar" class="btn" style="margin-top:12px;background:#444;">Atualizar resumo</button>
+</form>
+{% endblock %}

@@ -74,6 +74,11 @@ class FiscalConfig(models.Model):
 
     webhook_url_configurada = models.URLField(blank=True, default='')
     email_envio_xml = models.EmailField(blank=True, default='', verbose_name='E-mail para envio de XML/DANFE')
+    email_contabilidade = models.EmailField(blank=True, default='', verbose_name='E-mail da contabilidade')
+    whatsapp_contabilidade = models.CharField(
+        max_length=20, blank=True, default='',
+        verbose_name='WhatsApp da contabilidade',
+    )
     enviar_whatsapp_danfe = models.BooleanField(default=False)
 
     atualizado_em = models.DateTimeField(auto_now=True)
@@ -303,6 +308,11 @@ class LoteEmissaoFiscal(models.Model):
     total_erro = models.PositiveIntegerField(default=0)
     total_ignorado = models.PositiveIntegerField(default=0)
     observacao = models.CharField(max_length=255, blank=True, default='')
+    modo = models.CharField(
+        max_length=20,
+        choices=[('vendas', 'Vendas PDV'), ('avulso', 'Avulso por produto')],
+        default='vendas',
+    )
     criado_por = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True)
     criado_em = models.DateTimeField(auto_now_add=True)
     finalizado_em = models.DateTimeField(null=True, blank=True)
@@ -325,7 +335,15 @@ class LoteEmissaoFiscalItem(models.Model):
         ('ignorado', 'Ignorado'),
     ]
     lote = models.ForeignKey(LoteEmissaoFiscal, on_delete=models.CASCADE, related_name='itens')
-    venda = models.ForeignKey('app_pdv.Venda', on_delete=models.CASCADE, related_name='lote_emissao_itens')
+    venda = models.ForeignKey(
+        'app_pdv.Venda', on_delete=models.CASCADE, null=True, blank=True,
+        related_name='lote_emissao_itens',
+    )
+    produto = models.ForeignKey(
+        'app_pdv.Produto', on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='lote_emissao_itens',
+    )
+    quantidade_emitida = models.DecimalField(max_digits=12, decimal_places=3, null=True, blank=True)
     documento = models.ForeignKey(
         DocumentoFiscal, on_delete=models.SET_NULL, null=True, blank=True,
         related_name='lote_emissao_itens',
@@ -337,7 +355,11 @@ class LoteEmissaoFiscalItem(models.Model):
     class Meta:
         ordering = ['id']
         constraints = [
-            models.UniqueConstraint(fields=['lote', 'venda'], name='fiscal_lote_item_venda_unica'),
+            models.UniqueConstraint(
+                fields=['lote', 'venda'],
+                condition=models.Q(venda__isnull=False),
+                name='fiscal_lote_item_venda_unica',
+            ),
         ]
 
 

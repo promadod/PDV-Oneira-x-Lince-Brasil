@@ -1,0 +1,47 @@
+{% extends 'base.html' %}
+{% block title %}Emitir NF-e{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2>NF-e (modelo 55)</h2>
+<p style="color:#aaa;">Emissão com destinatário, natureza, CFOP e item (campos obrigatórios Focus/SEFAZ).</p>
+
+<form method="post" data-submit-lock-msg="Emitindo NF-e…">
+    {% csrf_token %}
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Natureza</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;">
+            <div><label>Natureza</label>{{ form.natureza_operacao }}</div>
+            <div><label>CFOP</label>{{ form.cfop }}</div>
+            <div><label>Finalidade</label>{{ form.finalidade_emissao }}</div>
+        </div>
+    </div>
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Destinatário</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="grid-column:1/-1;"><label>Nome / razão social</label>{{ form.nome_destinatario }}</div>
+            <div><label>CPF</label>{{ form.cpf_destinatario }}</div>
+            <div><label>CNPJ</label>{{ form.cnpj_destinatario }}</div>
+            <div><label>Logradouro</label>{{ form.logradouro }}</div>
+            <div><label>Número</label>{{ form.numero }}</div>
+            <div><label>Bairro</label>{{ form.bairro }}</div>
+            <div><label>Município</label>{{ form.municipio }}</div>
+            <div><label>UF</label>{{ form.uf }}</div>
+            <div><label>CEP</label>{{ form.cep }}</div>
+        </div>
+    </div>
+    <div class="card" style="padding:20px;margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Itens</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div style="grid-column:1/-1;"><label>Produto</label>{{ form.produto_id }}</div>
+            <div><label>Quantidade</label>{{ form.quantidade }}</div>
+            <div><label>Preço unitário</label>{{ form.preco_unitario }}</div>
+            <div><label>Desconto (R$)</label>{{ form.valor_desconto }}</div>
+            <div><label>Acréscimo (R$)</label>{{ form.valor_acrescimo }}</div>
+            <div><label>Pagamento</label>{{ form.forma_pagamento }}</div>
+            <div class="fiscal-check-row"><label>{{ form.operacao_interestadual }} Interestadual</label></div>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-success">Enviar NF-e à Focus</button>
+</form>
+{% endblock %}
