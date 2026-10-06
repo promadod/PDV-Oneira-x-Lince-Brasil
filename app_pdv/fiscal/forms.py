@@ -113,10 +113,11 @@ class EmitirAvulsaForm(forms.Form):
         super().__init__(*args, **kwargs)
         from app_pdv.models import Produto
         qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
-        self.fields['produto_id'].widget = forms.Select(
-            choices=[('', '— Selecione —')] + [(p.id, f'{p.nome_venda} (#{p.id})') for p in qs],
-            attrs={'class': 'form-control'},
-        )
+        produto_choices = [('', '— Selecione —')] + [
+            (str(p.id), f'{p.nome_venda} (#{p.id})') for p in qs
+        ]
+        self.fields['produto_id'].choices = produto_choices
+        self.fields['produto_id'].widget.attrs.setdefault('class', 'form-control')
 
 
 class ContingenciaForm(forms.ModelForm):

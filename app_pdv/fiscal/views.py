@@ -306,25 +306,43 @@ def fiscal_emitir_avulsa(request):
     if pid and str(pid).isdigit():
         initial['produto_id'] = str(pid)
     form = EmitirAvulsaForm(request.POST or None, loja=loja, initial=initial)
-    if request.method == 'POST' and form.is_valid():
-        produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
-        preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
-        try:
-            doc = emitir_documento(
-                loja, request.user,
-                tipo='nfce',
-                avulso={
-                    'produto': produto,
-                    'quantidade': float(form.cleaned_data['quantidade']),
-                    'preco_unitario': float(preco),
-                    'forma_pagamento': form.cleaned_data['forma_pagamento'],
-                    'interestadual': form.cleaned_data.get('operacao_interestadual', False),
-                },
+    if request.method == 'POST':
+        if form.is_valid():
+            produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
+            preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
+            logging.getLogger('app_pdv.fiscal').info(
+                'fiscal_emitir_avulsa enviando loja=%s produto=%s', loja.id, produto.id,
             )
-            messages.success(request, f'NFC-e avulsa enviada — ref {doc.ref} ({doc.status}).')
-            return redirect('fiscal_documento_detalhe', pk=doc.id)
-        except FocusNFeError as exc:
-            messages.error(request, str(exc))
+            try:
+                doc = emitir_documento(
+                    loja, request.user,
+                    tipo='nfce',
+                    avulso={
+                        'produto': produto,
+                        'quantidade': float(form.cleaned_data['quantidade']),
+                        'preco_unitario': float(preco),
+                        'forma_pagamento': form.cleaned_data['forma_pagamento'],
+                        'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+                    },
+                )
+                logging.getLogger('app_pdv.fiscal').info(
+                    'fiscal_emitir_avulsa ok loja=%s ref=%s status=%s',
+                    loja.id, doc.ref, doc.status,
+                )
+                messages.success(request, f'NFC-e avulsa enviada — ref {doc.ref} ({doc.status}).')
+                return redirect('fiscal_documento_detalhe', pk=doc.id)
+            except FocusNFeError as exc:
+                logging.getLogger('app_pdv.fiscal').warning(
+                    'fiscal_emitir_avulsa falhou loja=%s produto=%s erro=%s',
+                    loja.id, produto.id, exc,
+                )
+                messages.error(request, str(exc))
+        else:
+            logging.getLogger('app_pdv.fiscal').info(
+                'fiscal_emitir_avulsa form_invalid loja=%s erros=%s',
+                loja.id, form.errors.as_json(),
+            )
+            messages.error(request, 'Corrija os campos do formulário antes de emitir.')
     return render(
         request, 'app_pdv/fiscal/emitir_avulsa.html',
         _ctx(request, loja, form=form),
