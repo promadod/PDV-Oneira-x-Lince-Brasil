@@ -28,7 +28,7 @@
     </div>
 </div>
 
-<form method="post" data-submit-lock-msg="Salvando integração Focus…">
+<form method="post" action="{% url 'fiscal_focus_salvar' %}" data-submit-lock-msg="Salvando integração Focus…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;padding:20px;">
         <h3 style="color:#15a0a5;margin-top:0;">Credenciais API</h3>
@@ -45,7 +45,7 @@
             <div style="grid-column:1/-1;">
                 <label>Token Focus NFe</label>
                 {{ form.focus_token }}
-                <small style="color:#888;">{{ form.focus_token.help_text }}</small>
+                <small style="color:#888;">{{ form.focus_token.help_text }} Deixe em branco para manter o token já salvo.</small>
             </div>
             <div style="grid-column:1/-1;">
                 <label>URL webhook (pública HTTPS)</label>
@@ -54,14 +54,14 @@
             </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
-            <button type="submit" name="acao" value="testar" class="btn btn-success" formaction="">Testar conexão</button>
-            <button type="submit" name="acao" value="salvar" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar credenciais</button>
-            <span style="color:#888;font-size:0.85em;">O teste valida o token na Focus (GET /hooks) e salva os campos acima.</span>
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão Focus…">Testar conexão</button>
+            <button type="submit" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar credenciais</button>
+            <span style="color:#888;font-size:0.85em;">Testar chama <code>GET /v2/hooks</code> em homologação/produção conforme o ambiente.</span>
         </div>
     </div>
 </form>
 
-<form method="post" data-submit-lock-msg="Registrando gatilhos na Focus…">
+<form method="post" action="{% url 'fiscal_focus_registrar_webhooks' %}" data-submit-lock-msg="Registrando gatilhos na Focus…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;padding:20px;">
         <h3 style="color:#15a0a5;margin-top:0;">Cadastrar gatilhos na Focus</h3>
@@ -74,7 +74,7 @@
             <label class="fiscal-check-row"><input type="checkbox" name="eventos_webhook" value="inutilizacao"> <span class="fiscal-check-label">Inutilização</span></label>
             <label class="fiscal-check-row"><input type="checkbox" name="eventos_webhook" value="nfe_recebida"> <span class="fiscal-check-label">NF-e recebida</span></label>
         </div>
-        <button type="submit" name="acao" value="registrar_webhooks" class="btn" style="background:#15a0a5;color:#000;">Registrar na Focus</button>
+        <button type="submit" class="btn" style="background:#15a0a5;color:#000;">Registrar na Focus</button>
     </div>
 </form>
 

@@ -4,7 +4,7 @@
 <div class="card fiscal-nav-card">
     <nav class="fiscal-nav" aria-label="Módulo fiscal">
         <a href="{% url 'fiscal_hub' %}" class="fiscal-nav-btn{% if an == 'fiscal_hub' %} is-active{% endif %}">Hub</a>
-        <a href="{% url 'fiscal_focus' %}" class="fiscal-nav-btn{% if an == 'fiscal_focus' %} is-active{% endif %}">Focus API</a>
+        <a href="{% url 'fiscal_focus' %}" class="fiscal-nav-btn{% if an == 'fiscal_focus' or an == 'fiscal_focus_salvar' or an == 'fiscal_focus_testar' or an == 'fiscal_focus_registrar_webhooks' %} is-active{% endif %}">Focus API</a>
         <a href="{% url 'fiscal_config' %}" class="fiscal-nav-btn{% if an == 'fiscal_config' %} is-active{% endif %}">Config</a>
         <a href="{% url 'fiscal_matriz' %}" class="fiscal-nav-btn{% if an == 'fiscal_matriz' or an == 'fiscal_matriz_excluir' %} is-active{% endif %}">Matriz</a>
         <a href="{% url 'fiscal_produtos' %}" class="fiscal-nav-btn{% if an == 'fiscal_produtos' or an == 'fiscal_produto_editar' %} is-active{% endif %}">Produtos</a>

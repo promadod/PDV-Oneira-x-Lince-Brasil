@@ -7,7 +7,7 @@ from django.http import JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_POST
+from django.views.decorators.http import require_http_methods, require_POST
 
 from app_pdv.models import Produto, Venda
 from app_pdv.views import check_loja
@@ -97,69 +97,27 @@ def fiscal_hub(request):
     ))
 
 
-@login_required
-@requer_acesso_fiscal
-def fiscal_focus(request):
-    loja = check_loja(request)
+def _log_focus_acao(acao: str, loja_id: int, **kwargs):
+    extras = ' '.join(f'{k}={v}' for k, v in kwargs.items())
+    logging.getLogger('app_pdv.fiscal').info(
+        'fiscal_focus acao=%s loja=%s %s', acao, loja_id, extras.strip(),
+    )
+
+
+def _focus_integracao_page(request, loja, *, form=None):
     cfg = get_or_create_config(loja)
     webhook_sugerida = url_webhook_sistema(request)
-    gatilhos = []
-    teste = None
-
-    if request.method == 'POST':
-        acao = request.POST.get('acao', 'salvar')
-        if acao == 'registrar_webhooks':
-            url_hook = (request.POST.get('webhook_url') or cfg.webhook_url_configurada or webhook_sugerida).strip()
-            eventos = request.POST.getlist('eventos_webhook')
-            try:
-                resultados = registrar_gatilhos_focus(cfg, url_hook, eventos=eventos or None)
-                ok = sum(1 for r in resultados if r.get('ok'))
-                messages.success(request, f'{ok} gatilho(s) registrado(s) na Focus.')
-            except FocusNFeError as exc:
-                messages.error(request, str(exc))
-            return redirect('fiscal_focus')
-
-        form = FocusIntegracaoForm(request.POST, instance=cfg)
-        if acao == 'salvar' and form.is_valid():
-            form.save()
-            messages.success(request, 'Integração Focus salva.')
-            return redirect('fiscal_focus')
-        if acao == 'testar':
-            if not form.is_valid():
-                messages.error(request, 'Corrija os campos do formulário antes de testar a conexão.')
-                logger.info('fiscal_focus testar form_invalid loja=%s', loja.id)
-            else:
-                cfg = form.save()
-                try:
-                    teste = testar_conexao_focus(cfg)
-                    messages.success(
-                        request,
-                        f'Conexão OK ({cfg.get_ambiente_display()}). '
-                        f'Gatilhos na Focus: {teste["gatilhos_cadastrados"]}.',
-                    )
-                    logger.info(
-                        'fiscal_focus testar ok loja=%s ambiente=%s gatilhos=%s',
-                        loja.id, cfg.ambiente, teste['gatilhos_cadastrados'],
-                    )
-                except FocusNFeError as exc:
-                    messages.error(request, str(exc))
-                    logger.warning(
-                        'fiscal_focus testar falhou loja=%s ambiente=%s erro=%s',
-                        loja.id, cfg.ambiente, exc,
-                    )
-            return redirect('fiscal_focus')
-    else:
+    if form is None:
         form = FocusIntegracaoForm(
             instance=cfg,
             initial={'webhook_url_configurada': cfg.webhook_url_configurada or webhook_sugerida},
         )
-
+    gatilhos = []
     if cfg.focus_token:
         try:
             gatilhos = listar_gatilhos_focus(cfg)
         except FocusNFeError:
             gatilhos = []
-
     checklist = [
         {'ok': bool(cfg.focus_token), 'texto': 'Token Focus configurado (Basic Auth)'},
         {'ok': bool(''.join(c for c in (cfg.cnpj or loja.cnpj or '') if c.isdigit())), 'texto': 'CNPJ do emitente preenchido'},
@@ -167,7 +125,6 @@ def fiscal_focus(request):
         {'ok': bool(cfg.emite_nfce or cfg.emite_nfe), 'texto': 'Tipo de documento habilitado (NF-e / NFC-e)'},
         {'ok': bool(cfg.csc_id and cfg.csc_token) if cfg.emite_nfce else True, 'texto': 'CSC NFC-e (obrigatório na SEFAZ para cupom)'},
     ]
-
     return render(
         request,
         'app_pdv/fiscal/focus_integracao.html',
@@ -177,10 +134,95 @@ def fiscal_focus(request):
             form=form,
             webhook_sugerida=webhook_sugerida,
             gatilhos=gatilhos,
-            teste=teste,
             checklist=checklist,
         ),
     )
+
+
+@login_required
+@requer_acesso_fiscal
+@require_http_methods(['GET', 'POST'])
+def fiscal_focus(request):
+    loja = check_loja(request)
+    if request.method == 'POST':
+        acao = request.POST.get('acao', 'desconhecida')
+        _log_focus_acao('legacy_post', loja.id, acao_post=acao, path=request.path)
+        messages.warning(
+            request,
+            'Use os botões Salvar ou Testar conexão na tela (URLs dedicadas). Ação antiga ignorada.',
+        )
+        return redirect('fiscal_focus')
+    return _focus_integracao_page(request, loja)
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_focus_salvar(request):
+    loja = check_loja(request)
+    cfg = get_or_create_config(loja)
+    _log_focus_acao('salvar', loja.id)
+    form = FocusIntegracaoForm(request.POST, instance=cfg)
+    if form.is_valid():
+        form.save()
+        _log_focus_acao('salvar_ok', loja.id, ambiente=form.instance.ambiente)
+        messages.success(request, 'Integração Focus salva.')
+    else:
+        _log_focus_acao('salvar_invalid', loja.id, erros=form.errors.as_json())
+        messages.error(request, 'Corrija os campos antes de salvar.')
+        return _focus_integracao_page(request, loja, form=form)
+    return redirect('fiscal_focus')
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_focus_testar(request):
+    loja = check_loja(request)
+    cfg = get_or_create_config(loja)
+    _log_focus_acao('testar', loja.id)
+    form = FocusIntegracaoForm(request.POST, instance=cfg)
+    if not form.is_valid():
+        _log_focus_acao('testar_form_invalid', loja.id, erros=form.errors.as_json())
+        messages.error(request, 'Corrija os campos do formulário antes de testar a conexão.')
+        return _focus_integracao_page(request, loja, form=form)
+    cfg = form.save()
+    try:
+        teste = testar_conexao_focus(cfg)
+        _log_focus_acao(
+            'testar_ok', loja.id,
+            ambiente=cfg.ambiente, gatilhos=teste['gatilhos_cadastrados'],
+        )
+        messages.success(
+            request,
+            f'Conexão OK ({cfg.get_ambiente_display()}). '
+            f'Gatilhos na Focus: {teste["gatilhos_cadastrados"]}.',
+        )
+    except FocusNFeError as exc:
+        _log_focus_acao('testar_falhou', loja.id, ambiente=cfg.ambiente, erro=str(exc))
+        messages.error(request, str(exc))
+    return redirect('fiscal_focus')
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_focus_registrar_webhooks(request):
+    loja = check_loja(request)
+    cfg = get_or_create_config(loja)
+    webhook_sugerida = url_webhook_sistema(request)
+    _log_focus_acao('registrar_webhooks', loja.id)
+    url_hook = (request.POST.get('webhook_url') or cfg.webhook_url_configurada or webhook_sugerida).strip()
+    eventos = request.POST.getlist('eventos_webhook')
+    try:
+        resultados = registrar_gatilhos_focus(cfg, url_hook, eventos=eventos or None)
+        ok = sum(1 for r in resultados if r.get('ok'))
+        _log_focus_acao('registrar_webhooks_ok', loja.id, registrados=ok)
+        messages.success(request, f'{ok} gatilho(s) registrado(s) na Focus.')
+    except FocusNFeError as exc:
+        _log_focus_acao('registrar_webhooks_falhou', loja.id, erro=str(exc))
+        messages.error(request, str(exc))
+    return redirect('fiscal_focus')
 
 
 @login_required

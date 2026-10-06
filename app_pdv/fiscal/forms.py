@@ -171,6 +171,15 @@ class FocusIntegracaoForm(forms.ModelForm):
         super().__init__(*args, **kwargs)
         self.fields['ambiente'].help_text = 'Homologação para testes; produção gera documentos com validade fiscal.'
         self.fields['focus_token'].help_text = 'Token alfanumérico da empresa na Focus (HTTP Basic, senha em branco).'
+        self.fields['focus_token'].required = False
+
+    def clean_focus_token(self):
+        token = (self.cleaned_data.get('focus_token') or '').strip()
+        if token:
+            return token
+        if self.instance.pk and (self.instance.focus_token or '').strip():
+            return self.instance.focus_token
+        raise forms.ValidationError('Informe o token Focus NFe.')
 
 
 class EmitirLoteForm(forms.Form):

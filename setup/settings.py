@@ -223,6 +223,11 @@ LOGGING = {
             'level': 'INFO',
             'propagate': False,
         },
+        'app_pdv.fiscal': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False,
+        },
         'gunicorn.error': {
             'handlers': ['console'],
             'level': 'INFO',
