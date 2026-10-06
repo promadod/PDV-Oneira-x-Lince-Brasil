@@ -179,6 +179,26 @@ if not DEBUG:
     SECURE_CONTENT_TYPE_NOSNIFF = True
     X_FRAME_OPTIONS = 'DENY'
 
+# --- E-mail (contabilidade fiscal, alertas) — mesmas variáveis SMTP_* do Alertmanager ---
+DEFAULT_FROM_EMAIL = os.getenv('SMTP_FROM', os.getenv('DEFAULT_FROM_EMAIL', 'noreply@oneirasistemas.com.br'))
+SERVER_EMAIL = DEFAULT_FROM_EMAIL
+_smtp_host = (os.getenv('SMTP_HOST') or '').strip()
+if _smtp_host:
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = _smtp_host
+    EMAIL_PORT = int(os.getenv('SMTP_PORT', '587') or 587)
+    EMAIL_HOST_USER = os.getenv('SMTP_USER', '')
+    EMAIL_HOST_PASSWORD = os.getenv('SMTP_PASSWORD', '')
+    EMAIL_USE_TLS = env_bool('SMTP_REQUIRE_TLS', default=True)
+    EMAIL_USE_SSL = env_bool('SMTP_USE_SSL', default=False)
+else:
+    EMAIL_BACKEND = os.getenv(
+        'EMAIL_BACKEND',
+        'django.core.mail.backends.console.EmailBackend' if DEBUG else 'django.core.mail.backends.smtp.EmailBackend',
+    )
+    EMAIL_HOST = os.getenv('EMAIL_HOST', 'localhost')
+    EMAIL_PORT = int(os.getenv('EMAIL_PORT', '25') or 25)
+
 # --- Fiscal / Focus NFe ---
 FOCUS_NFE_API_BASE_HOMOLOGACAO = os.getenv(
     'FOCUS_NFE_API_BASE_HOMOLOGACAO', 'https://homologacao.focusnfe.com.br/v2'

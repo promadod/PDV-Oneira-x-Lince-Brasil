@@ -629,6 +629,15 @@ def fiscal_arquivos(request):
     return render(request, 'app_pdv/fiscal/arquivos.html', _ctx(request, loja, documentos=docs))
 
 
+def _redirect_contabilidade(mes_ref: str = ''):
+    from django.urls import reverse
+
+    url = reverse('fiscal_contabilidade')
+    if mes_ref:
+        url = f'{url}?mes={mes_ref}'
+    return redirect(url)
+
+
 def _parse_mes_referencia(mes_ref: str) -> tuple[int, int] | None:
     try:
         ano, mes = [int(x) for x in (mes_ref or '').split('-', 1)]
@@ -648,7 +657,7 @@ def fiscal_contabilidade_baixar(request):
     parsed = _parse_mes_referencia(request.GET.get('mes', ''))
     if not parsed:
         messages.error(request, 'Informe o mês no formato AAAA-MM.')
-        return redirect('fiscal_contabilidade')
+        return _redirect_contabilidade()
     ano, mes = parsed
     from .contabilidade_service import montar_zip_contabilidade
 
@@ -671,9 +680,13 @@ def fiscal_contabilidade(request):
     }
     form = ContabilidadePeriodoForm(request.POST or None, initial=initial)
     stats = None
-    whatsapp_link = None
-    mes_ref_atual = (request.POST.get('mes_referencia') if request.method == 'POST' else None) or initial['mes_referencia']
+    mes_ref_atual = (
+        request.GET.get('mes', '').strip()
+        or (request.POST.get('mes_referencia') if request.method == 'POST' else '')
+        or initial['mes_referencia']
+    )
     parsed_atual = _parse_mes_referencia(mes_ref_atual)
+    whatsapp_link = request.session.pop('fiscal_contabilidade_wa', None)
     if parsed_atual:
         from .contabilidade_service import resumo_contabilidade
         stats = resumo_contabilidade(loja, ano=parsed_atual[0], mes=parsed_atual[1])
@@ -684,7 +697,7 @@ def fiscal_contabilidade(request):
         parsed = _parse_mes_referencia(mes_ref)
         if not parsed:
             messages.error(request, 'Mês de referência inválido.')
-            return redirect('fiscal_contabilidade')
+            return _redirect_contabilidade()
         ano, mes = parsed
         from .contabilidade_service import (
             enviar_zip_por_email,
@@ -695,42 +708,47 @@ def fiscal_contabilidade(request):
         stats = resumo_contabilidade(loja, ano=ano, mes=mes)
         if acao == 'atualizar':
             messages.info(request, f'{stats["autorizados"]} documento(s) autorizado(s) no período.')
-            return redirect('fiscal_contabilidade')
+            return _redirect_contabilidade(mes_ref)
         if acao == 'email':
             dest = (request.POST.get('email_destino') or '').strip() or cfg.email_contabilidade
             if not dest:
                 messages.error(request, 'Informe o e-mail da contabilidade.')
-            else:
-                zip_bytes, nome = montar_zip_contabilidade(loja, cfg, ano=ano, mes=mes)
-                try:
-                    enviar_zip_por_email(
-                        dest,
-                        f'Pacote fiscal {mes:02d}/{ano} — {loja.nome}',
-                        f'Segue ZIP com XMLs/PDFs autorizados em {mes:02d}/{ano}.',
-                        zip_bytes,
-                        nome,
-                    )
-                    cfg.email_contabilidade = dest
-                    cfg.save(update_fields=['email_contabilidade', 'atualizado_em'])
-                    messages.success(request, f'Pacote enviado para {dest}.')
-                except Exception as exc:
-                    messages.error(request, f'Falha ao enviar e-mail: {exc}')
-            return redirect('fiscal_contabilidade')
+                return _redirect_contabilidade(mes_ref)
+            zip_bytes, nome = montar_zip_contabilidade(loja, cfg, ano=ano, mes=mes)
+            try:
+                enviar_zip_por_email(
+                    dest,
+                    f'Pacote fiscal {mes:02d}/{ano} — {loja.nome}',
+                    f'Segue ZIP com XMLs/PDFs autorizados em {mes:02d}/{ano}.',
+                    zip_bytes,
+                    nome,
+                )
+                cfg.email_contabilidade = dest
+                cfg.save(update_fields=['email_contabilidade', 'atualizado_em'])
+                messages.success(request, f'Pacote enviado para {dest}.')
+            except Exception as exc:
+                messages.error(request, f'Falha ao enviar e-mail: {exc}')
+            return _redirect_contabilidade(mes_ref)
         if acao == 'whatsapp':
             from app_pdv.whatsapp_service import gerar_link_whatsapp
 
             tel = (request.POST.get('whatsapp_destino') or '').strip() or cfg.whatsapp_contabilidade
             if not tel:
                 messages.error(request, 'Informe o WhatsApp da contabilidade.')
-            else:
-                msg = (
-                    f'Pacote fiscal {mes:02d}/{ano} — {stats["autorizados"]} NFC-e/NF-e autorizadas. '
-                    f'Baixe o ZIP em Oneira > Fiscal > Contabilidade e anexe aqui.'
-                )
-                cfg.whatsapp_contabilidade = tel
-                cfg.save(update_fields=['whatsapp_contabilidade', 'atualizado_em'])
-                link = gerar_link_whatsapp(tel, msg)
-                return redirect(link)
+                return _redirect_contabilidade(mes_ref)
+            msg = (
+                f'Pacote fiscal {mes:02d}/{ano} — {stats["autorizados"]} NFC-e/NF-e autorizadas. '
+                f'Baixe o ZIP em Oneira > Fiscal > Contabilidade e anexe aqui.'
+            )
+            cfg.whatsapp_contabilidade = tel
+            cfg.save(update_fields=['whatsapp_contabilidade', 'atualizado_em'])
+            link = gerar_link_whatsapp(tel, msg)
+            if not link:
+                messages.error(request, 'Número de WhatsApp inválido. Use DDD + número (ex.: 5511999999999).')
+                return _redirect_contabilidade(mes_ref)
+            request.session['fiscal_contabilidade_wa'] = link
+            messages.info(request, 'Abrindo WhatsApp — anexe o ZIP baixado na conversa.')
+            return _redirect_contabilidade(mes_ref)
     return render(
         request,
         'app_pdv/fiscal/contabilidade.html',

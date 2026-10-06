@@ -5,8 +5,8 @@ import io
 import zipfile
 from datetime import date
 
+from django.conf import settings
 from django.core.mail import EmailMessage
-from django.utils import timezone
 
 from .focus_arquivos import obter_conteudo_documento
 from .models import DocumentoFiscal, FiscalConfig
@@ -82,10 +82,25 @@ def montar_zip_contabilidade(loja, cfg: FiscalConfig, *, ano: int, mes: int) -> 
     return buf.getvalue(), nome_zip
 
 
+def smtp_contabilidade_configurado() -> bool:
+    import os
+
+    if (os.getenv('SMTP_HOST') or '').strip():
+        return True
+    host = (getattr(settings, 'EMAIL_HOST', None) or '').strip()
+    return bool(host and host not in ('localhost', '127.0.0.1'))
+
+
 def enviar_zip_por_email(destino: str, assunto: str, corpo: str, zip_bytes: bytes, nome_arquivo: str):
+    if not smtp_contabilidade_configurado():
+        raise RuntimeError(
+            'E-mail não configurado no servidor. Informe SMTP_HOST, SMTP_PORT, SMTP_USER, '
+            'SMTP_PASSWORD e SMTP_FROM no arquivo .env (mesmas variáveis dos alertas).'
+        )
     msg = EmailMessage(
         subject=assunto,
         body=corpo,
+        from_email=settings.DEFAULT_FROM_EMAIL,
         to=[destino],
     )
     msg.attach(nome_arquivo, zip_bytes, 'application/zip')

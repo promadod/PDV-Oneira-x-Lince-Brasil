@@ -6,7 +6,7 @@
 <h2>Contabilidade</h2>
 <p style="color:#aaa;">Pacote mensal com XMLs, PDFs/DANFCE e listagem (padrão NetFiscal).</p>
 
-<form method="post" class="card" style="padding:20px;margin-bottom:20px;max-width:720px;" id="form-contabilidade-mes">
+<form method="post" class="card contabilidade-form" style="padding:20px;margin-bottom:20px;max-width:720px;" id="form-contabilidade-mes" data-submit-lock-msg="Processando…">
     {% csrf_token %}
     <div style="margin-bottom:14px;">
         <label>{{ form.mes_referencia.label }}</label>
@@ -22,42 +22,84 @@
     </div>
     <p style="color:#888;font-size:0.9em;">{{ stats.total_pacote }} documento(s) no pacote (com XML quando disponível).</p>
     {% endif %}
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin:16px 0;">
-        <div class="card" style="padding:16px;">
+
+    <div class="contabilidade-acoes-par">
+        <div class="contabilidade-acao-card card">
             <h3 style="color:#15a0a5;margin-top:0;">Baixar pacote</h3>
-            <p style="color:#888;font-size:0.9em;">.zip com XMLs + PDFs/DANFCE + LISTAGEM.txt</p>
-            <button type="button" class="btn" style="width:100%;" id="btn-baixar-pacote">Baixar pacote (.zip)</button>
+            <p class="contabilidade-acao-desc">.zip com XMLs + PDFs/DANFCE + LISTAGEM.txt</p>
+            <button type="button" class="btn contabilidade-acao-btn" id="btn-baixar-pacote">Baixar pacote (.zip)</button>
         </div>
-        <div class="card" style="padding:16px;">
+        <div class="contabilidade-acao-card card">
             <h3 style="color:#15a0a5;margin-top:0;">Enviar por e-mail</h3>
             <label>{{ form.email_destino.label }}</label>
             <input type="email" name="email_destino" class="form-control" value="{{ form.email_destino.value|default:'' }}">
-            <button type="submit" name="acao" value="email" class="btn" style="width:100%;margin-top:12px;">Enviar por e-mail</button>
+            <button type="submit" name="acao" value="email" class="btn contabilidade-acao-btn">Enviar por e-mail</button>
         </div>
     </div>
-    <div class="card" style="padding:16px;">
+
+    <div class="card contabilidade-acao-card" style="padding:16px;margin-top:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Enviar por WhatsApp</h3>
         <label>{{ form.whatsapp_destino.label }}</label>
         <input type="text" name="whatsapp_destino" class="form-control" placeholder="5511999999999"
                value="{{ form.whatsapp_destino.value|default:'' }}">
-        <button type="submit" name="acao" value="whatsapp" class="btn" style="width:100%;margin-top:12px;">Abrir WhatsApp com aviso</button>
-        <p style="color:#888;font-size:0.85em;margin-top:8px;">Baixe o ZIP acima e anexe na conversa (integração API WhatsApp em evolução).</p>
+        <button type="submit" name="acao" value="whatsapp" class="btn contabilidade-acao-btn" style="max-width:360px;">Abrir WhatsApp com aviso</button>
+        <p style="color:#888;font-size:0.85em;margin-top:8px;margin-bottom:0;">Baixe o ZIP e anexe na conversa (envio automático do arquivo em evolução).</p>
     </div>
     <button type="submit" name="acao" value="atualizar" class="btn" style="margin-top:12px;background:#444;color:#fff;">Atualizar resumo</button>
 </form>
+
+<style>
+.contabilidade-acoes-par {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 16px 0;
+    align-items: stretch;
+}
+.contabilidade-acao-card {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+}
+.contabilidade-acao-desc {
+    color: #888;
+    font-size: 0.9em;
+    flex: 1;
+    margin: 0 0 12px;
+}
+.contabilidade-acao-card label {
+    margin-bottom: 6px;
+}
+.contabilidade-acao-card .form-control {
+    margin-bottom: 12px;
+}
+.contabilidade-acao-btn {
+    width: 100%;
+    margin-top: auto;
+}
+@media (max-width: 640px) {
+    .contabilidade-acoes-par { grid-template-columns: 1fr; }
+}
+</style>
+
 <script>
 (function () {
     var btn = document.getElementById('btn-baixar-pacote');
     var mes = document.getElementById('id_mes_referencia');
-    if (!btn || !mes) return;
-    btn.addEventListener('click', function () {
-        var v = (mes.value || '').trim();
-        if (!v) {
-            alert('Selecione o mês de referência.');
-            return;
-        }
-        window.location.href = '{% url "fiscal_contabilidade_baixar" %}?mes=' + encodeURIComponent(v);
-    });
+    if (btn && mes) {
+        btn.addEventListener('click', function () {
+            var v = (mes.value || '').trim();
+            if (!v) {
+                alert('Selecione o mês de referência.');
+                return;
+            }
+            window.location.href = '{% url "fiscal_contabilidade_baixar" %}?mes=' + encodeURIComponent(v);
+        });
+    }
+    {% if whatsapp_link %}
+    window.open("{{ whatsapp_link|escapejs }}", '_blank', 'noopener,noreferrer');
+    {% endif %}
 })();
 </script>
 {% endblock %}
