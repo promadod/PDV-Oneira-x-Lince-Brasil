@@ -1,0 +1,116 @@
+/* Fiscal → Contabilidade (evita flex global que estica o card) */
+.contabilidade-form {
+    padding: 20px;
+    margin-bottom: 20px;
+    max-width: 720px;
+}
+
+.contabilidade-field {
+    margin-bottom: 14px;
+}
+
+.contabilidade-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 16px;
+}
+
+.contabilidade-stat {
+    padding: 12px !important;
+    margin-bottom: 0 !important;
+    text-align: center;
+}
+
+.contabilidade-stats-legenda {
+    color: #888;
+    font-size: 0.9em;
+    margin: 0 0 16px;
+}
+
+.contabilidade-subtitulo {
+    color: #15a0a5;
+    margin: 0 0 10px;
+    font-size: 1.05rem;
+}
+
+.contabilidade-acoes-par {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin: 0 0 16px;
+    align-items: stretch;
+}
+
+.contabilidade-par-col {
+    padding: 16px !important;
+    margin-bottom: 0 !important;
+    display: flex;
+    flex-direction: column;
+}
+
+.contabilidade-par-texto {
+    color: #888;
+    font-size: 0.9em;
+    margin: 0 0 12px;
+    flex: 1 1 auto;
+}
+
+.contabilidade-par-col label {
+    margin-bottom: 6px;
+}
+
+.contabilidade-par-col .form-control {
+    margin-bottom: 12px;
+}
+
+.contabilidade-par-btn {
+    width: 100%;
+    margin-top: auto;
+}
+
+.contabilidade-wa-box {
+    padding: 16px !important;
+    margin-bottom: 16px !important;
+}
+
+.contabilidade-wa-input {
+    max-width: 360px;
+    margin-bottom: 12px !important;
+}
+
+.contabilidade-wa-btn {
+    display: inline-block;
+    width: auto;
+    min-width: 220px;
+    max-width: 100%;
+    margin-top: 0;
+}
+
+.contabilidade-wa-ajuda {
+    color: #888;
+    font-size: 0.85em;
+    margin: 10px 0 0;
+}
+
+.contabilidade-btn-atualizar {
+    margin-top: 0;
+    background: #444;
+    color: #fff;
+}
+
+.contabilidade-wa-banner {
+    max-width: 720px;
+    padding: 14px 16px !important;
+    margin-bottom: 16px !important;
+    border: 1px solid rgba(3, 218, 198, 0.35);
+}
+
+@media (max-width: 640px) {
+    .contabilidade-acoes-par {
+        grid-template-columns: 1fr;
+    }
+    .contabilidade-stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}

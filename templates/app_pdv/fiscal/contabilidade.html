@@ -1,4 +1,5 @@
 {% extends 'base.html' %}
+{% load static %}
 {% block title %}Contabilidade fiscal{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
@@ -6,83 +7,57 @@
 <h2>Contabilidade</h2>
 <p style="color:#aaa;">Pacote mensal com XMLs, PDFs/DANFCE e listagem (padrão NetFiscal).</p>
 
-<form method="post" class="card contabilidade-form" style="padding:20px;margin-bottom:20px;max-width:720px;" id="form-contabilidade-mes" data-submit-lock-msg="Processando…">
+{% if whatsapp_link %}
+<div class="contabilidade-wa-banner card">
+    <p style="margin:0 0 10px;color:#ccc;font-size:0.95em;">Conversa pronta — clique para abrir o WhatsApp e envie o ZIP manualmente.</p>
+    <a href="{{ whatsapp_link }}" class="btn" target="_blank" rel="noopener noreferrer" id="link-wa-contabilidade">Abrir WhatsApp</a>
+</div>
+{% endif %}
+
+<form method="post" class="card contabilidade-form" id="form-contabilidade-mes" data-submit-lock-msg="Processando…">
     {% csrf_token %}
-    <div style="margin-bottom:14px;">
+    <div class="contabilidade-field">
         <label>{{ form.mes_referencia.label }}</label>
         <input type="month" name="mes_referencia" id="id_mes_referencia" class="form-control"
                value="{{ mes_referencia|default:form.mes_referencia.value }}" required>
     </div>
     {% if stats %}
-    <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;">
-        <div class="card" style="padding:12px;text-align:center;"><strong style="color:#03dac6;">{{ stats.autorizados }}</strong><br><small>Autorizadas</small></div>
-        <div class="card" style="padding:12px;text-align:center;"><strong>{{ stats.cancelados }}</strong><br><small>Canceladas</small></div>
-        <div class="card" style="padding:12px;text-align:center;"><strong>{{ stats.inutilizados }}</strong><br><small>Inutilizadas</small></div>
-        <div class="card" style="padding:12px;text-align:center;"><strong style="color:#cf6679;">{{ stats.erros }}</strong><br><small>Com erro</small></div>
+    <div class="contabilidade-stats-grid">
+        <div class="card contabilidade-stat"><strong style="color:#03dac6;">{{ stats.autorizados }}</strong><br><small>Autorizadas</small></div>
+        <div class="card contabilidade-stat"><strong>{{ stats.cancelados }}</strong><br><small>Canceladas</small></div>
+        <div class="card contabilidade-stat"><strong>{{ stats.inutilizados }}</strong><br><small>Inutilizadas</small></div>
+        <div class="card contabilidade-stat"><strong style="color:#cf6679;">{{ stats.erros }}</strong><br><small>Com erro</small></div>
     </div>
-    <p style="color:#888;font-size:0.9em;">{{ stats.total_pacote }} documento(s) no pacote (com XML quando disponível).</p>
+    <p class="contabilidade-stats-legenda">{{ stats.total_pacote }} documento(s) no pacote (com XML quando disponível).</p>
     {% endif %}
 
     <div class="contabilidade-acoes-par">
-        <div class="contabilidade-acao-card card">
-            <h3 style="color:#15a0a5;margin-top:0;">Baixar pacote</h3>
-            <p class="contabilidade-acao-desc">.zip com XMLs + PDFs/DANFCE + LISTAGEM.txt</p>
-            <button type="button" class="btn contabilidade-acao-btn" id="btn-baixar-pacote">Baixar pacote (.zip)</button>
+        <div class="contabilidade-par-col card">
+            <h3 class="contabilidade-subtitulo">Baixar pacote</h3>
+            <p class="contabilidade-par-texto">.zip com XMLs + PDFs/DANFCE + LISTAGEM.txt</p>
+            <button type="button" class="btn contabilidade-par-btn" id="btn-baixar-pacote">Baixar pacote (.zip)</button>
         </div>
-        <div class="contabilidade-acao-card card">
-            <h3 style="color:#15a0a5;margin-top:0;">Enviar por e-mail</h3>
+        <div class="contabilidade-par-col card">
+            <h3 class="contabilidade-subtitulo">Enviar por e-mail</h3>
             <label>{{ form.email_destino.label }}</label>
             <input type="email" name="email_destino" class="form-control" value="{{ form.email_destino.value|default:'' }}">
-            <button type="submit" name="acao" value="email" class="btn contabilidade-acao-btn">Enviar por e-mail</button>
+            <button type="submit" name="acao" value="email" class="btn contabilidade-par-btn">Enviar por e-mail</button>
         </div>
     </div>
 
-    <div class="card contabilidade-acao-card" style="padding:16px;margin-top:16px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Enviar por WhatsApp</h3>
+    <div class="card contabilidade-wa-box">
+        <h3 class="contabilidade-subtitulo">Enviar por WhatsApp</h3>
         <label>{{ form.whatsapp_destino.label }}</label>
-        <input type="text" name="whatsapp_destino" class="form-control" placeholder="5511999999999"
+        <input type="text" name="whatsapp_destino" class="form-control contabilidade-wa-input" placeholder="5511999999999"
                value="{{ form.whatsapp_destino.value|default:'' }}">
-        <button type="submit" name="acao" value="whatsapp" class="btn contabilidade-acao-btn" style="max-width:360px;">Abrir WhatsApp com aviso</button>
-        <p style="color:#888;font-size:0.85em;margin-top:8px;margin-bottom:0;">Baixe o ZIP e anexe na conversa (envio automático do arquivo em evolução).</p>
+        <button type="submit" name="acao" value="whatsapp" class="btn contabilidade-wa-btn">Abrir WhatsApp com aviso</button>
+        <p class="contabilidade-wa-ajuda">Baixe o ZIP e anexe na conversa (envio automático do arquivo em evolução).</p>
     </div>
-    <button type="submit" name="acao" value="atualizar" class="btn" style="margin-top:12px;background:#444;color:#fff;">Atualizar resumo</button>
+
+    <button type="submit" name="acao" value="atualizar" class="btn contabilidade-btn-atualizar">Atualizar resumo</button>
 </form>
 
-<style>
-.contabilidade-acoes-par {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    gap: 16px;
-    margin: 16px 0;
-    align-items: stretch;
-}
-.contabilidade-acao-card {
-    padding: 16px;
-    display: flex;
-    flex-direction: column;
-    min-height: 100%;
-}
-.contabilidade-acao-desc {
-    color: #888;
-    font-size: 0.9em;
-    flex: 1;
-    margin: 0 0 12px;
-}
-.contabilidade-acao-card label {
-    margin-bottom: 6px;
-}
-.contabilidade-acao-card .form-control {
-    margin-bottom: 12px;
-}
-.contabilidade-acao-btn {
-    width: 100%;
-    margin-top: auto;
-}
-@media (max-width: 640px) {
-    .contabilidade-acoes-par { grid-template-columns: 1fr; }
-}
-</style>
-
+<link rel="stylesheet" href="{% static 'css/contabilidade.css' %}">
 <script>
 (function () {
     var btn = document.getElementById('btn-baixar-pacote');
@@ -97,9 +72,10 @@
             window.location.href = '{% url "fiscal_contabilidade_baixar" %}?mes=' + encodeURIComponent(v);
         });
     }
-    {% if whatsapp_link %}
-    window.open("{{ whatsapp_link|escapejs }}", '_blank', 'noopener,noreferrer');
-    {% endif %}
+    var wa = document.getElementById('link-wa-contabilidade');
+    if (wa) {
+        try { wa.click(); } catch (e) { /* popup bloqueado — usuário clica no banner */ }
+    }
 })();
 </script>
 {% endblock %}

@@ -678,15 +678,18 @@ def fiscal_contabilidade(request):
         'email_destino': cfg.email_contabilidade or cfg.email_envio_xml or '',
         'whatsapp_destino': cfg.whatsapp_contabilidade or '',
     }
-    form = ContabilidadePeriodoForm(request.POST or None, initial=initial)
-    stats = None
     mes_ref_atual = (
         request.GET.get('mes', '').strip()
         or (request.POST.get('mes_referencia') if request.method == 'POST' else '')
         or initial['mes_referencia']
     )
+    initial['mes_referencia'] = mes_ref_atual
+    form = ContabilidadePeriodoForm(request.POST or None, initial=initial)
+    stats = None
     parsed_atual = _parse_mes_referencia(mes_ref_atual)
-    whatsapp_link = request.session.pop('fiscal_contabilidade_wa', None)
+    whatsapp_link = None
+    if request.method != 'POST':
+        whatsapp_link = request.session.pop('fiscal_contabilidade_wa', None)
     if parsed_atual:
         from .contabilidade_service import resumo_contabilidade
         stats = resumo_contabilidade(loja, ano=parsed_atual[0], mes=parsed_atual[1])
@@ -747,7 +750,8 @@ def fiscal_contabilidade(request):
                 messages.error(request, 'Número de WhatsApp inválido. Use DDD + número (ex.: 5511999999999).')
                 return _redirect_contabilidade(mes_ref)
             request.session['fiscal_contabilidade_wa'] = link
-            messages.info(request, 'Abrindo WhatsApp — anexe o ZIP baixado na conversa.')
+            request.session.modified = True
+            messages.info(request, 'Clique em «Abrir WhatsApp» no topo se a conversa não abrir sozinha.')
             return _redirect_contabilidade(mes_ref)
     return render(
         request,
