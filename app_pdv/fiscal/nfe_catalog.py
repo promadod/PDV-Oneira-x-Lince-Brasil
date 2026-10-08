@@ -33,6 +33,31 @@ FINALIDADE_NFE = [
     ('6', 'Nota de débito'),
 ]
 
+INDICADOR_IE_DESTINATARIO = [
+    ('9', '9 — Não contribuinte ICMS'),
+    ('2', '2 — Contribuinte isento de IE'),
+    ('1', '1 — Contribuinte ICMS (informar IE)'),
+]
+
+PRESENCA_COMPRADOR_NFE = [
+    ('0', '0 — Não se aplica'),
+    ('1', '1 — Operação presencial'),
+    ('2', '2 — Pela internet'),
+    ('3', '3 — Teleatendimento'),
+    ('4', '4 — Entrega a domicílio'),
+    ('5', '5 — Fora do estabelecimento'),
+    ('9', '9 — Outros'),
+]
+
+MODALIDADE_FRETE_NFE = [
+    ('9', '9 — Sem ocorrência de transporte'),
+    ('0', '0 — Por conta do emitente'),
+    ('1', '1 — Por conta do destinatário'),
+    ('2', '2 — Por conta de terceiros'),
+    ('3', '3 — Transporte próprio (emitente)'),
+    ('4', '4 — Transporte próprio (destinatário)'),
+]
+
 
 def natureza_por_cfop(cfop: str) -> str:
     for c, desc in NATUREZAS_NFE_UNICAS:

@@ -126,6 +126,12 @@ def _nfe_dados_from_payload(payload: dict, produto) -> dict:
         'uf': payload.get('uf_destinatario') or '',
         'cep': payload.get('cep_destinatario') or '',
         'codigo_municipio': payload.get('codigo_municipio_destinatario') or '',
+        'complemento': payload.get('complemento_destinatario') or '',
+        'indicador_ie_destinatario': payload.get('indicador_inscricao_estadual_destinatario') or '9',
+        'inscricao_estadual_destinatario': payload.get('inscricao_estadual_destinatario') or '',
+        'presenca_comprador': payload.get('presenca_comprador') or '1',
+        'modalidade_frete': payload.get('modalidade_frete') or '9',
+        'valor_frete': float(payload.get('valor_frete') or 0),
     }
 
 

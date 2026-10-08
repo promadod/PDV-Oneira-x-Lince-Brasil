@@ -254,6 +254,12 @@ class EmitirNFeForm(forms.Form):
     preco_unitario = forms.DecimalField(min_value=Decimal('0.01'), decimal_places=2, required=False)
     valor_desconto = forms.DecimalField(min_value=Decimal('0'), initial=Decimal('0'), decimal_places=2, required=False)
     valor_acrescimo = forms.DecimalField(min_value=Decimal('0'), initial=Decimal('0'), decimal_places=2, required=False)
+    presenca_comprador = forms.ChoiceField(
+        label='Presença do comprador',
+        choices=[],
+        initial='1',
+        widget=forms.Select(attrs={'class': 'form-control'}),
+    )
     forma_pagamento = forms.ChoiceField(
         choices=FORMA_PAGAMENTO_FISCAL,
         initial='99',
@@ -268,6 +274,21 @@ class EmitirNFeForm(forms.Form):
         required=False,
         label='CPF destinatário',
         widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_cpf_destinatario'}),
+    )
+    indicador_ie_destinatario = forms.ChoiceField(
+        label='Indicador IE (destinatário)',
+        choices=[],
+        initial='9',
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'id_indicador_ie_destinatario'}),
+    )
+    inscricao_estadual_destinatario = forms.CharField(
+        required=False,
+        label='Inscrição Estadual (IE)',
+        widget=forms.TextInput(attrs={
+            'class': 'form-control',
+            'id': 'id_inscricao_estadual_destinatario',
+            'placeholder': 'Somente números — obrigatório se contribuinte ICMS',
+        }),
     )
     nome_destinatario = forms.CharField(
         label='Nome / razão social *',
@@ -284,6 +305,11 @@ class EmitirNFeForm(forms.Form):
     numero = forms.CharField(
         label='Número *',
         widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_numero'}),
+    )
+    complemento = forms.CharField(
+        required=False,
+        label='Complemento',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_complemento'}),
     )
     bairro = forms.CharField(
         label='Bairro *',
@@ -302,18 +328,64 @@ class EmitirNFeForm(forms.Form):
         required=False,
         widget=forms.HiddenInput(attrs={'id': 'id_codigo_municipio'}),
     )
+    modalidade_frete = forms.ChoiceField(
+        label='Frete por conta',
+        choices=[],
+        initial='9',
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'id_modalidade_frete'}),
+    )
+    valor_frete = forms.DecimalField(
+        required=False,
+        min_value=Decimal('0'),
+        initial=Decimal('0'),
+        decimal_places=2,
+        label='Valor do frete (R$)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.01', 'id': 'id_valor_frete'}),
+    )
+    quantidade_volumes = forms.IntegerField(
+        required=False,
+        min_value=0,
+        initial=0,
+        label='Quantidade de volumes',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'id': 'id_quantidade_volumes'}),
+    )
+    peso_bruto = forms.DecimalField(
+        required=False,
+        min_value=Decimal('0'),
+        initial=Decimal('0'),
+        decimal_places=3,
+        label='Peso bruto (kg)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001', 'id': 'id_peso_bruto'}),
+    )
+    peso_liquido = forms.DecimalField(
+        required=False,
+        min_value=Decimal('0'),
+        initial=Decimal('0'),
+        decimal_places=3,
+        label='Peso líquido (kg)',
+        widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001', 'id': 'id_peso_liquido'}),
+    )
 
     def __init__(self, *args, loja=None, **kwargs):
         super().__init__(*args, **kwargs)
         from app_pdv.models import Produto
 
-        from .nfe_catalog import FINALIDADE_NFE, NATUREZAS_NFE_UNICAS
+        from .nfe_catalog import (
+            FINALIDADE_NFE,
+            INDICADOR_IE_DESTINATARIO,
+            MODALIDADE_FRETE_NFE,
+            NATUREZAS_NFE_UNICAS,
+            PRESENCA_COMPRADOR_NFE,
+        )
         from .services import get_or_create_config
 
         self.fields['natureza_cfop'].choices = [('', '— Selecione —')] + [
             (cfop, f'{cfop} — {desc}') for cfop, desc in NATUREZAS_NFE_UNICAS
         ]
         self.fields['finalidade_emissao'].choices = FINALIDADE_NFE
+        self.fields['presenca_comprador'].choices = PRESENCA_COMPRADOR_NFE
+        self.fields['indicador_ie_destinatario'].choices = INDICADOR_IE_DESTINATARIO
+        self.fields['modalidade_frete'].choices = MODALIDADE_FRETE_NFE
         cfg = get_or_create_config(loja) if loja else None
         serie = str(cfg.serie_nfe if cfg else 1)
         self.fields['serie'].widget = forms.Select(
@@ -324,8 +396,9 @@ class EmitirNFeForm(forms.Form):
 
         for name, field in self.fields.items():
             if name not in (
-                'finalidade_emissao', 'forma_pagamento',
+                'finalidade_emissao', 'forma_pagamento', 'presenca_comprador',
                 'produto_id', 'natureza_cfop', 'serie', 'codigo_municipio',
+                'indicador_ie_destinatario', 'modalidade_frete',
             ):
                 field.widget.attrs.setdefault('class', 'form-control')
         qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
@@ -353,6 +426,17 @@ class EmitirNFeForm(forms.Form):
             raise forms.ValidationError('CNPJ destinatário inválido.')
         if cpf and len(cpf) != 11:
             raise forms.ValidationError('CPF destinatário inválido.')
+        if cpf:
+            cleaned['indicador_ie_destinatario'] = '9'
+            cleaned['inscricao_estadual_destinatario'] = ''
+        if cnpj:
+            ind = str(cleaned.get('indicador_ie_destinatario') or '9')
+            ie = ''.join(c for c in (cleaned.get('inscricao_estadual_destinatario') or '') if c.isdigit())
+            if ind == '1' and not ie:
+                raise forms.ValidationError(
+                    'Informe a IE do destinatário ou altere o indicador para isento / não contribuinte.',
+                )
+            cleaned['inscricao_estadual_destinatario'] = ie
         if not (cleaned.get('nome_destinatario') or '').strip():
             raise forms.ValidationError('Nome do destinatário é obrigatório.')
         cep = ''.join(c for c in (cleaned.get('cep') or '') if c.isdigit())

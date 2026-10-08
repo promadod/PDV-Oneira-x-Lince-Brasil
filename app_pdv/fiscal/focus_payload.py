@@ -168,6 +168,31 @@ def montar_payload_nfce_avulso(
     return payload
 
 
+def _aplicar_ie_destinatario_nfe(payload: dict, dados: dict, *, destinatario_cnpj: bool):
+    """indIEDest + IE conforme MOC NF-e (Focus: inscricao_estadual_destinatario)."""
+    if not destinatario_cnpj:
+        payload['indicador_inscricao_estadual_destinatario'] = '9'
+        payload.pop('inscricao_estadual_destinatario', None)
+        return
+    ind = str(dados.get('indicador_ie_destinatario') or '9').strip()
+    ie_raw = (dados.get('inscricao_estadual_destinatario') or '').strip()
+    ie_digits = ''.join(c for c in ie_raw if c.isdigit())
+    if ind == '1':
+        if not ie_digits:
+            raise ValueError(
+                'Informe a Inscrição Estadual (IE) do destinatário ou selecione '
+                '“Isento de IE” / “Não contribuinte”.',
+            )
+        payload['indicador_inscricao_estadual_destinatario'] = '1'
+        payload['inscricao_estadual_destinatario'] = ie_digits[:14]
+    elif ind == '2':
+        payload['indicador_inscricao_estadual_destinatario'] = '2'
+        payload.pop('inscricao_estadual_destinatario', None)
+    else:
+        payload['indicador_inscricao_estadual_destinatario'] = '9'
+        payload.pop('inscricao_estadual_destinatario', None)
+
+
 def _aplicar_endereco_destinatario_nfe(payload: dict, dados: dict):
     logradouro = (dados.get('logradouro') or '').strip()
     bairro = (dados.get('bairro') or '').strip()
@@ -180,6 +205,9 @@ def _aplicar_endereco_destinatario_nfe(payload: dict, dados: dict):
         )
     payload['logradouro_destinatario'] = logradouro[:60]
     payload['numero_destinatario'] = str(dados.get('numero') or 'S/N')[:10]
+    compl = (dados.get('complemento') or '').strip()
+    if compl:
+        payload['complemento_destinatario'] = compl[:60]
     payload['bairro_destinatario'] = bairro[:60]
     payload['municipio_destinatario'] = municipio[:60]
     payload['uf_destinatario'] = uf
@@ -210,12 +238,12 @@ def montar_payload_nfe_de_venda(cfg: FiscalConfig, loja, venda) -> dict:
         if len(cnpj) == 14:
             payload['cnpj_destinatario'] = cnpj
             payload['nome_destinatario'] = nome
-            payload['indicador_inscricao_estadual_destinatario'] = '9'
+            _aplicar_ie_destinatario_nfe(payload, endereco_dados, destinatario_cnpj=True)
             _aplicar_endereco_destinatario_nfe(payload, endereco_dados)
         elif len(cpf) == 11:
             payload['cpf_destinatario'] = cpf
             payload['nome_destinatario'] = nome
-            payload['indicador_inscricao_estadual_destinatario'] = '9'
+            _aplicar_ie_destinatario_nfe(payload, endereco_dados, destinatario_cnpj=False)
             _aplicar_endereco_destinatario_nfe(payload, endereco_dados)
     return payload
 
@@ -264,15 +292,18 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         payload['valor_desconto'] = desconto
     if acrescimo > 0:
         payload['valor_outras_despesas'] = acrescimo
+    frete = round(max(float(dados.get('valor_frete') or 0), 0), 2)
+    if frete > 0:
+        payload['valor_frete'] = frete
     nome_dest = (dados.get('nome_destinatario') or '').strip()[:60]
     if len(cnpj_dest) == 14:
         payload['cnpj_destinatario'] = cnpj_dest
         payload['nome_destinatario'] = nome_dest or 'DESTINATARIO'
-        payload['indicador_inscricao_estadual_destinatario'] = dados.get('ie_destinatario') or '9'
+        _aplicar_ie_destinatario_nfe(payload, dados, destinatario_cnpj=True)
     elif len(cpf_dest) == 11:
         payload['cpf_destinatario'] = cpf_dest
         payload['nome_destinatario'] = nome_dest or 'CONSUMIDOR'
-        payload['indicador_inscricao_estadual_destinatario'] = '9'
+        _aplicar_ie_destinatario_nfe(payload, dados, destinatario_cnpj=False)
     else:
         raise ValueError('Informe CPF ou CNPJ do destinatário para NF-e.')
     _aplicar_endereco_destinatario_nfe(payload, dados)

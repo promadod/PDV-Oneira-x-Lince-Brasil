@@ -24,10 +24,39 @@
 .modal-cliente-box label { display: block; margin: 10px 0 4px; font-size: 0.9em; }
 .modal-cliente-box input { width: 100%; box-sizing: border-box; }
 .modal-cliente-acoes { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+.nfe-page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.nfe-badge-saida { background: rgba(21,160,165,0.2); border: 1px solid rgba(21,160,165,0.5); color: #03dac6; padding: 8px 14px; border-radius: 8px; font-size: 0.9em; }
+.nfe-accordion { margin-bottom: 10px; border: 1px solid #333; border-radius: 8px; overflow: hidden; background: #1a1a1a; }
+.nfe-accordion summary {
+    list-style: none; cursor: pointer; padding: 14px 18px; font-weight: 600; color: #e0e0e0;
+    display: flex; justify-content: space-between; align-items: center; user-select: none;
+    background: linear-gradient(180deg, #252525 0%, #1e1e1e 100%);
+}
+.nfe-accordion summary::-webkit-details-marker { display: none; }
+.nfe-accordion summary::after { content: '▾'; color: #888; font-size: 0.85em; }
+.nfe-accordion[open] summary::after { transform: rotate(180deg); }
+.nfe-accordion summary .nfe-card-extra { font-weight: normal; color: #15a0a5; font-size: 0.9em; }
+.nfe-accordion-body { padding: 16px 18px 20px; border-top: 1px solid #333; }
+.nfe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.nfe-grid .span-2 { grid-column: 1 / -1; }
+.nfe-total-bar {
+    margin: 16px 0; padding: 16px 20px; border-radius: 8px;
+    background: linear-gradient(90deg, #0d4f6e 0%, #15a0a5 100%);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.nfe-total-bar strong { font-size: 1.25em; color: #fff; }
+.nfe-hint { font-size: 0.85em; color: #888; margin: 6px 0 0; }
+.nfe-field-ie.is-hidden { display: none; }
+label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
 </style>
 
-<h2>NF-e (modelo 55)</h2>
-<p style="color:#aaa;">Emissão com destinatário, natureza, CFOP e item (exigências SEFAZ).</p>
+<div class="nfe-page-header">
+    <div>
+        <h2 style="margin:0;">Cadastrar NF-e (modelo 55)</h2>
+        <p style="color:#aaa;margin:8px 0 0;">Fiscal → NF-e — saída com destinatário, tributos e transporte.</p>
+    </div>
+    <div class="nfe-badge-saida"><i class="fas fa-file-export"></i> NF-e Saída</div>
+</div>
 
 <datalist id="lista_clientes_nfe">
     {% for cliente in clientes %}
@@ -50,9 +79,7 @@
         <input type="text" id="modal_cliente_bairro" class="form-control">
         <div class="modal-cliente-acoes">
             <button type="button" class="btn" id="btn-modal-cliente-cancelar" style="background:#555;color:#fff;">Cancelar</button>
-            <button type="button" class="btn" id="btn-modal-cliente-salvar" style="background:var(--accent,#15a0a5);color:#000;">
-                Salvar
-            </button>
+            <button type="button" class="btn" id="btn-modal-cliente-salvar" style="background:var(--accent,#15a0a5);color:#000;">Salvar</button>
         </div>
     </div>
 </div>
@@ -60,52 +87,124 @@
 <form method="post" data-submit-lock-msg="Emitindo NF-e…">
     {% csrf_token %}
     {{ form.codigo_municipio }}
-    <div class="card" style="padding:20px;margin-bottom:16px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Natureza</h3>
-        <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;">
-            <div><label>Natureza</label>{{ form.natureza_cfop }}</div>
+
+    <details class="nfe-accordion" open>
+        <summary>Natureza da operação</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2"><label>Natureza (CFOP)</label>{{ form.natureza_cfop }}</div>
             <div><label>CFOP</label>{{ form.cfop }}</div>
+            <div><label>Finalidade</label>{{ form.finalidade_emissao }}</div>
             <div><label>Série (referência local)</label>{{ form.serie }}</div>
-            <div><label>Finalidade da NF-e</label>{{ form.finalidade_emissao }}</div>
+            <div><label>Presença do comprador</label>{{ form.presenca_comprador }}</div>
+            <p class="span-2 nfe-hint" style="margin:0;">Numeração oficial no painel da API fiscal (não enviamos série/número no JSON).</p>
         </div>
-        <p style="font-size:0.85em;color:#888;margin:8px 0 0;">Numeração oficial é controlada no painel da API fiscal (não enviamos série/número no JSON).</p>
-    </div>
-    <div class="card" style="padding:20px;margin-bottom:16px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Destinatário</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div style="grid-column:1/-1;">
-                <label>Nome / razão social</label>
+    </details>
+
+    <details class="nfe-accordion" open>
+        <summary>Destinatário <span class="nfe-card-extra">Cliente / fornecedor</span></summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2">
+                <label>Nome / razão social *</label>
                 <div class="pdv-cliente-row">
                     {{ form.nome_destinatario }}
                     <button type="button" id="btn-novo-cliente" class="btn btn-novo-cliente" title="Cadastrar cliente"><i class="fas fa-plus"></i></button>
                 </div>
-                <p style="font-size:0.85em;color:#888;margin:6px 0 0;">Digite para sugerir clientes já cadastrados no PDV.</p>
+                <p class="nfe-hint">Sugestões dos clientes cadastrados no PDV.</p>
             </div>
             <div><label>CNPJ</label>{{ form.cnpj_destinatario }}</div>
             <div><label>CPF</label>{{ form.cpf_destinatario }}</div>
-            <div><label>CEP</label>{{ form.cep }}</div>
-            <div><label>Número</label>{{ form.numero }}</div>
-            <div style="grid-column:1/-1;"><label>Logradouro</label>{{ form.logradouro }}</div>
-            <div><label>Bairro</label>{{ form.bairro }}</div>
-            <div><label>Município</label>{{ form.municipio }}</div>
-            <div><label>UF</label>{{ form.uf }}</div>
+            <div><label>Indicador IE</label>{{ form.indicador_ie_destinatario }}</div>
+            <div class="nfe-field-ie" id="wrap_ie_destinatario"><label>Inscrição Estadual (IE)</label>{{ form.inscricao_estadual_destinatario }}</div>
+            <div><label>CEP *</label>{{ form.cep }}</div>
+            <div><label>Número *</label>{{ form.numero }}</div>
+            <div class="span-2"><label>Logradouro *</label>{{ form.logradouro }}</div>
+            <div><label>Complemento</label>{{ form.complemento }}</div>
+            <div><label>Bairro *</label>{{ form.bairro }}</div>
+            <div><label>Município *</label>{{ form.municipio }}</div>
+            <div><label>UF *</label>{{ form.uf }}</div>
         </div>
-    </div>
-    <div class="card" style="padding:20px;margin-bottom:16px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Itens</h3>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div style="grid-column:1/-1;"><label>Produto</label>{{ form.produto_id }}</div>
+    </details>
+
+    <details class="nfe-accordion" open>
+        <summary>Itens <span class="nfe-card-extra" id="nfe_resumo_itens">R$ 0,00</span></summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2"><label>Produto *</label>{{ form.produto_id }}</div>
             <div><label>Quantidade</label>{{ form.quantidade }}</div>
-            <div><label>Preço unitário</label>{{ form.preco_unitario }}</div>
+            <div><label>Preço unitário (R$)</label>{{ form.preco_unitario }}</div>
             <div><label>Desconto (R$)</label>{{ form.valor_desconto }}</div>
-            <div><label>Acréscimo (R$)</label>{{ form.valor_acrescimo }}</div>
-            <div><label>Pagamento</label>{{ form.forma_pagamento }}</div>
+            <div><label>Acréscimo / outras despesas (R$)</label>{{ form.valor_acrescimo }}</div>
         </div>
+    </details>
+
+    <details class="nfe-accordion">
+        <summary>Cálculo / totais</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div><label>Total produtos</label><input type="text" class="form-control" id="nfe_total_produtos" readonly value="R$ 0,00"></div>
+            <div><label>Desconto</label><input type="text" class="form-control" id="nfe_total_desconto" readonly value="R$ 0,00"></div>
+            <div><label>Frete</label><input type="text" class="form-control" id="nfe_total_frete" readonly value="R$ 0,00"></div>
+            <div><label>Acréscimo</label><input type="text" class="form-control" id="nfe_total_acrescimo" readonly value="R$ 0,00"></div>
+            <p class="span-2 nfe-hint" style="margin:0;">Impostos (ICMS, PIS, COFINS) calculados automaticamente pela API com base no cadastro fiscal do produto.</p>
+        </div>
+    </details>
+
+    <details class="nfe-accordion">
+        <summary>Transportador / volumes</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2"><label>Frete por conta</label>{{ form.modalidade_frete }}</div>
+            <div><label>Valor frete (R$)</label>{{ form.valor_frete }}</div>
+            <div><label>Quantidade volumes</label>{{ form.quantidade_volumes }}</div>
+            <div><label>Peso bruto (kg)</label>{{ form.peso_bruto }}</div>
+            <div><label>Peso líquido (kg)</label>{{ form.peso_liquido }}</div>
+        </div>
+    </details>
+
+    <details class="nfe-accordion" open>
+        <summary>Formas de pagamento</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div><label>Forma de pagamento</label>{{ form.forma_pagamento }}</div>
+        </div>
+    </details>
+
+    <div class="nfe-total-bar">
+        <span>Total da NF-e</span>
+        <strong id="nfe_total_geral">R$ 0,00</strong>
     </div>
+
     <button type="submit" class="btn btn-success">Emitir NF-e</button>
 </form>
+
 <script>
 (function () {
+    function brl(n) {
+        return 'R$ ' + (isNaN(n) ? 0 : n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function num(id) {
+        var el = document.getElementById(id);
+        if (!el) return 0;
+        return parseFloat(String(el.value || '').replace(',', '.')) || 0;
+    }
+    function recalcTotais() {
+        var qtd = num('id_quantidade');
+        var unit = num('id_preco_unitario');
+        var desc = num('id_valor_desconto');
+        var acres = num('id_valor_acrescimo');
+        var frete = num('id_valor_frete');
+        var bruto = Math.max(qtd * unit, 0);
+        var total = Math.max(bruto - desc + acres + frete, 0.01);
+        var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = brl(v); };
+        set('nfe_total_produtos', bruto);
+        set('nfe_total_desconto', desc);
+        set('nfe_total_acrescimo', acres);
+        set('nfe_total_frete', frete);
+        set('nfe_resumo_itens', total);
+        set('nfe_total_geral', total);
+    }
+    ['id_quantidade', 'id_preco_unitario', 'id_valor_desconto', 'id_valor_acrescimo', 'id_valor_frete'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('input', recalcTotais);
+    });
+    recalcTotais();
+
     var sel = document.getElementById('id_natureza_cfop');
     var cfop = document.getElementById('id_cfop');
     if (sel && cfop) {
@@ -114,21 +213,39 @@
         sync();
     }
 
+    var indIe = document.getElementById('id_indicador_ie_destinatario');
+    var wrapIe = document.getElementById('wrap_ie_destinatario');
+    function syncIeField() {
+        if (!indIe || !wrapIe) return;
+        wrapIe.classList.toggle('is-hidden', indIe.value !== '1');
+    }
+    if (indIe) {
+        indIe.addEventListener('change', syncIeField);
+        syncIeField();
+    }
+
+    var cnpjEl = document.getElementById('id_cnpj_destinatario');
+    var cpfEl = document.getElementById('id_cpf_destinatario');
+    function syncDocTipo() {
+        if (cpfEl && cpfEl.value.replace(/\D/g, '').length === 11 && indIe) {
+            indIe.value = '9';
+            syncIeField();
+        }
+    }
+    if (cpfEl) cpfEl.addEventListener('blur', syncDocTipo);
+
     var nomeInput = document.getElementById('id_nome_destinatario');
     var datalist = document.getElementById('lista_clientes_nfe');
     if (nomeInput && datalist) {
         nomeInput.addEventListener('change', function () {
             var val = nomeInput.value.trim();
-            var opts = datalist.querySelectorAll('option');
-            for (var i = 0; i < opts.length; i++) {
-                if (opts[i].value === val) {
-                    var log = document.getElementById('id_logradouro');
-                    var bairro = document.getElementById('id_bairro');
-                    if (log && opts[i].dataset.endereco) log.value = opts[i].dataset.endereco;
-                    if (bairro && opts[i].dataset.bairro) bairro.value = opts[i].dataset.bairro;
-                    break;
-                }
-            }
+            datalist.querySelectorAll('option').forEach(function (opt) {
+                if (opt.value !== val) return;
+                var log = document.getElementById('id_logradouro');
+                var bairro = document.getElementById('id_bairro');
+                if (log && opt.dataset.endereco) log.value = opt.dataset.endereco;
+                if (bairro && opt.dataset.bairro) bairro.value = opt.dataset.bairro;
+            });
         });
     }
 
@@ -140,14 +257,16 @@
             .then(function (r) { return r.json(); })
             .then(function (data) {
                 if (data.erro) return;
-                var log = document.getElementById('id_logradouro');
-                var bairro = document.getElementById('id_bairro');
-                var mun = document.getElementById('id_municipio');
-                var uf = document.getElementById('id_uf');
-                if (log && data.logradouro) log.value = data.logradouro;
-                if (bairro && data.bairro) bairro.value = data.bairro;
-                if (mun && data.localidade) mun.value = data.localidade;
-                if (uf && data.uf) uf.value = data.uf;
+                var map = {
+                    id_logradouro: data.logradouro,
+                    id_bairro: data.bairro,
+                    id_municipio: data.localidade,
+                    id_uf: data.uf
+                };
+                Object.keys(map).forEach(function (id) {
+                    var el = document.getElementById(id);
+                    if (el && map[id]) el.value = map[id];
+                });
                 if (ibgeEl && data.ibge) ibgeEl.value = data.ibge;
                 var num = document.getElementById('id_numero');
                 if (num && !num.value.trim()) num.focus();
@@ -156,8 +275,7 @@
     }
     if (cepEl) {
         cepEl.addEventListener('blur', function () {
-            var d = (cepEl.value || '').replace(/\D/g, '');
-            preencherEnderecoViaCep(d);
+            preencherEnderecoViaCep((cepEl.value || '').replace(/\D/g, ''));
         });
     }
 
@@ -165,33 +283,23 @@
     var btnNovo = document.getElementById('btn-novo-cliente');
     var btnSalvar = document.getElementById('btn-modal-cliente-salvar');
     var btnCancelar = document.getElementById('btn-modal-cliente-cancelar');
-
-    function fecharModal() {
-        if (modal) modal.classList.remove('aberto');
-    }
+    function fecharModal() { if (modal) modal.classList.remove('aberto'); }
     function abrirModal() {
         if (!modal) return;
-        document.getElementById('modal_cliente_nome').value = '';
-        document.getElementById('modal_cliente_whatsapp').value = '';
-        document.getElementById('modal_cliente_endereco').value = '';
-        document.getElementById('modal_cliente_bairro').value = '';
+        ['modal_cliente_nome', 'modal_cliente_whatsapp', 'modal_cliente_endereco', 'modal_cliente_bairro'].forEach(function (id) {
+            var e = document.getElementById(id);
+            if (e) e.value = '';
+        });
         modal.classList.add('aberto');
         document.getElementById('modal_cliente_nome').focus();
     }
     if (btnNovo) btnNovo.addEventListener('click', abrirModal);
     if (btnCancelar) btnCancelar.addEventListener('click', fecharModal);
-    if (modal) {
-        modal.addEventListener('click', function (e) {
-            if (e.target === modal) fecharModal();
-        });
-    }
+    if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) fecharModal(); });
     if (btnSalvar) {
         btnSalvar.addEventListener('click', async function () {
             var nome = document.getElementById('modal_cliente_nome').value.trim();
-            if (!nome) {
-                alert('Informe o nome do cliente.');
-                return;
-            }
+            if (!nome) { alert('Informe o nome do cliente.'); return; }
             btnSalvar.disabled = true;
             try {
                 var resp = await fetch('{% url "api_criar_cliente_pdv" %}', {
@@ -208,10 +316,7 @@
                     })
                 });
                 var data = await resp.json();
-                if (!resp.ok) {
-                    alert(data.erro || 'Não foi possível cadastrar o cliente.');
-                    return;
-                }
+                if (!resp.ok) { alert(data.erro || 'Não foi possível cadastrar.'); return; }
                 var opt = document.createElement('option');
                 opt.value = data.nome;
                 opt.dataset.endereco = data.endereco || '';
@@ -224,7 +329,7 @@
                 if (bairro && data.bairro) bairro.value = data.bairro;
                 fecharModal();
             } catch (err) {
-                alert('Erro de rede ao cadastrar cliente.');
+                alert('Erro de rede.');
             } finally {
                 btnSalvar.disabled = false;
             }
