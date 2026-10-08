@@ -21,6 +21,7 @@ urlpatterns = [
     path('emitir/', views.fiscal_emitir, name='fiscal_emitir'),
     path('emitir/avulsa/', views.fiscal_emitir_avulsa, name='fiscal_emitir_avulsa'),
     path('emitir/nfe/', views.fiscal_emitir_nfe, name='fiscal_emitir_nfe'),
+    path('natureza/criar/', views.fiscal_natureza_criar, name='fiscal_natureza_criar'),
     path('emitir/lote/', views.fiscal_emitir_lote, name='fiscal_emitir_lote'),
     path('contabilidade/', views.fiscal_contabilidade, name='fiscal_contabilidade'),
     path('contabilidade/baixar/', views.fiscal_contabilidade_baixar, name='fiscal_contabilidade_baixar'),

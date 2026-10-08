@@ -90,8 +90,58 @@ def tributacao_do_produto(loja, produto, dados: ProdutoDadosFiscais | None, *, i
     }
 
 
-def montar_item_focus_json(loja, produto, *, quantidade: float, preco_unitario: float, numero_item: int = 1,
-                           interestadual=False) -> dict:
+def aplicar_perfil_tributacao_item(item: dict, perfil: str) -> None:
+    if not perfil or perfil == 'produto':
+        return
+    csosn_map = {
+        'csosn_102': '102',
+        'csosn_500': '500',
+        'csosn_400': '400',
+        'csosn_300': '300',
+        'nao_tributada': '400',
+        'substituicao': '500',
+    }
+    csosn = csosn_map.get(perfil)
+    if csosn:
+        item['icms_situacao_tributaria'] = csosn
+
+
+def _aplicar_grupo_combustivel_focus(item: dict, dados, *, cfop: str, uf_consumo: str) -> None:
+    from .nfe_catalog import cfop_exige_grupo_combustivel
+
+    cfop_d = ''.join(c for c in (cfop or '') if c.isdigit())[:4]
+    anp = (dados.codigo_anp if dados else '').strip()
+    if cfop_exige_grupo_combustivel(cfop_d) and not anp:
+        raise ValueError(
+            f'CFOP {cfop_d} é de combustível: cadastre código ANP e descrição ANP no cadastro fiscal do produto.',
+        )
+    if not anp:
+        return
+    desc = ((dados.descricao_anp if dados else '') or 'GLP').strip()[:95]
+    uf = (uf_consumo or getattr(dados, 'uf', '') or 'RJ').strip().upper()[:2]
+    item['combustivel_codigo_anp'] = anp
+    item['combustivel_descricao_anp'] = desc
+    item['combustivel_sigla_uf'] = uf
+    if dados.pct_glp:
+        item['combustivel_percentual_glp'] = _dec(dados.pct_glp)
+    if dados.pct_gn_nacional:
+        item['combustivel_percentual_gas_natural_nacional'] = _dec(dados.pct_gn_nacional)
+    if dados.pct_gn_importado:
+        item['combustivel_percentual_gas_natural_importado'] = _dec(dados.pct_gn_importado)
+
+
+def montar_item_focus_json(
+    loja,
+    produto,
+    *,
+    quantidade: float,
+    preco_unitario: float,
+    numero_item: int = 1,
+    interestadual=False,
+    cfop_override: str | None = None,
+    uf_consumo: str = '',
+    perfil_tributacao: str = 'produto',
+) -> dict:
     try:
         dados = produto.dados_fiscais
     except ProdutoDadosFiscais.DoesNotExist:
@@ -140,4 +190,8 @@ def montar_item_focus_json(loja, produto, *, quantidade: float, preco_unitario: 
             item['percentual_gn_nacional'] = _dec(dados.pct_gn_nacional)
         if dados.pct_gn_importado:
             item['percentual_gn_importado'] = _dec(dados.pct_gn_importado)
+    if cfop_override:
+        item['cfop'] = str(cfop_override).replace('.', '')[:4]
+    aplicar_perfil_tributacao_item(item, perfil_tributacao)
+    _aplicar_grupo_combustivel_focus(item, dados, cfop=item['cfop'], uf_consumo=uf_consumo)
     return item

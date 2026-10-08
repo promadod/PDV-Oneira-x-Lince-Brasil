@@ -2,15 +2,16 @@
 {% block title %}Emitir documento fiscal{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
-<h2>5. Emitir NFC-e / NF-e / NFS-e</h2>
-<p style="color:#aaa;">Emissão eletrônica vinculada ao PDV quando possível.
-    <a href="{% url 'fiscal_emitir_lote' %}" style="color:#03dac6;">Emissão em lote</a> ·
-    <a href="{% url 'fiscal_emitir_avulsa' %}" style="color:#03dac6;">Emissão avulsa por produto</a>.</p>
-<form method="post" class="card" style="max-width:520px;margin-bottom:20px;" data-submit-lock-msg="Emitindo…">
+<h2>5. Emitir NFC-e</h2>
+<p style="color:#aaa;">Cupom fiscal eletrônico vinculado à venda do PDV.
+    <a href="{% url 'fiscal_emitir_lote' %}" style="color:#03dac6;">NFC-e em lote</a> ·
+    <a href="{% url 'fiscal_emitir_avulsa' %}" style="color:#03dac6;">Emissão avulsa por produto</a> ·
+    <a href="{% url 'fiscal_emitir_nfe' %}" style="color:#03dac6;">NF-e (modelo 55)</a>.</p>
+<form method="post" class="card" style="max-width:520px;margin-bottom:20px;" data-submit-lock-msg="Emitindo NFC-e…">
     {% csrf_token %}
-    <div style="margin-bottom:12px;"><label>Tipo</label>{{ form.tipo }}</div>
-    <div style="margin-bottom:12px;"><label>ID da venda (opcional)</label>{{ form.venda_id }}</div>
-    <button type="submit" class="btn btn-success">Emitir documento</button>
+    {{ form.tipo }}
+    <div style="margin-bottom:12px;"><label>ID da venda *</label>{{ form.venda_id }}</div>
+    <button type="submit" class="btn btn-success">Emitir NFC-e</button>
 </form>
 <div class="card">
     <h3 style="color:#15a0a5;">Vendas recentes</h3>

@@ -866,6 +866,34 @@ def fiscal_relatorio(request, slug):
 
 @login_required
 @requer_acesso_fiscal
+@require_POST
+def fiscal_natureza_criar(request):
+    loja = check_loja(request)
+    try:
+        data = json.loads(request.body)
+    except json.JSONDecodeError:
+        return JsonResponse({'erro': 'JSON inválido.'}, status=400)
+    from .natureza_service import criar_natureza_loja
+
+    try:
+        obj = criar_natureza_loja(
+            loja,
+            cfop=data.get('cfop') or '',
+            descricao=data.get('descricao') or '',
+            tributacao=data.get('tributacao') or 'produto',
+        )
+    except ValueError as exc:
+        return JsonResponse({'erro': str(exc)}, status=400)
+    return JsonResponse({
+        'ok': True,
+        'cfop': obj.cfop,
+        'descricao': obj.descricao,
+        'label': f'{obj.cfop} — {obj.descricao}',
+    })
+
+
+@login_required
+@requer_acesso_fiscal
 def fiscal_emitir_nfe(request):
     loja = check_loja(request)
     form = EmitirNFeForm(request.POST or None, loja=loja)
@@ -901,6 +929,7 @@ def fiscal_emitir_nfe(request):
             'uf': form.cleaned_data['uf'],
             'cep': form.cleaned_data['cep'],
             'codigo_municipio': form.cleaned_data.get('codigo_municipio') or '',
+            'tributacao': form.cleaned_data.get('tributacao') or 'produto',
             'serie': form.cleaned_data.get('serie'),
         }
         try:

@@ -49,6 +49,31 @@ PRESENCA_COMPRADOR_NFE = [
     ('9', '9 — Outros'),
 ]
 
+PERFIL_TRIBUTACAO_NFE = [
+    ('produto', 'Usar tributação do produto / matriz'),
+    ('csosn_102', 'Simples Nacional — CSOSN 102'),
+    ('csosn_500', 'ICMS cobrado anteriormente por ST — CSOSN 500'),
+    ('csosn_400', 'Isento / não tributada — CSOSN 400'),
+    ('csosn_300', 'Imune — CSOSN 300'),
+    ('substituicao', 'Substituição tributária — CSOSN 500'),
+]
+
+# CFOPs de saída de combustível (grupo comb obrigatório na NF-e)
+CFOPS_COMBUSTIVEL = {
+    '5651', '5652', '5653', '5654', '5655', '5656', '5657', '5658', '5659',
+    '5660', '5661', '5662', '5663', '5664', '5665', '5666', '5667',
+    '6651', '6652', '6653', '6654', '6655', '6656', '6657', '6658', '6659',
+    '6660', '6661', '6662', '6663', '6664', '6665', '6666', '6667',
+}
+
+
+def cfop_exige_grupo_combustivel(cfop: str) -> bool:
+    c = ''.join(ch for ch in (cfop or '') if ch.isdigit())[:4]
+    if c in CFOPS_COMBUSTIVEL:
+        return True
+    return len(c) == 4 and c[1] == '6' and c[2] in '567'
+
+
 MODALIDADE_FRETE_NFE = [
     ('9', '9 — Sem ocorrência de transporte'),
     ('0', '0 — Por conta do emitente'),

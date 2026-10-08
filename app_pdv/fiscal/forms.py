@@ -236,6 +236,12 @@ class EmitirNFeForm(forms.Form):
         choices=[],
         widget=forms.Select(attrs={'class': 'form-control', 'id': 'id_natureza_cfop'}),
     )
+    tributacao_nfe = forms.ChoiceField(
+        label='Tributação',
+        choices=[],
+        initial='produto',
+        widget=forms.Select(attrs={'class': 'form-control', 'id': 'id_tributacao_nfe'}),
+    )
     cfop = forms.CharField(
         label='CFOP',
         widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_cfop', 'readonly': 'readonly'}),
@@ -368,20 +374,22 @@ class EmitirNFeForm(forms.Form):
 
     def __init__(self, *args, loja=None, **kwargs):
         super().__init__(*args, **kwargs)
+        self._loja = loja
         from app_pdv.models import Produto
 
+        from .natureza_service import choices_natureza_cfop
         from .nfe_catalog import (
             FINALIDADE_NFE,
             INDICADOR_IE_DESTINATARIO,
             MODALIDADE_FRETE_NFE,
-            NATUREZAS_NFE_UNICAS,
+            PERFIL_TRIBUTACAO_NFE,
             PRESENCA_COMPRADOR_NFE,
         )
         from .services import get_or_create_config
 
-        self.fields['natureza_cfop'].choices = [('', '— Selecione —')] + [
-            (cfop, f'{cfop} — {desc}') for cfop, desc in NATUREZAS_NFE_UNICAS
-        ]
+        nat_choices = choices_natureza_cfop(loja) if loja else []
+        self.fields['natureza_cfop'].choices = [('', '— Selecione —')] + nat_choices
+        self.fields['tributacao_nfe'].choices = PERFIL_TRIBUTACAO_NFE
         self.fields['finalidade_emissao'].choices = FINALIDADE_NFE
         self.fields['presenca_comprador'].choices = PRESENCA_COMPRADOR_NFE
         self.fields['indicador_ie_destinatario'].choices = INDICADOR_IE_DESTINATARIO
@@ -398,7 +406,7 @@ class EmitirNFeForm(forms.Form):
             if name not in (
                 'finalidade_emissao', 'forma_pagamento', 'presenca_comprador',
                 'produto_id', 'natureza_cfop', 'serie', 'codigo_municipio',
-                'indicador_ie_destinatario', 'modalidade_frete',
+                'indicador_ie_destinatario', 'modalidade_frete', 'tributacao_nfe',
             ):
                 field.widget.attrs.setdefault('class', 'form-control')
         qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
@@ -409,13 +417,19 @@ class EmitirNFeForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
+        loja = self._loja
         cfop = (cleaned.get('natureza_cfop') or cleaned.get('cfop') or '').strip()
         if not cfop:
             raise forms.ValidationError('Selecione a natureza da operação (CFOP).')
-        from .nfe_catalog import natureza_por_cfop
+        from .natureza_service import descricao_natureza_loja, tributacao_da_natureza
 
         cleaned['cfop'] = cfop
-        cleaned['natureza_operacao'] = natureza_por_cfop(cfop)
+        cleaned['natureza_operacao'] = descricao_natureza_loja(loja, cfop) if loja else cfop
+        if loja and (cleaned.get('tributacao_nfe') or 'produto') == 'produto':
+            nat_trib = tributacao_da_natureza(loja, cfop)
+            if nat_trib and nat_trib != 'produto':
+                cleaned['tributacao_nfe'] = nat_trib
+        cleaned['tributacao'] = cleaned.get('tributacao_nfe') or 'produto'
         cpf = ''.join(c for c in (cleaned.get('cpf_destinatario') or '') if c.isdigit())
         cnpj = ''.join(c for c in (cleaned.get('cnpj_destinatario') or '') if c.isdigit())
         if cpf and cnpj:
@@ -530,10 +544,9 @@ class EmitirLoteForm(forms.Form):
     tipo = forms.ChoiceField(
         choices=[
             ('nfce', 'NFC-e (65) — cupom consumidor'),
-            ('nfe', 'NF-e (55)'),
         ],
         initial='nfce',
-        widget=forms.Select(attrs={'class': 'form-control'}),
+        widget=forms.HiddenInput(),
     )
     data_de = forms.DateField(
         required=False,
@@ -586,11 +599,9 @@ class EmitirDocumentoForm(forms.Form):
     tipo = forms.ChoiceField(
         choices=[
             ('nfce', 'NFC-e (65) — cupom consumidor'),
-            ('nfe', 'NF-e (55)'),
-            ('nfse', 'NFS-e'),
-            ('nfse_nacional', 'NFS-e Nacional'),
         ],
-        widget=forms.Select(attrs={'class': 'form-control'}),
+        initial='nfce',
+        widget=forms.HiddenInput(),
     )
     venda_id = forms.IntegerField(
         required=False,
@@ -599,10 +610,9 @@ class EmitirDocumentoForm(forms.Form):
 
     def clean(self):
         cleaned = super().clean()
-        tipo = cleaned.get('tipo')
-        venda_id = cleaned.get('venda_id')
-        if tipo in ('nfce', 'nfe') and not venda_id:
-            raise forms.ValidationError('Informe o ID da venda para emitir NFC-e ou NF-e com payload Focus completo.')
+        cleaned['tipo'] = 'nfce'
+        if not cleaned.get('venda_id'):
+            raise forms.ValidationError('Informe o ID da venda para emitir NFC-e.')
         return cleaned
 
 

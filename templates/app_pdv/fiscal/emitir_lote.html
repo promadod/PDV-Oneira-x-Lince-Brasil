@@ -1,38 +1,58 @@
 {% extends 'base.html' %}
-{% block title %}Emissão fiscal em lote{% endblock %}
+{% block title %}NFC-e em lote{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 
-<h2>Emissão em lote</h2>
+<h2>NFC-e em lote</h2>
 <p style="color:#aaa;max-width:720px;">
-    Emita NFC-e ou NF-e para várias vendas <strong>finalizadas</strong> da loja atual.
-    Máximo de <strong>{{ limite_lote }}</strong> notas por lote. Cada loja (CNPJ) usa sua própria configuração fiscal.
+    Emita NFC-e para várias vendas <strong>finalizadas</strong> da loja atual.
+    Máximo de <strong>{{ limite_lote }}</strong> notas por lote.
 </p>
 
-<div class="card" style="max-width:640px;margin-bottom:20px;padding:20px;">
-    <h3 style="color:#15a0a5;margin-top:0;">Filtros</h3>
-    <form method="post" data-submit-lock-msg="Buscando vendas…">
-        {% csrf_token %}
-        <input type="hidden" name="acao" value="preview">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div style="grid-column:1/-1;"><label>Tipo de documento</label>{{ form.tipo }}</div>
-            <div><label>{{ form.data_de.label }}</label>{{ form.data_de }}</div>
-            <div><label>{{ form.data_ate.label }}</label>{{ form.data_ate }}</div>
-            <div style="grid-column:1/-1;">
-                <label>{{ form.venda_ids_texto.label }}</label>
-                {{ form.venda_ids_texto }}
-                <small style="color:#888;">{{ form.venda_ids_texto.help_text }}</small>
+<div class="fiscal-lote-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start;margin-bottom:20px;">
+    <div class="card" style="padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Lote avulso por produto</h3>
+        <p style="color:#888;font-size:0.9em;">Divide a quantidade total em vários cupons NFC-e (ex.: 99 un × 3 por cupom = 33 notas).</p>
+        <form method="post" data-submit-lock-msg="Gerando lote avulso…">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="lote_avulso">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div style="grid-column:1/-1;"><label>Produto</label>{{ form_avulso.produto_id }}</div>
+                <div><label>{{ form_avulso.quantidade_total.label }}</label>{{ form_avulso.quantidade_total }}</div>
+                <div><label>{{ form_avulso.quantidade_por_cupom.label }}</label>{{ form_avulso.quantidade_por_cupom }}</div>
+                <div><label>{{ form_avulso.preco_unitario.label }}</label>{{ form_avulso.preco_unitario }}</div>
+                <div><label>{{ form_avulso.desconto_unitario.label }}</label>{{ form_avulso.desconto_unitario }}</div>
+                <div style="grid-column:1/-1;"><label>Pagamento</label>{{ form_avulso.forma_pagamento }}</div>
             </div>
-            <div style="grid-column:1/-1;" class="fiscal-check-row">
-                {{ form.pular_ja_emitidas }}
-                <label for="{{ form.pular_ja_emitidas.id_for_label }}">{{ form.pular_ja_emitidas.label }}</label>
+            <button type="submit" class="btn btn-success" style="margin-top:16px;">Salvar e enviar lote avulso</button>
+        </form>
+    </div>
+
+    <div class="card" style="padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Filtros — vendas PDV</h3>
+        <form method="post" data-submit-lock-msg="Buscando vendas…">
+            {% csrf_token %}
+            <input type="hidden" name="acao" value="preview">
+            {{ form.tipo }}
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                <div><label>{{ form.data_de.label }}</label>{{ form.data_de }}</div>
+                <div><label>{{ form.data_ate.label }}</label>{{ form.data_ate }}</div>
+                <div style="grid-column:1/-1;">
+                    <label>{{ form.venda_ids_texto.label }}</label>
+                    {{ form.venda_ids_texto }}
+                    <small style="color:#888;">{{ form.venda_ids_texto.help_text }}</small>
+                </div>
+                <div style="grid-column:1/-1;" class="fiscal-check-row">
+                    {{ form.pular_ja_emitidas }}
+                    <label for="{{ form.pular_ja_emitidas.id_for_label }}">{{ form.pular_ja_emitidas.label }}</label>
+                </div>
             </div>
-        </div>
-        {% if form.non_field_errors %}
-        <div style="color:#cf6679;margin-top:12px;">{{ form.non_field_errors }}</div>
-        {% endif %}
-        <button type="submit" class="btn" style="margin-top:16px;">Listar vendas elegíveis</button>
-    </form>
+            {% if form.non_field_errors %}
+            <div style="color:#cf6679;margin-top:12px;">{{ form.non_field_errors }}</div>
+            {% endif %}
+            <button type="submit" class="btn" style="margin-top:16px;">Listar vendas elegíveis</button>
+        </form>
+    </div>
 </div>
 
 {% if preview_vendas %}
@@ -41,7 +61,7 @@
     <form method="post" data-submit-lock-msg="Emitindo lote… Aguarde.">
         {% csrf_token %}
         <input type="hidden" name="acao" value="emitir">
-        <input type="hidden" name="tipo" value="{{ form.tipo.value|default:'nfce' }}">
+        <input type="hidden" name="tipo" value="nfce">
         <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
             <thead>
                 <tr style="border-bottom:1px solid #444;text-align:left;">
@@ -88,24 +108,6 @@
 </script>
 {% endif %}
 
-<div class="card" style="max-width:640px;margin-bottom:20px;padding:20px;">
-    <h3 style="color:#15a0a5;margin-top:0;">Lote avulso por produto (NetFiscal)</h3>
-    <p style="color:#888;font-size:0.9em;">Divide a quantidade total em vários cupons NFC-e (ex.: 99 un × 3 por cupom = 33 notas).</p>
-    <form method="post" data-submit-lock-msg="Gerando lote avulso…">
-        {% csrf_token %}
-        <input type="hidden" name="acao" value="lote_avulso">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div style="grid-column:1/-1;"><label>Produto</label>{{ form_avulso.produto_id }}</div>
-            <div><label>{{ form_avulso.quantidade_total.label }}</label>{{ form_avulso.quantidade_total }}</div>
-            <div><label>{{ form_avulso.quantidade_por_cupom.label }}</label>{{ form_avulso.quantidade_por_cupom }}</div>
-            <div><label>{{ form_avulso.preco_unitario.label }}</label>{{ form_avulso.preco_unitario }}</div>
-            <div><label>{{ form_avulso.desconto_unitario.label }}</label>{{ form_avulso.desconto_unitario }}</div>
-            <div style="grid-column:1/-1;"><label>Pagamento</label>{{ form_avulso.forma_pagamento }}</div>
-        </div>
-        <button type="submit" class="btn btn-success" style="margin-top:16px;">Salvar e enviar lote avulso</button>
-    </form>
-</div>
-
 <div class="card" style="padding:16px;">
     <h3 style="color:#15a0a5;margin-top:0;">Lotes recentes desta loja</h3>
     <table style="width:100%;border-collapse:collapse;color:#fff;font-size:0.9em;">
@@ -131,4 +133,9 @@
         </tbody>
     </table>
 </div>
+<style>
+@media (max-width: 960px) {
+    .fiscal-lote-grid { grid-template-columns: 1fr !important; }
+}
+</style>
 {% endblock %}

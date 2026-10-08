@@ -132,6 +132,7 @@ def _nfe_dados_from_payload(payload: dict, produto) -> dict:
         'presenca_comprador': payload.get('presenca_comprador') or '1',
         'modalidade_frete': payload.get('modalidade_frete') or '9',
         'valor_frete': float(payload.get('valor_frete') or 0),
+        'tributacao': payload.get('tributacao_nfe') or 'produto',
     }
 
 

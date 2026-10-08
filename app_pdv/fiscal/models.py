@@ -168,6 +168,38 @@ class ProdutoDadosFiscais(models.Model):
         return f'{self.produto_id} NCM {self.ncm or "—"}'
 
 
+class NaturezaOperacaoFiscal(models.Model):
+    """Natureza da operação (descrição + CFOP) por loja — complementa catálogo padrão."""
+
+    TRIBUTACAO_CHOICES = [
+        ('produto', 'Usar tributação do produto / matriz'),
+        ('csosn_102', 'Simples Nacional — CSOSN 102'),
+        ('csosn_500', 'ICMS cobrado anteriormente por ST — CSOSN 500'),
+        ('csosn_400', 'Isento — CSOSN 400'),
+        ('csosn_300', 'Imune — CSOSN 300'),
+        ('nao_tributada', 'Não tributada — CSOSN 400'),
+        ('substituicao', 'Substituição tributária — CSOSN 500'),
+    ]
+
+    loja = models.ForeignKey('app_pdv.Loja', on_delete=models.CASCADE, related_name='naturezas_operacao_fiscal')
+    cfop = models.CharField(max_length=4, help_text='Somente dígitos, ex.: 5102')
+    descricao = models.CharField(max_length=120)
+    tributacao = models.CharField(max_length=30, choices=TRIBUTACAO_CHOICES, default='produto')
+    ativa = models.BooleanField(default=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Natureza da operação fiscal'
+        verbose_name_plural = 'Naturezas da operação fiscal'
+        ordering = ['descricao']
+        constraints = [
+            models.UniqueConstraint(fields=['loja', 'cfop', 'descricao'], name='fiscal_natureza_loja_cfop_desc'),
+        ]
+
+    def __str__(self):
+        return f'{self.cfop} — {self.descricao}'
+
+
 class RegraTributaria(models.Model):
     """Pilar 2 — Matriz de impostos (CFOP, CST/CSOSN, alíquotas)."""
     loja = models.ForeignKey('app_pdv.Loja', on_delete=models.CASCADE, related_name='regras_tributarias')

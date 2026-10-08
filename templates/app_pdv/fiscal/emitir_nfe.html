@@ -105,14 +105,41 @@ label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
     <details class="nfe-accordion" open>
         <summary>Natureza da operação</summary>
         <div class="nfe-accordion-body nfe-grid">
-            <div class="span-2"><label>Natureza (CFOP)</label>{{ form.natureza_cfop }}</div>
+            <div class="span-2">
+                <label>Natureza (CFOP)</label>
+                <div class="pdv-cliente-row">
+                    {{ form.natureza_cfop }}
+                    <button type="button" id="btn-nova-natureza" class="btn btn-novo-cliente" title="Cadastrar natureza"><i class="fas fa-plus"></i></button>
+                </div>
+            </div>
             <div><label>CFOP</label>{{ form.cfop }}</div>
+            <div><label>Tributação</label>{{ form.tributacao_nfe }}</div>
             <div><label>Finalidade</label>{{ form.finalidade_emissao }}</div>
             <div><label>Série (referência local)</label>{{ form.serie }}</div>
             <div><label>Presença do comprador</label>{{ form.presenca_comprador }}</div>
             <p class="span-2 nfe-hint" style="margin:0;">Numeração oficial no painel da API fiscal (não enviamos série/número no JSON).</p>
         </div>
     </details>
+
+<div id="modal-nova-natureza" class="modal-cliente-overlay" role="dialog">
+    <div class="modal-cliente-box">
+        <h3><i class="fas fa-list"></i> Nova natureza da operação</h3>
+        <label for="modal_nat_cfop">CFOP *</label>
+        <input type="text" id="modal_nat_cfop" class="form-control" placeholder="Ex.: 5667" maxlength="4">
+        <label for="modal_nat_desc">Descrição *</label>
+        <input type="text" id="modal_nat_desc" class="form-control" placeholder="Ex.: Venda de GLP a consumidor final">
+        <label for="modal_nat_trib">Tributação</label>
+        <select id="modal_nat_trib" class="form-control">
+            {% for val, label in form.tributacao_nfe.field.choices %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+        <div class="modal-cliente-acoes">
+            <button type="button" class="btn" id="btn-modal-nat-cancelar" style="background:#555;color:#fff;">Cancelar</button>
+            <button type="button" class="btn" id="btn-modal-nat-salvar" style="background:var(--accent,#15a0a5);color:#000;">Salvar</button>
+        </div>
+    </div>
+</div>
 
     <details class="nfe-accordion" open>
         <summary>Destinatário <span class="nfe-card-extra">Cliente / fornecedor</span></summary>
@@ -240,6 +267,54 @@ label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
         function sync() { cfop.value = sel.value || ''; }
         sel.addEventListener('change', sync);
         sync();
+    }
+
+    var modalNat = document.getElementById('modal-nova-natureza');
+    var btnNovaNat = document.getElementById('btn-nova-natureza');
+    var btnSalvarNat = document.getElementById('btn-modal-nat-salvar');
+    var btnCancelNat = document.getElementById('btn-modal-nat-cancelar');
+    function fecharNat() { if (modalNat) modalNat.classList.remove('aberto'); }
+    if (btnNovaNat) btnNovaNat.addEventListener('click', function () {
+        if (!modalNat) return;
+        document.getElementById('modal_nat_cfop').value = cfop ? cfop.value : '';
+        document.getElementById('modal_nat_desc').value = '';
+        modalNat.classList.add('aberto');
+    });
+    if (btnCancelNat) btnCancelNat.addEventListener('click', fecharNat);
+    if (modalNat) modalNat.addEventListener('click', function (e) { if (e.target === modalNat) fecharNat(); });
+    if (btnSalvarNat) {
+        btnSalvarNat.addEventListener('click', async function () {
+            btnSalvarNat.disabled = true;
+            try {
+                var resp = await fetch('{% url "fiscal_natureza_criar" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({
+                        cfop: document.getElementById('modal_nat_cfop').value.trim(),
+                        descricao: document.getElementById('modal_nat_desc').value.trim(),
+                        tributacao: document.getElementById('modal_nat_trib').value
+                    })
+                });
+                var data = await resp.json();
+                if (!resp.ok) { alert(data.erro || 'Erro ao salvar natureza.'); return; }
+                if (sel) {
+                    var opt = document.createElement('option');
+                    opt.value = data.cfop;
+                    opt.textContent = data.label;
+                    sel.appendChild(opt);
+                    sel.value = data.cfop;
+                    if (cfop) cfop.value = data.cfop;
+                }
+                fecharNat();
+            } catch (err) {
+                alert('Erro de rede.');
+            } finally {
+                btnSalvarNat.disabled = false;
+            }
+        });
     }
 
     var indIe = document.getElementById('id_indicador_ie_destinatario');

@@ -256,15 +256,17 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
     produto = dados['produto']
     qtd = float(dados['quantidade'])
     v_unit = float(dados['preco_unitario'])
+    perfil_trib = dados.get('tributacao') or dados.get('tributacao_nfe') or 'produto'
     item = montar_item_focus_json(
         loja, produto,
         quantidade=qtd,
         preco_unitario=v_unit,
         numero_item=1,
         interestadual=False,
+        cfop_override=dados.get('cfop'),
+        uf_consumo=(dados.get('uf') or '')[:2],
+        perfil_tributacao=perfil_trib,
     )
-    if dados.get('cfop'):
-        item['cfop'] = str(dados['cfop']).replace('.', '')[:4]
     bruto = round(qtd * v_unit, 2)
     desconto = round(max(float(dados.get('valor_desconto') or 0), 0), 2)
     acrescimo = round(max(float(dados.get('valor_acrescimo') or 0), 0), 2)

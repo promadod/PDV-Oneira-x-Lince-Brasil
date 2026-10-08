@@ -10,8 +10,8 @@
         <a href="{% url 'fiscal_produtos' %}" class="fiscal-nav-btn{% if an == 'fiscal_produtos' or an == 'fiscal_produto_editar' %} is-active{% endif %}">Produtos</a>
         <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_avulsa' %} is-active{% endif %}">Avulsa</a>
         <a href="{% url 'fiscal_documentos' %}" class="fiscal-nav-btn{% if an == 'fiscal_documentos' or an == 'fiscal_documento_detalhe' or an == 'fiscal_documento_cancelar' or an == 'fiscal_documento_cce' %} is-active{% endif %}">Documentos</a>
-        <a href="{% url 'fiscal_emitir' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir' %} is-active{% endif %}">Emitir</a>
-        <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_lote' or an == 'fiscal_lote_detalhe' %} is-active{% endif %}">Lote</a>
+        <a href="{% url 'fiscal_emitir' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir' %} is-active{% endif %}">NFC-e</a>
+        <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_lote' or an == 'fiscal_lote_detalhe' %} is-active{% endif %}">NFC-e Lote</a>
         <a href="{% url 'fiscal_emitir_nfe' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_nfe' %} is-active{% endif %}">NF-e</a>
         <a href="{% url 'fiscal_contabilidade' %}" class="fiscal-nav-btn{% if an == 'fiscal_contabilidade' or an == 'fiscal_contabilidade_baixar' %} is-active{% endif %}">Contabilidade</a>
         <a href="{% url 'fiscal_relatorios' %}" class="fiscal-nav-btn{% if an == 'fiscal_relatorios' or an == 'fiscal_relatorio' %} is-active{% endif %}">Relatórios</a>

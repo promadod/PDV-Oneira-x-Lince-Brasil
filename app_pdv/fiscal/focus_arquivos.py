@@ -169,6 +169,10 @@ def personalizar_danfce_html(conteudo: bytes) -> bytes:
     display: none !important; visibility: hidden !important; height: 0 !important; width: 0 !important;
   }
   .oneira-danfce-hide { display: none !important; }
+  .oneira-danfce-titulo-nfce { display: none !important; }
+  .oneira-danfce-emitente-l1, .oneira-danfce-emitente-l2 {
+    font-weight: 700 !important; font-style: normal !important;
+  }
 </style>
 """
     text = re.sub(
@@ -177,6 +181,43 @@ def personalizar_danfce_html(conteudo: bytes) -> bytes:
         text,
         flags=re.IGNORECASE,
     )
+    text = re.sub(
+        r'(<(?:div|span|p|td|font|b|strong|i|em)[^>]*>)\s*NFC-e\s*(</(?:div|span|p|td|font|b|strong|i|em)>)',
+        r'\1\2',
+        text,
+        count=3,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'>\s*NFC-e\s*<',
+        '><',
+        text,
+        count=3,
+        flags=re.IGNORECASE,
+    )
+    # Primeiras linhas do emitente (razão social + CNPJ/IE) em negrito
+    linhas_marcadas = 0
+    for tag in ('div', 'span', 'p', 'td', 'font'):
+        if linhas_marcadas >= 2:
+            break
+        pattern = rf'(<{tag}[^>]*>)([^<]{{8,180}})(</{tag}>)'
+
+        def _bold_emitente(match):
+            nonlocal linhas_marcadas
+            inner = match.group(2).strip()
+            upper = inner.upper()
+            if linhas_marcadas >= 2:
+                return match.group(0)
+            if 'CNPJ' in upper or 'LTDA' in upper or 'ME ' in upper or ' EIRELI' in upper:
+                linhas_marcadas += 1
+                return (
+                    f'{match.group(1)}'
+                    f'<span class="oneira-danfce-emitente-l{linhas_marcadas}">{inner}</span>'
+                    f'{match.group(3)}'
+                )
+            return match.group(0)
+
+        text, n = re.subn(pattern, _bold_emitente, text, count=4, flags=re.IGNORECASE)
     if '</head>' in text:
         text = text.replace('</head>', css + '</head>', 1)
     elif re.search(r'<body[^>]*>', text, flags=re.I):
