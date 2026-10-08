@@ -26,17 +26,31 @@
 .modal-cliente-acoes { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
 .nfe-page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
 .nfe-badge-saida { background: rgba(21,160,165,0.2); border: 1px solid rgba(21,160,165,0.5); color: #03dac6; padding: 8px 14px; border-radius: 8px; font-size: 0.9em; }
-.nfe-accordion { margin-bottom: 10px; border: 1px solid #333; border-radius: 8px; overflow: hidden; background: #1a1a1a; }
+.nfe-accordion {
+    margin-bottom: 12px; border-radius: 10px; overflow: hidden;
+    border: 1px solid rgba(21, 160, 165, 0.45);
+    background: rgba(21, 160, 165, 0.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
 .nfe-accordion summary {
-    list-style: none; cursor: pointer; padding: 14px 18px; font-weight: 600; color: #e0e0e0;
+    list-style: none; cursor: pointer; padding: 14px 18px 14px 16px; font-weight: 600; color: #f2f2f2;
     display: flex; justify-content: space-between; align-items: center; user-select: none;
-    background: linear-gradient(180deg, #252525 0%, #1e1e1e 100%);
+    background: linear-gradient(90deg, rgba(21, 160, 165, 0.28) 0%, rgba(21, 160, 165, 0.08) 55%, rgba(30, 30, 30, 0.9) 100%);
+    border-left: 4px solid var(--accent, #15a0a5);
 }
 .nfe-accordion summary::-webkit-details-marker { display: none; }
-.nfe-accordion summary::after { content: '▾'; color: #888; font-size: 0.85em; }
+.nfe-accordion summary::after { content: '▾'; color: var(--accent, #15a0a5); font-size: 0.95em; }
+.nfe-accordion[open] summary {
+    border-bottom: 1px solid rgba(21, 160, 165, 0.35);
+    background: linear-gradient(90deg, rgba(21, 160, 165, 0.35) 0%, rgba(21, 160, 165, 0.12) 100%);
+}
 .nfe-accordion[open] summary::after { transform: rotate(180deg); }
-.nfe-accordion summary .nfe-card-extra { font-weight: normal; color: #15a0a5; font-size: 0.9em; }
-.nfe-accordion-body { padding: 16px 18px 20px; border-top: 1px solid #333; }
+.nfe-accordion summary .nfe-card-extra { font-weight: 600; color: #03dac6; font-size: 0.95em; }
+.nfe-accordion-body {
+    padding: 16px 18px 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid rgba(21, 160, 165, 0.15);
+}
 .nfe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .nfe-grid .span-2 { grid-column: 1 / -1; }
 .nfe-total-bar {
@@ -190,19 +204,34 @@ label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
         var acres = num('id_valor_acrescimo');
         var frete = num('id_valor_frete');
         var bruto = Math.max(qtd * unit, 0);
-        var total = Math.max(bruto - desc + acres + frete, 0.01);
-        var set = function (id, v) { var e = document.getElementById(id); if (e) e.value = brl(v); };
-        set('nfe_total_produtos', bruto);
-        set('nfe_total_desconto', desc);
-        set('nfe_total_acrescimo', acres);
-        set('nfe_total_frete', frete);
-        set('nfe_resumo_itens', total);
-        set('nfe_total_geral', total);
+        var liquido = bruto - desc + acres + frete;
+        var total = liquido > 0 ? liquido : (bruto === 0 && desc === 0 && acres === 0 && frete === 0 ? 0 : Math.max(liquido, 0.01));
+        function setMoney(id, v) {
+            var e = document.getElementById(id);
+            if (!e) return;
+            var txt = brl(v);
+            if (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT') {
+                e.value = txt;
+            } else {
+                e.textContent = txt;
+            }
+        }
+        setMoney('nfe_total_produtos', bruto);
+        setMoney('nfe_total_desconto', desc);
+        setMoney('nfe_total_acrescimo', acres);
+        setMoney('nfe_total_frete', frete);
+        setMoney('nfe_resumo_itens', total);
+        setMoney('nfe_total_geral', total);
     }
     ['id_quantidade', 'id_preco_unitario', 'id_valor_desconto', 'id_valor_acrescimo', 'id_valor_frete'].forEach(function (id) {
         var el = document.getElementById(id);
-        if (el) el.addEventListener('input', recalcTotais);
+        if (!el) return;
+        el.addEventListener('input', recalcTotais);
+        el.addEventListener('change', recalcTotais);
+        el.addEventListener('blur', recalcTotais);
     });
+    var prodSel = document.getElementById('id_produto_id');
+    if (prodSel) prodSel.addEventListener('change', recalcTotais);
     recalcTotais();
 
     var sel = document.getElementById('id_natureza_cfop');
