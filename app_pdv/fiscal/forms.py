@@ -259,16 +259,49 @@ class EmitirNFeForm(forms.Form):
         initial='99',
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
-    cpf_destinatario = forms.CharField(required=False, widget=forms.TextInput(attrs={'class': 'form-control'}))
-    cnpj_destinatario = forms.CharField(required=False, label='CNPJ destinatário *', widget=forms.TextInput(attrs={'class': 'form-control'}))
-    nome_destinatario = forms.CharField(label='Nome / razão social *', widget=forms.TextInput(attrs={'class': 'form-control'}))
-    logradouro = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
-    numero = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
-    bairro = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
-    municipio = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
-    uf = forms.CharField(max_length=2, widget=forms.TextInput(attrs={'class': 'form-control', 'maxlength': '2'}))
-    cep = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control'}))
-    operacao_interestadual = forms.BooleanField(required=False, label='Interestadual')
+    cnpj_destinatario = forms.CharField(
+        required=False,
+        label='CNPJ destinatário',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_cnpj_destinatario'}),
+    )
+    cpf_destinatario = forms.CharField(
+        required=False,
+        label='CPF destinatário',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_cpf_destinatario'}),
+    )
+    nome_destinatario = forms.CharField(
+        label='Nome / razão social *',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_nome_destinatario', 'list': 'lista_clientes_nfe'}),
+    )
+    cep = forms.CharField(
+        label='CEP *',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_cep', 'placeholder': '00000-000'}),
+    )
+    logradouro = forms.CharField(
+        label='Logradouro *',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_logradouro'}),
+    )
+    numero = forms.CharField(
+        label='Número *',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_numero'}),
+    )
+    bairro = forms.CharField(
+        label='Bairro *',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_bairro'}),
+    )
+    municipio = forms.CharField(
+        label='Município *',
+        widget=forms.TextInput(attrs={'class': 'form-control', 'id': 'id_municipio'}),
+    )
+    uf = forms.CharField(
+        label='UF *',
+        max_length=2,
+        widget=forms.TextInput(attrs={'class': 'form-control', 'maxlength': '2', 'id': 'id_uf'}),
+    )
+    codigo_municipio = forms.CharField(
+        required=False,
+        widget=forms.HiddenInput(attrs={'id': 'id_codigo_municipio'}),
+    )
 
     def __init__(self, *args, loja=None, **kwargs):
         super().__init__(*args, **kwargs)
@@ -291,8 +324,8 @@ class EmitirNFeForm(forms.Form):
 
         for name, field in self.fields.items():
             if name not in (
-                'operacao_interestadual', 'finalidade_emissao', 'forma_pagamento',
-                'produto_id', 'natureza_cfop', 'serie',
+                'finalidade_emissao', 'forma_pagamento',
+                'produto_id', 'natureza_cfop', 'serie', 'codigo_municipio',
             ):
                 field.widget.attrs.setdefault('class', 'form-control')
         qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda') if loja else Produto.objects.none()
@@ -312,6 +345,8 @@ class EmitirNFeForm(forms.Form):
         cleaned['natureza_operacao'] = natureza_por_cfop(cfop)
         cpf = ''.join(c for c in (cleaned.get('cpf_destinatario') or '') if c.isdigit())
         cnpj = ''.join(c for c in (cleaned.get('cnpj_destinatario') or '') if c.isdigit())
+        if cpf and cnpj:
+            raise forms.ValidationError('Informe apenas CPF ou CNPJ do destinatário, não ambos.')
         if not cpf and not cnpj:
             raise forms.ValidationError('Informe CPF ou CNPJ do destinatário.')
         if cnpj and len(cnpj) != 14:
@@ -320,6 +355,25 @@ class EmitirNFeForm(forms.Form):
             raise forms.ValidationError('CPF destinatário inválido.')
         if not (cleaned.get('nome_destinatario') or '').strip():
             raise forms.ValidationError('Nome do destinatário é obrigatório.')
+        cep = ''.join(c for c in (cleaned.get('cep') or '') if c.isdigit())
+        if len(cep) != 8:
+            raise forms.ValidationError('CEP inválido (8 dígitos).')
+        cleaned['cep'] = cep
+        uf = (cleaned.get('uf') or '').strip().upper()
+        if len(uf) != 2:
+            raise forms.ValidationError('UF inválida.')
+        cleaned['uf'] = uf
+        for campo, rotulo in (
+            ('logradouro', 'Logradouro'),
+            ('numero', 'Número'),
+            ('bairro', 'Bairro'),
+            ('municipio', 'Município'),
+        ):
+            if not (cleaned.get(campo) or '').strip():
+                raise forms.ValidationError(f'{rotulo} do destinatário é obrigatório.')
+        ibge = ''.join(c for c in (cleaned.get('codigo_municipio') or '') if c.isdigit())
+        if ibge:
+            cleaned['codigo_municipio'] = ibge
         return cleaned
 
 

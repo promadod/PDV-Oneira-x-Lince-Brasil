@@ -92,10 +92,7 @@ def montar_payload_nfce(cfg: FiscalConfig, loja, venda) -> dict:
         'items': items,
         'formas_pagamento': _formas_pagamento_venda(venda),
     }
-    if cfg.serie_nfce:
-        payload['serie'] = str(cfg.serie_nfce)
-    if cfg.proximo_numero_nfce:
-        payload['numero'] = str(cfg.proximo_numero_nfce)
+    # Série/número: controle automático no painel da API (não enviar no JSON — Focus).
     return payload
 
 
@@ -168,11 +165,28 @@ def montar_payload_nfce_avulso(
         cnpj=cnpj_destinatario,
         nome=nome_destinatario,
     )
-    if cfg.serie_nfce:
-        payload['serie'] = str(cfg.serie_nfce)
-    if cfg.proximo_numero_nfce:
-        payload['numero'] = str(cfg.proximo_numero_nfce)
     return payload
+
+
+def _aplicar_endereco_destinatario_nfe(payload: dict, dados: dict):
+    logradouro = (dados.get('logradouro') or '').strip()
+    bairro = (dados.get('bairro') or '').strip()
+    municipio = (dados.get('municipio') or '').strip()
+    uf = (dados.get('uf') or '').strip().upper()[:2]
+    cep = _digits(dados.get('cep') or '')
+    if not logradouro or not bairro or not municipio or len(uf) != 2 or len(cep) != 8:
+        raise ValueError(
+            'Endereço completo do destinatário é obrigatório (CEP, logradouro, número, bairro, município e UF).',
+        )
+    payload['logradouro_destinatario'] = logradouro[:60]
+    payload['numero_destinatario'] = str(dados.get('numero') or 'S/N')[:10]
+    payload['bairro_destinatario'] = bairro[:60]
+    payload['municipio_destinatario'] = municipio[:60]
+    payload['uf_destinatario'] = uf
+    payload['cep_destinatario'] = cep
+    ibge = _digits(dados.get('codigo_municipio') or '')
+    if len(ibge) == 7:
+        payload['codigo_municipio_destinatario'] = ibge
 
 
 def montar_payload_nfe_de_venda(cfg: FiscalConfig, loja, venda) -> dict:
@@ -180,20 +194,29 @@ def montar_payload_nfe_de_venda(cfg: FiscalConfig, loja, venda) -> dict:
     payload['natureza_operacao'] = payload.get('natureza_operacao') or 'VENDA'
     payload['modalidade_frete'] = '9'
     payload['local_destino'] = '1'
-    payload['serie'] = str(cfg.serie_nfe)
-    if cfg.proximo_numero_nfe:
-        payload['numero'] = str(cfg.proximo_numero_nfe)
     cliente = getattr(venda, 'cliente', None)
     if cliente:
         cpf = _digits(getattr(cliente, 'cpf', '') or '')
         cnpj = _digits(getattr(cliente, 'cnpj', '') or '')
         nome = (getattr(cliente, 'nome', '') or getattr(cliente, 'razao_social', '') or '')[:60]
+        endereco_dados = {
+            'logradouro': getattr(cliente, 'endereco', '') or '',
+            'numero': 'S/N',
+            'bairro': getattr(cliente, 'bairro', '') or '',
+            'municipio': getattr(cliente, 'cidade', '') or getattr(loja, 'municipio', '') or '',
+            'uf': getattr(cliente, 'uf', '') or getattr(loja, 'uf', '') or '',
+            'cep': getattr(cliente, 'cep', '') or '',
+        }
         if len(cnpj) == 14:
             payload['cnpj_destinatario'] = cnpj
             payload['nome_destinatario'] = nome
+            payload['indicador_inscricao_estadual_destinatario'] = '9'
+            _aplicar_endereco_destinatario_nfe(payload, endereco_dados)
         elif len(cpf) == 11:
             payload['cpf_destinatario'] = cpf
             payload['nome_destinatario'] = nome
+            payload['indicador_inscricao_estadual_destinatario'] = '9'
+            _aplicar_endereco_destinatario_nfe(payload, endereco_dados)
     return payload
 
 
@@ -210,7 +233,7 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         quantidade=qtd,
         preco_unitario=v_unit,
         numero_item=1,
-        interestadual=dados.get('interestadual', False),
+        interestadual=False,
     )
     if dados.get('cfop'):
         item['cfop'] = str(dados['cfop']).replace('.', '')[:4]
@@ -230,7 +253,7 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         'finalidade_emissao': dados.get('finalidade_emissao') or '1',
         'presenca_comprador': dados.get('presenca_comprador') or '1',
         'modalidade_frete': dados.get('modalidade_frete') or '9',
-        'local_destino': '2' if dados.get('interestadual') else '1',
+        'local_destino': '1',
         'items': [item],
         'formas_pagamento': [{
             'forma_pagamento': dados.get('forma_pagamento') or '99',
@@ -246,22 +269,13 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         payload['cnpj_destinatario'] = cnpj_dest
         payload['nome_destinatario'] = nome_dest or 'DESTINATARIO'
         payload['indicador_inscricao_estadual_destinatario'] = dados.get('ie_destinatario') or '9'
-        payload['logradouro_destinatario'] = (dados.get('logradouro') or '')[:60]
-        payload['numero_destinatario'] = str(dados.get('numero') or 'S/N')[:10]
-        payload['bairro_destinatario'] = (dados.get('bairro') or '')[:60]
-        payload['municipio_destinatario'] = (dados.get('municipio') or '')[:60]
-        payload['uf_destinatario'] = (dados.get('uf') or '')[:2].upper()
-        payload['cep_destinatario'] = _digits(dados.get('cep') or '')[:8]
     elif len(cpf_dest) == 11:
         payload['cpf_destinatario'] = cpf_dest
-        if nome_dest:
-            payload['nome_destinatario'] = nome_dest
+        payload['nome_destinatario'] = nome_dest or 'CONSUMIDOR'
         payload['indicador_inscricao_estadual_destinatario'] = '9'
     else:
         raise ValueError('Informe CPF ou CNPJ do destinatário para NF-e.')
-    payload['serie'] = str(dados.get('serie') or cfg.serie_nfe)
-    if cfg.proximo_numero_nfe:
-        payload['numero'] = str(cfg.proximo_numero_nfe)
+    _aplicar_endereco_destinatario_nfe(payload, dados)
     return payload
 
 

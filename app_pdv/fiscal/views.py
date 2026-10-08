@@ -874,7 +874,7 @@ def fiscal_emitir_nfe(request):
             'municipio': form.cleaned_data['municipio'],
             'uf': form.cleaned_data['uf'],
             'cep': form.cleaned_data['cep'],
-            'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+            'codigo_municipio': form.cleaned_data.get('codigo_municipio') or '',
             'serie': form.cleaned_data.get('serie'),
         }
         try:
@@ -883,7 +883,14 @@ def fiscal_emitir_nfe(request):
             return redirect('fiscal_documento_detalhe', pk=doc.id)
         except FocusNFeError as exc:
             messages.error(request, str(exc))
-    return render(request, 'app_pdv/fiscal/emitir_nfe.html', _ctx(request, loja, form=form))
+    from app_pdv.models import Cliente
+
+    clientes = Cliente.objects.filter(loja=loja).order_by('nome')[:800]
+    return render(
+        request,
+        'app_pdv/fiscal/emitir_nfe.html',
+        _ctx(request, loja, form=form, clientes=clientes),
+    )
 
 
 @login_required

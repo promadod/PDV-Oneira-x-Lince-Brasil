@@ -3,32 +3,92 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 
+<style>
+.pdv-cliente-row { display: flex; gap: 8px; align-items: stretch; }
+.pdv-cliente-row input { flex: 1; min-width: 0; }
+.btn-novo-cliente {
+    background: var(--accent, #15a0a5); color: #000; border: none;
+    border-radius: 6px; padding: 0 14px; font-size: 1.1rem; cursor: pointer; flex-shrink: 0;
+}
+.btn-novo-cliente:hover { filter: brightness(1.1); }
+.modal-cliente-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    z-index: 9999; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-cliente-overlay.aberto { display: flex; }
+.modal-cliente-box {
+    background: #1e1e1e; border-radius: 10px; padding: 22px; max-width: 420px; width: 100%;
+    border: 1px solid #333;
+}
+.modal-cliente-box h3 { margin: 0 0 16px; color: var(--accent, #15a0a5); }
+.modal-cliente-box label { display: block; margin: 10px 0 4px; font-size: 0.9em; }
+.modal-cliente-box input { width: 100%; box-sizing: border-box; }
+.modal-cliente-acoes { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+</style>
+
 <h2>NF-e (modelo 55)</h2>
 <p style="color:#aaa;">Emissão com destinatário, natureza, CFOP e item (exigências SEFAZ).</p>
 
+<datalist id="lista_clientes_nfe">
+    {% for cliente in clientes %}
+    <option value="{{ cliente.nome }}"
+            data-endereco="{{ cliente.endereco|default:''|escape }}"
+            data-bairro="{{ cliente.bairro|default:''|escape }}"></option>
+    {% endfor %}
+</datalist>
+
+<div id="modal-novo-cliente" class="modal-cliente-overlay" role="dialog" aria-labelledby="modal-cliente-titulo">
+    <div class="modal-cliente-box">
+        <h3 id="modal-cliente-titulo"><i class="fas fa-user-plus"></i> Novo Cliente</h3>
+        <label for="modal_cliente_nome">Nome *</label>
+        <input type="text" id="modal_cliente_nome" class="form-control" autocomplete="off">
+        <label for="modal_cliente_whatsapp">WhatsApp</label>
+        <input type="text" id="modal_cliente_whatsapp" class="form-control" placeholder="(00) 00000-0000">
+        <label for="modal_cliente_endereco">Endereço</label>
+        <input type="text" id="modal_cliente_endereco" class="form-control">
+        <label for="modal_cliente_bairro">Bairro</label>
+        <input type="text" id="modal_cliente_bairro" class="form-control">
+        <div class="modal-cliente-acoes">
+            <button type="button" class="btn" id="btn-modal-cliente-cancelar" style="background:#555;color:#fff;">Cancelar</button>
+            <button type="button" class="btn" id="btn-modal-cliente-salvar" style="background:var(--accent,#15a0a5);color:#000;">
+                Salvar
+            </button>
+        </div>
+    </div>
+</div>
+
 <form method="post" data-submit-lock-msg="Emitindo NF-e…">
     {% csrf_token %}
+    {{ form.codigo_municipio }}
     <div class="card" style="padding:20px;margin-bottom:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Natureza</h3>
         <div style="display:grid;grid-template-columns:2fr 1fr 1fr 1fr;gap:12px;">
             <div><label>Natureza</label>{{ form.natureza_cfop }}</div>
             <div><label>CFOP</label>{{ form.cfop }}</div>
-            <div><label>Série</label>{{ form.serie }}</div>
+            <div><label>Série (referência local)</label>{{ form.serie }}</div>
             <div><label>Finalidade da NF-e</label>{{ form.finalidade_emissao }}</div>
         </div>
+        <p style="font-size:0.85em;color:#888;margin:8px 0 0;">Numeração oficial é controlada no painel da API fiscal (não enviamos série/número no JSON).</p>
     </div>
     <div class="card" style="padding:20px;margin-bottom:16px;">
         <h3 style="color:#15a0a5;margin-top:0;">Destinatário</h3>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div style="grid-column:1/-1;"><label>Nome / razão social</label>{{ form.nome_destinatario }}</div>
-            <div><label>CPF</label>{{ form.cpf_destinatario }}</div>
+            <div style="grid-column:1/-1;">
+                <label>Nome / razão social</label>
+                <div class="pdv-cliente-row">
+                    {{ form.nome_destinatario }}
+                    <button type="button" id="btn-novo-cliente" class="btn btn-novo-cliente" title="Cadastrar cliente"><i class="fas fa-plus"></i></button>
+                </div>
+                <p style="font-size:0.85em;color:#888;margin:6px 0 0;">Digite para sugerir clientes já cadastrados no PDV.</p>
+            </div>
             <div><label>CNPJ</label>{{ form.cnpj_destinatario }}</div>
-            <div><label>Logradouro</label>{{ form.logradouro }}</div>
+            <div><label>CPF</label>{{ form.cpf_destinatario }}</div>
+            <div><label>CEP</label>{{ form.cep }}</div>
             <div><label>Número</label>{{ form.numero }}</div>
+            <div style="grid-column:1/-1;"><label>Logradouro</label>{{ form.logradouro }}</div>
             <div><label>Bairro</label>{{ form.bairro }}</div>
             <div><label>Município</label>{{ form.municipio }}</div>
             <div><label>UF</label>{{ form.uf }}</div>
-            <div><label>CEP</label>{{ form.cep }}</div>
         </div>
     </div>
     <div class="card" style="padding:20px;margin-bottom:16px;">
@@ -40,7 +100,6 @@
             <div><label>Desconto (R$)</label>{{ form.valor_desconto }}</div>
             <div><label>Acréscimo (R$)</label>{{ form.valor_acrescimo }}</div>
             <div><label>Pagamento</label>{{ form.forma_pagamento }}</div>
-            <div class="fiscal-check-row"><label>{{ form.operacao_interestadual }} Interestadual</label></div>
         </div>
     </div>
     <button type="submit" class="btn btn-success">Emitir NF-e</button>
@@ -49,10 +108,128 @@
 (function () {
     var sel = document.getElementById('id_natureza_cfop');
     var cfop = document.getElementById('id_cfop');
-    if (!sel || !cfop) return;
-    function sync() { cfop.value = sel.value || ''; }
-    sel.addEventListener('change', sync);
-    sync();
+    if (sel && cfop) {
+        function sync() { cfop.value = sel.value || ''; }
+        sel.addEventListener('change', sync);
+        sync();
+    }
+
+    var nomeInput = document.getElementById('id_nome_destinatario');
+    var datalist = document.getElementById('lista_clientes_nfe');
+    if (nomeInput && datalist) {
+        nomeInput.addEventListener('change', function () {
+            var val = nomeInput.value.trim();
+            var opts = datalist.querySelectorAll('option');
+            for (var i = 0; i < opts.length; i++) {
+                if (opts[i].value === val) {
+                    var log = document.getElementById('id_logradouro');
+                    var bairro = document.getElementById('id_bairro');
+                    if (log && opts[i].dataset.endereco) log.value = opts[i].dataset.endereco;
+                    if (bairro && opts[i].dataset.bairro) bairro.value = opts[i].dataset.bairro;
+                    break;
+                }
+            }
+        });
+    }
+
+    var cepEl = document.getElementById('id_cep');
+    var ibgeEl = document.getElementById('id_codigo_municipio');
+    function preencherEnderecoViaCep(cepDigits) {
+        if (!cepDigits || cepDigits.length !== 8) return;
+        fetch('https://viacep.com.br/ws/' + cepDigits + '/json/')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.erro) return;
+                var log = document.getElementById('id_logradouro');
+                var bairro = document.getElementById('id_bairro');
+                var mun = document.getElementById('id_municipio');
+                var uf = document.getElementById('id_uf');
+                if (log && data.logradouro) log.value = data.logradouro;
+                if (bairro && data.bairro) bairro.value = data.bairro;
+                if (mun && data.localidade) mun.value = data.localidade;
+                if (uf && data.uf) uf.value = data.uf;
+                if (ibgeEl && data.ibge) ibgeEl.value = data.ibge;
+                var num = document.getElementById('id_numero');
+                if (num && !num.value.trim()) num.focus();
+            })
+            .catch(function () {});
+    }
+    if (cepEl) {
+        cepEl.addEventListener('blur', function () {
+            var d = (cepEl.value || '').replace(/\D/g, '');
+            preencherEnderecoViaCep(d);
+        });
+    }
+
+    var modal = document.getElementById('modal-novo-cliente');
+    var btnNovo = document.getElementById('btn-novo-cliente');
+    var btnSalvar = document.getElementById('btn-modal-cliente-salvar');
+    var btnCancelar = document.getElementById('btn-modal-cliente-cancelar');
+
+    function fecharModal() {
+        if (modal) modal.classList.remove('aberto');
+    }
+    function abrirModal() {
+        if (!modal) return;
+        document.getElementById('modal_cliente_nome').value = '';
+        document.getElementById('modal_cliente_whatsapp').value = '';
+        document.getElementById('modal_cliente_endereco').value = '';
+        document.getElementById('modal_cliente_bairro').value = '';
+        modal.classList.add('aberto');
+        document.getElementById('modal_cliente_nome').focus();
+    }
+    if (btnNovo) btnNovo.addEventListener('click', abrirModal);
+    if (btnCancelar) btnCancelar.addEventListener('click', fecharModal);
+    if (modal) {
+        modal.addEventListener('click', function (e) {
+            if (e.target === modal) fecharModal();
+        });
+    }
+    if (btnSalvar) {
+        btnSalvar.addEventListener('click', async function () {
+            var nome = document.getElementById('modal_cliente_nome').value.trim();
+            if (!nome) {
+                alert('Informe o nome do cliente.');
+                return;
+            }
+            btnSalvar.disabled = true;
+            try {
+                var resp = await fetch('{% url "api_criar_cliente_pdv" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({
+                        nome: nome,
+                        whatsapp: document.getElementById('modal_cliente_whatsapp').value.trim(),
+                        endereco: document.getElementById('modal_cliente_endereco').value.trim(),
+                        bairro: document.getElementById('modal_cliente_bairro').value.trim()
+                    })
+                });
+                var data = await resp.json();
+                if (!resp.ok) {
+                    alert(data.erro || 'Não foi possível cadastrar o cliente.');
+                    return;
+                }
+                var opt = document.createElement('option');
+                opt.value = data.nome;
+                opt.dataset.endereco = data.endereco || '';
+                opt.dataset.bairro = data.bairro || '';
+                datalist.appendChild(opt);
+                if (nomeInput) nomeInput.value = data.nome;
+                var log = document.getElementById('id_logradouro');
+                var bairro = document.getElementById('id_bairro');
+                if (log && data.endereco) log.value = data.endereco;
+                if (bairro && data.bairro) bairro.value = data.bairro;
+                fecharModal();
+            } catch (err) {
+                alert('Erro de rede ao cadastrar cliente.');
+            } finally {
+                btnSalvar.disabled = false;
+            }
+        });
+    }
 })();
 </script>
 {% endblock %}
