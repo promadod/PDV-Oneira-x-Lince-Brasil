@@ -17,6 +17,12 @@
         {% if doc.url_xml or doc.caminho_xml %}<a class="btn" style="background:#333;" href="{% url 'fiscal_documento_arquivo' doc.id 'xml' %}" target="_blank">XML</a>{% endif %}
         {% if doc.url_pdf or doc.caminho_pdf %}<a class="btn" style="background:#333;" href="{% url 'fiscal_documento_arquivo' doc.id 'pdf' %}" target="_blank">DANFE/PDF</a>{% endif %}
         <a href="{% url 'fiscal_documentos' %}" class="btn" style="background:#444;">Voltar</a>
+        {% if doc.status == 'erro' or doc.status == 'denegado' %}
+        <form method="post" action="{% url 'fiscal_documento_reemitir' doc.id %}" style="display:inline;" data-submit-lock-msg="Reemitindo…">
+            {% csrf_token %}
+            <button type="submit" class="btn" style="background:#ff9800;color:#000;">Reemitir</button>
+        </form>
+        {% endif %}
     </div>
 </div>
 

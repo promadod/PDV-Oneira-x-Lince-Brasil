@@ -1,6 +1,7 @@
 """Serviços de emissão / tributação / webhooks."""
 from __future__ import annotations
 
+import copy
 import uuid
 from decimal import Decimal
 
@@ -85,6 +86,124 @@ def _nova_ref(loja, tipo: str, venda_id=None) -> str:
     suffix = uuid.uuid4().hex[:10]
     base = f'{loja.id}-{tipo}-{venda_id or 0}-{suffix}'
     return base[:64]
+
+
+def _atualizar_data_emissao_payload(payload: dict) -> dict:
+    p = copy.deepcopy(payload)
+    tz = timezone.get_current_timezone()
+    p['data_emissao'] = timezone.localtime(timezone.now(), tz).isoformat(timespec='seconds')
+    p.pop('serie', None)
+    p.pop('numero', None)
+    return p
+
+
+def _nfe_dados_from_payload(payload: dict, produto) -> dict:
+    item = (payload.get('items') or [{}])[0]
+    fp = (payload.get('formas_pagamento') or [{}])[0]
+    qtd = float(item.get('quantidade_comercial') or item.get('quantidade') or 1)
+    v_unit = float(item.get('valor_unitario_comercial') or item.get('valor_unitario') or 0)
+    if v_unit <= 0 and qtd > 0:
+        bruto = float(item.get('valor_bruto') or 0)
+        if bruto > 0:
+            v_unit = round(bruto / qtd, 2)
+    return {
+        'produto': produto,
+        'quantidade': qtd,
+        'preco_unitario': v_unit,
+        'natureza_operacao': payload.get('natureza_operacao') or 'VENDA',
+        'cfop': item.get('cfop'),
+        'finalidade_emissao': payload.get('finalidade_emissao') or '1',
+        'forma_pagamento': fp.get('forma_pagamento') or '99',
+        'valor_desconto': float(payload.get('valor_desconto') or 0),
+        'valor_acrescimo': float(payload.get('valor_outras_despesas') or 0),
+        'cpf_destinatario': payload.get('cpf_destinatario') or '',
+        'cnpj_destinatario': payload.get('cnpj_destinatario') or '',
+        'nome_destinatario': payload.get('nome_destinatario') or '',
+        'logradouro': payload.get('logradouro_destinatario') or '',
+        'numero': payload.get('numero_destinatario') or '',
+        'bairro': payload.get('bairro_destinatario') or '',
+        'municipio': payload.get('municipio_destinatario') or '',
+        'uf': payload.get('uf_destinatario') or '',
+        'cep': payload.get('cep_destinatario') or '',
+        'codigo_municipio': payload.get('codigo_municipio_destinatario') or '',
+    }
+
+
+def _montar_payload_para_reemissao(cfg: FiscalConfig, loja, doc: DocumentoFiscal) -> dict:
+    from .focus_payload import montar_payload_emissao, montar_payload_nfe_form, montar_payload_nfce_avulso
+
+    snap = doc.snapshot_tributario or {}
+    payload_orig = doc.payload_envio if isinstance(doc.payload_envio, dict) else {}
+
+    if snap.get('emissao_nfe_form') and doc.produto_avulso_id:
+        try:
+            return montar_payload_nfe_form(
+                cfg, loja, _nfe_dados_from_payload(payload_orig, doc.produto_avulso),
+            )
+        except ValueError as exc:
+            raise FocusNFeError(str(exc)) from exc
+
+    if payload_orig.get('items'):
+        return _atualizar_data_emissao_payload(payload_orig)
+
+    if doc.venda_id:
+        return montar_payload_emissao(cfg, loja, tipo=doc.tipo, venda=doc.venda)
+
+    if snap.get('emissao_avulsa') and doc.produto_avulso_id:
+        fp = (payload_orig.get('formas_pagamento') or [{}])[0]
+        try:
+            return montar_payload_nfce_avulso(
+                cfg, loja, doc.produto_avulso,
+                quantidade=float(snap.get('quantidade') or 1),
+                preco_unitario=float(snap.get('preco_unitario') or 0),
+                forma_pagamento=fp.get('forma_pagamento') or '99',
+                interestadual=payload_orig.get('local_destino') == '2',
+                valor_desconto=float(payload_orig.get('valor_desconto') or 0),
+                valor_acrescimo=float(payload_orig.get('valor_outras_despesas') or 0),
+                cpf_destinatario=payload_orig.get('cpf_destinatario') or '',
+                cnpj_destinatario=payload_orig.get('cnpj_destinatario') or '',
+                nome_destinatario=payload_orig.get('nome_destinatario') or '',
+            )
+        except ValueError as exc:
+            raise FocusNFeError(str(exc)) from exc
+
+    raise FocusNFeError('Não há dados suficientes para reemitir este documento.')
+
+
+def _disparar_emissao_focus(
+    doc: DocumentoFiscal,
+    cfg: FiscalConfig,
+    payload: dict,
+    *,
+    params_extra: dict | None = None,
+) -> DocumentoFiscal:
+    DocumentoFiscalEvento.objects.create(
+        documento=doc,
+        tipo='envio',
+        descricao='Documento enviado para Focus NFe',
+        payload=payload,
+    )
+    client = client_from_config(cfg)
+    endpoint = _endpoint_tipo(doc.tipo)
+    try:
+        if endpoint == 'nfe':
+            retorno = client.emitir_nfe(doc.ref, payload, query_params=params_extra or None)
+        elif endpoint == 'nfse':
+            retorno = client.emitir_nfse(doc.ref, payload, query_params=params_extra or None)
+        else:
+            retorno = client.emitir_nfce(doc.ref, payload, query_params=params_extra or None)
+    except FocusNFeError as exc:
+        doc.status = 'erro'
+        doc.mensagem_sefaz = str(exc)
+        doc.payload_retorno = exc.payload
+        doc.save(update_fields=['status', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+        DocumentoFiscalEvento.objects.create(
+            documento=doc, tipo='erro', descricao=str(exc), payload=exc.payload,
+        )
+        raise
+
+    _aplicar_retorno_focus(doc, retorno)
+    return doc
 
 
 def _endpoint_tipo(tipo: str) -> str:
@@ -177,31 +296,64 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe
         em_contingencia=cfg.contingencia_ativa,
         criado_por=usuario if getattr(usuario, 'is_authenticated', False) else None,
     )
-    DocumentoFiscalEvento.objects.create(
-        documento=doc, tipo='envio', descricao='Documento enviado para Focus NFe', payload=payload,
+    return _disparar_emissao_focus(doc, cfg, payload, params_extra=params_extra or None)
+
+
+@transaction.atomic
+def reemitir_documento(loja, usuario, documento_origem: DocumentoFiscal) -> DocumentoFiscal:
+    """Nova referência + mesmo conteúdo (payload salvo ou reconstruído)."""
+    doc_orig = documento_origem
+    if doc_orig.loja_id != loja.id:
+        raise FocusNFeError('Documento não pertence à loja atual.')
+    if doc_orig.status not in ('erro', 'denegado'):
+        raise FocusNFeError('Só documentos com erro ou denegados podem ser reemitidos.')
+
+    cfg = get_or_create_config(loja)
+    tipo = doc_orig.tipo
+    if tipo == 'nfe' and not cfg.emite_nfe:
+        raise FocusNFeError('Emissão de NF-e desabilitada nesta loja.')
+    if tipo == 'nfce' and not cfg.emite_nfce:
+        raise FocusNFeError('Emissão de NFC-e desabilitada nesta loja.')
+    if tipo.startswith('nfse') and not (cfg.emite_nfse or cfg.emite_nfse_nacional):
+        raise FocusNFeError('Emissão de NFS-e desabilitada nesta loja.')
+
+    payload = _montar_payload_para_reemissao(cfg, loja, doc_orig)
+    ref_id = doc_orig.venda_id or doc_orig.produto_avulso_id or doc_orig.id
+    ref = _nova_ref(loja, tipo, ref_id)
+
+    serie_map = {
+        'nfe': cfg.serie_nfe,
+        'nfce': cfg.serie_nfce,
+        'nfse': cfg.serie_nfse,
+        'nfse_nacional': cfg.serie_nfse,
+    }
+    doc = DocumentoFiscal.objects.create(
+        loja=loja,
+        venda=doc_orig.venda,
+        produto_avulso=doc_orig.produto_avulso,
+        tipo=tipo,
+        ref=ref,
+        status='processando',
+        valor_total=doc_orig.valor_total,
+        serie=str(serie_map.get(tipo, 1)),
+        payload_envio=payload,
+        snapshot_tributario=doc_orig.snapshot_tributario or {},
+        em_contingencia=cfg.contingencia_ativa,
+        criado_por=usuario if getattr(usuario, 'is_authenticated', False) else None,
     )
-
-    client = client_from_config(cfg)
-    endpoint = _endpoint_tipo(tipo)
+    DocumentoFiscalEvento.objects.create(
+        documento=doc,
+        tipo='reemissao',
+        descricao=f'Reemissão do documento #{doc_orig.id} (ref {doc_orig.ref})',
+        payload={'documento_origem_id': doc_orig.id, 'ref_origem': doc_orig.ref},
+    )
+    params_extra = {}
+    if cfg.contingencia_ativa and tipo == 'nfce':
+        params_extra['forma_emissao'] = 'offline'
     try:
-        if endpoint == 'nfe':
-            retorno = client.emitir_nfe(ref, payload, query_params=params_extra or None)
-        elif endpoint == 'nfse':
-            retorno = client.emitir_nfse(ref, payload, query_params=params_extra or None)
-        else:
-            retorno = client.emitir_nfce(ref, payload, query_params=params_extra or None)
-    except FocusNFeError as exc:
-        doc.status = 'erro'
-        doc.mensagem_sefaz = str(exc)
-        doc.payload_retorno = exc.payload
-        doc.save(update_fields=['status', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
-        DocumentoFiscalEvento.objects.create(
-            documento=doc, tipo='erro', descricao=str(exc), payload=exc.payload,
-        )
-        raise
-
-    _aplicar_retorno_focus(doc, retorno)
-    return doc
+        return _disparar_emissao_focus(doc, cfg, payload, params_extra=params_extra or None)
+    except FocusNFeError:
+        return doc
 
 
 def _aplicar_retorno_focus(doc: DocumentoFiscal, retorno: dict):

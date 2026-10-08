@@ -48,7 +48,15 @@
                     {% elif d.produto_avulso_id %}Avulsa · {{ d.produto_avulso.nome_venda }}
                     {% else %}—{% endif %}
                 </td>
-                <td><a href="{% url 'fiscal_documento_detalhe' d.id %}" style="color:#03dac6;">Abrir</a></td>
+                <td style="white-space:nowrap;">
+                    <a href="{% url 'fiscal_documento_detalhe' d.id %}" style="color:#03dac6;">Abrir</a>
+                    {% if d.status == 'erro' or d.status == 'denegado' %}
+                    <form method="post" action="{% url 'fiscal_documento_reemitir' d.id %}" style="display:inline;margin:0;" data-submit-lock-msg="Reemitindo…">
+                        {% csrf_token %}
+                        <button type="submit" style="background:none;border:none;color:#ffbb33;cursor:pointer;padding:0 0 0 10px;font:inherit;" title="Enviar novamente com os mesmos dados">Reemitir</button>
+                    </form>
+                    {% endif %}
+                </td>
             </tr>
             {% empty %}
             <tr><td colspan="7" style="padding:20px;text-align:center;">Nenhum documento.</td></tr>

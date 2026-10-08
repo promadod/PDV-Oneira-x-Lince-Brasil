@@ -46,6 +46,7 @@ from .services import (
     LOTE_EMISSAO_MAX_VENDAS,
     buscar_vendas_elegiveis_lote,
     emitir_documento,
+    reemitir_documento,
     get_or_create_config,
     processar_lote_avulso_emissao,
     processar_lote_emissao,
@@ -376,6 +377,22 @@ def fiscal_documentos(request):
         request, 'app_pdv/fiscal/documentos.html',
         _ctx(request, loja, documentos=qs[:200], filtro_tipo=tipo, filtro_status=status),
     )
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_documento_reemitir(request, pk):
+    loja = check_loja(request)
+    doc = get_object_or_404(DocumentoFiscal, pk=pk, loja=loja)
+    novo = reemitir_documento(loja, request.user, doc)
+    if novo.status == 'erro':
+        messages.error(request, novo.mensagem_sefaz or 'Reemissão rejeitada pela API/SEFAZ.')
+    elif novo.status == 'autorizado':
+        messages.success(request, f'Reemissão autorizada — ref {novo.ref}.')
+    else:
+        messages.info(request, f'Reemissão enviada — ref {novo.ref} ({novo.get_status_display()}).')
+    return redirect('fiscal_documento_detalhe', pk=novo.id)
 
 
 @login_required

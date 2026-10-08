@@ -15,6 +15,7 @@ urlpatterns = [
     path('produtos/<int:produto_id>/', views.fiscal_produto_editar, name='fiscal_produto_editar'),
     path('documentos/', views.fiscal_documentos, name='fiscal_documentos'),
     path('documentos/<int:pk>/', views.fiscal_documento_detalhe, name='fiscal_documento_detalhe'),
+    path('documentos/<int:pk>/reemitir/', views.fiscal_documento_reemitir, name='fiscal_documento_reemitir'),
     path('documentos/<int:pk>/cancelar/', views.fiscal_documento_cancelar, name='fiscal_documento_cancelar'),
     path('documentos/<int:pk>/cce/', views.fiscal_documento_cce, name='fiscal_documento_cce'),
     path('emitir/', views.fiscal_emitir, name='fiscal_emitir'),
