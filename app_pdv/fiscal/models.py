@@ -173,6 +173,7 @@ class NaturezaOperacaoFiscal(models.Model):
 
     TRIBUTACAO_CHOICES = [
         ('produto', 'Usar tributação do produto / matriz'),
+        ('cst_61_combustivel', 'Combustível — ICMS monofásico retido (CST 61)'),
         ('csosn_102', 'Simples Nacional — CSOSN 102'),
         ('csosn_500', 'ICMS cobrado anteriormente por ST — CSOSN 500'),
         ('csosn_400', 'Isento — CSOSN 400'),

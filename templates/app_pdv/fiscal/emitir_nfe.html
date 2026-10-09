@@ -264,10 +264,48 @@ label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
     var sel = document.getElementById('id_natureza_cfop');
     var cfop = document.getElementById('id_cfop');
     if (sel && cfop) {
-        function sync() { cfop.value = sel.value || ''; }
+        function sync() { cfop.value = sel.value || ''; autoCombustivelNfe(); }
         sel.addEventListener('change', sync);
         sync();
     }
+
+    function cfopCombustivel(c) {
+        c = String(c || '').replace(/\D/g, '').slice(0, 4);
+        if (c.length !== 4) return false;
+        return c.charAt(1) === '6' && '567'.indexOf(c.charAt(2)) >= 0;
+    }
+    function autoCombustivelNfe() {
+        var cf = cfop ? cfop.value : '';
+        if (!cfopCombustivel(cf)) return;
+        var trib = document.getElementById('id_tributacao_nfe');
+        if (trib && (trib.value === 'produto' || trib.value === 'csosn_102')) {
+            trib.value = 'cst_61_combustivel';
+        }
+        var selP = document.getElementById('id_produto_id');
+        if (!selP || selP.selectedIndex < 0) return;
+        var txt = selP.options[selP.selectedIndex].text || '';
+        var m = txt.match(/(\d+(?:[.,]\d+)?)\s*kg/i);
+        if (!m) return;
+        var kgUn = parseFloat(String(m[1]).replace(',', '.')) || 0;
+        var qtd = num('id_quantidade') || 1;
+        var pesoL = document.getElementById('id_peso_liquido');
+        var pesoB = document.getElementById('id_peso_bruto');
+        var qvol = document.getElementById('id_quantidade_volumes');
+        if (pesoL && !(parseFloat(pesoL.value) > 0)) {
+            pesoL.value = (kgUn * qtd).toFixed(3);
+        }
+        if (pesoB && !(parseFloat(pesoB.value) > 0)) {
+            pesoB.value = (kgUn * qtd * 2.077).toFixed(3);
+        }
+        if (qvol && !(parseInt(qvol.value, 10) > 0)) {
+            qvol.value = String(Math.max(1, Math.round(qtd)));
+        }
+    }
+    ['id_produto_id', 'id_quantidade'].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.addEventListener('change', autoCombustivelNfe);
+    });
+    autoCombustivelNfe();
 
     var modalNat = document.getElementById('modal-nova-natureza');
     var btnNovaNat = document.getElementById('btn-nova-natureza');

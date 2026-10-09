@@ -51,12 +51,27 @@ PRESENCA_COMPRADOR_NFE = [
 
 PERFIL_TRIBUTACAO_NFE = [
     ('produto', 'Usar tributação do produto / matriz'),
+    ('cst_61_combustivel', 'Combustível — ICMS monofásico retido (CST 61)'),
     ('csosn_102', 'Simples Nacional — CSOSN 102'),
     ('csosn_500', 'ICMS cobrado anteriormente por ST — CSOSN 500'),
     ('csosn_400', 'Isento / não tributada — CSOSN 400'),
     ('csosn_300', 'Imune — CSOSN 300'),
     ('substituicao', 'Substituição tributária — CSOSN 500'),
 ]
+
+# CSTs de ICMS monofásico sobre combustíveis (NT 2023.001)
+CST_ICMS_MONOFASICO_COMBUSTIVEL = frozenset({'02', '15', '53', '61'})
+CST_ICMS_ISENTO_NAO_TRIB_COMB = frozenset({'40', '41', '50'})
+
+# CFOPs típicos de revenda GLP/combustível já tributado na origem (CST 61)
+CFOPS_COMBUSTIVEL_REVENDA_CST61 = frozenset({
+    '5656', '5667', '6656', '6667',
+})
+
+# Códigos ANP GLP (origComb / percentuais GN — LA18-20, LA21-20)
+ANP_GLP_ORIGEM = frozenset({
+    '210203001', '210203003', '210203004', '210203005',
+})
 
 # CFOPs de saída de combustível (grupo comb obrigatório na NF-e)
 CFOPS_COMBUSTIVEL = {
@@ -72,6 +87,24 @@ def cfop_exige_grupo_combustivel(cfop: str) -> bool:
     if c in CFOPS_COMBUSTIVEL:
         return True
     return len(c) == 4 and c[1] == '6' and c[2] in '567'
+
+
+def cfop_sugere_consumidor_final(cfop: str) -> str:
+    """indFinal: 1 = consumidor final (CFOP 566x/666x venda ao usuário final)."""
+    c = ''.join(ch for ch in (cfop or '') if ch.isdigit())[:4]
+    if len(c) == 4 and c[2] == '6' and c[3] == '7':
+        return '1'
+    return '0'
+
+
+def produto_sujeito_icms_monofasico(cfop: str, codigo_anp: str, *, ncm: str = '') -> bool:
+    if not cfop_exige_grupo_combustivel(cfop):
+        return False
+    if (codigo_anp or '').strip():
+        return True
+    n = ''.join(c for c in (ncm or '') if c.isdigit())[:8]
+    # GLP / gás (NCM 2711…) — exige grupo monofásico quando CFOP é de combustível
+    return n.startswith('2711')
 
 
 MODALIDADE_FRETE_NFE = [

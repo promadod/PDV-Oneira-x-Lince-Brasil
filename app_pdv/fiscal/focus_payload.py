@@ -1,6 +1,7 @@
 """Montagem de payloads JSON conforme API Focus NFe (v2)."""
 from __future__ import annotations
 
+import copy
 from decimal import Decimal
 
 from django.utils import timezone
@@ -248,6 +249,107 @@ def montar_payload_nfe_de_venda(cfg: FiscalConfig, loja, venda) -> dict:
     return payload
 
 
+def _inferir_consumidor_final(dados: dict) -> str:
+    from .nfe_catalog import cfop_sugere_consumidor_final
+
+    cfop = ''.join(c for c in str(dados.get('cfop') or '') if c.isdigit())[:4]
+    ind_ie = str(dados.get('indicador_ie_destinatario') or '9')
+    if cfop_sugere_consumidor_final(cfop) == '1':
+        return '1'
+    if ind_ie == '9':
+        return '1'
+    return '0'
+
+
+def _peso_liquido_de_payload(payload: dict, item: dict | None = None) -> float:
+    vols = payload.get('volumes') or []
+    if vols:
+        pl = float(vols[0].get('peso_liquido') or 0)
+        if pl > 0:
+            return pl
+    if item:
+        pl = float(item.get('icms_base_calculo_mono_retido') or 0)
+        if pl > 0:
+            return pl
+    return 0.0
+
+
+def reenriquecer_payload_nfe_reemissao(loja, payload: dict) -> dict:
+    """
+    Reconstrói itens da NF-e (ICMS monofásico CST 61, combustível, etc.).
+    Usado na reemissão para não reenviar JSON antigo com CSOSN 102 (rejeição 960).
+    """
+    from app_pdv.models import Produto
+
+    from .nfe_catalog import cfop_exige_grupo_combustivel
+    from .produto_fiscal import montar_item_focus_json
+
+    p = copy.deepcopy(payload)
+    items = p.get('items') or []
+    if not items:
+        return p
+    uf = (p.get('uf_destinatario') or 'RJ')[:2]
+    peso_l = _peso_liquido_de_payload(p, items[0])
+    for idx, item in enumerate(items):
+        cfop = ''.join(c for c in str(item.get('cfop') or '') if c.isdigit())[:4]
+        pid = item.get('codigo_produto')
+        produto = None
+        if pid:
+            produto = Produto.objects.filter(pk=int(pid), loja=loja).select_related('dados_fiscais').first()
+        if not produto:
+            continue
+        qtd = float(item.get('quantidade_comercial') or item.get('quantidade') or 1)
+        v_unit = float(item.get('valor_unitario_comercial') or item.get('valor_unitario') or 0)
+        if v_unit <= 0 and qtd > 0:
+            bruto = float(item.get('valor_bruto') or 0)
+            if bruto > 0:
+                v_unit = round(bruto / qtd, 2)
+        trib = 'cst_61_combustivel' if cfop_exige_grupo_combustivel(cfop) else 'produto'
+        pl_item = peso_l or _peso_liquido_de_payload(p, item)
+        p['items'][idx] = montar_item_focus_json(
+            loja,
+            produto,
+            quantidade=qtd,
+            preco_unitario=v_unit,
+            numero_item=int(item.get('numero_item') or idx + 1),
+            cfop_override=cfop or None,
+            uf_consumo=uf,
+            perfil_tributacao=trib,
+            peso_liquido_kg=pl_item or None,
+            forcar_monofasico_combustivel=True,
+        )
+    tz = timezone.get_current_timezone()
+    p['data_emissao'] = timezone.localtime(timezone.now(), tz).isoformat(timespec='seconds')
+    p.pop('serie', None)
+    p.pop('numero', None)
+    if not p.get('consumidor_final'):
+        cfop0 = ''.join(c for c in str(items[0].get('cfop') or '') if c.isdigit())[:4]
+        p['consumidor_final'] = _inferir_consumidor_final({
+            'cfop': cfop0,
+            'indicador_ie_destinatario': p.get('indicador_inscricao_estadual_destinatario') or '9',
+        })
+    return p
+
+
+def _aplicar_volumes_transporte(payload: dict, dados: dict) -> None:
+    q_vol = int(dados.get('quantidade_volumes') or 0)
+    peso_l = float(dados.get('peso_liquido') or 0)
+    peso_b = float(dados.get('peso_bruto') or 0)
+    if q_vol <= 0 and peso_l <= 0 and peso_b <= 0:
+        return
+    vol: dict = {}
+    if q_vol > 0:
+        vol['quantidade'] = q_vol
+    elif peso_l > 0 or peso_b > 0:
+        vol['quantidade'] = 1
+    if peso_l > 0:
+        vol['peso_liquido'] = round(peso_l, 3)
+    if peso_b > 0:
+        vol['peso_bruto'] = round(peso_b, 3)
+    if vol:
+        payload['volumes'] = [vol]
+
+
 def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
     """NF-e modelo 55 — destinatário + item (formulário dedicado)."""
     cnpj_emit = _digits(cfg.cnpj or loja.cnpj)
@@ -266,6 +368,8 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         cfop_override=dados.get('cfop'),
         uf_consumo=(dados.get('uf') or '')[:2],
         perfil_tributacao=perfil_trib,
+        peso_liquido_kg=float(dados.get('peso_liquido') or 0) or None,
+        forcar_monofasico_combustivel=True,
     )
     bruto = round(qtd * v_unit, 2)
     desconto = round(max(float(dados.get('valor_desconto') or 0), 0), 2)
@@ -281,6 +385,7 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         'natureza_operacao': (dados.get('natureza_operacao') or 'VENDA')[:60],
         'tipo_documento': '1',
         'finalidade_emissao': dados.get('finalidade_emissao') or '1',
+        'consumidor_final': dados.get('consumidor_final') or _inferir_consumidor_final(dados),
         'presenca_comprador': dados.get('presenca_comprador') or '1',
         'modalidade_frete': dados.get('modalidade_frete') or '9',
         'local_destino': '1',
@@ -309,6 +414,7 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
     else:
         raise ValueError('Informe CPF ou CNPJ do destinatário para NF-e.')
     _aplicar_endereco_destinatario_nfe(payload, dados)
+    _aplicar_volumes_transporte(payload, dados)
     return payload
 
 

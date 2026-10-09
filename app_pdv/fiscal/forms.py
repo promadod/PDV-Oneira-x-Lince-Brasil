@@ -472,6 +472,47 @@ class EmitirNFeForm(forms.Form):
         ibge = ''.join(c for c in (cleaned.get('codigo_municipio') or '') if c.isdigit())
         if ibge:
             cleaned['codigo_municipio'] = ibge
+
+        from .nfe_catalog import cfop_exige_grupo_combustivel
+        from .produto_fiscal import _quantidade_kg_monofasico
+
+        if cfop_exige_grupo_combustivel(cfop):
+            pid = cleaned.get('produto_id')
+            if pid and loja:
+                from app_pdv.models import Produto
+
+                produto = Produto.objects.filter(pk=int(pid), loja=loja).first()
+                if produto:
+                    try:
+                        df = produto.dados_fiscais
+                    except Exception:
+                        df = None
+                    if not df or not (df.codigo_anp or '').strip():
+                        raise forms.ValidationError(
+                            'CFOP de combustível: cadastre código e descrição ANP no cadastro fiscal do produto.',
+                        )
+                    if not df.icms_aliquota_ad_rem or float(df.icms_aliquota_ad_rem) <= 0:
+                        raise forms.ValidationError(
+                            'CFOP de combustível: cadastre a alíquota ICMS ad rem (R$/kg) no produto — '
+                            'obrigatória para CST 61 (monofásico retido).',
+                        )
+                    un = (df.unidade_tributavel or 'UN').lower()
+                    peso_form = float(cleaned.get('peso_liquido') or 0)
+                    q_kg = _quantidade_kg_monofasico(
+                        produto,
+                        quantidade=float(cleaned.get('quantidade') or 1),
+                        unidade=un,
+                        peso_liquido_nfe=peso_form or None,
+                    )
+                    if q_kg <= 0:
+                        raise forms.ValidationError(
+                            'Informe o peso líquido (kg) em Transportador/volumes ou cadastre o produto '
+                            'com “kg” na descrição (ex.: GLP 13 kg).',
+                        )
+            trib = cleaned.get('tributacao_nfe') or 'produto'
+            if trib in ('produto', 'csosn_102'):
+                cleaned['tributacao_nfe'] = 'cst_61_combustivel'
+            cleaned['tributacao'] = cleaned.get('tributacao_nfe') or 'cst_61_combustivel'
         return cleaned
 
 

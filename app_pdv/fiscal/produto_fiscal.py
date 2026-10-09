@@ -1,7 +1,8 @@
 """Tributação por produto (prioridade sobre matriz) e item JSON Focus."""
 from __future__ import annotations
 
-from decimal import Decimal
+import re
+from decimal import Decimal, ROUND_HALF_UP
 
 from .models import ProdutoDadosFiscais, RegraTributaria
 
@@ -93,6 +94,9 @@ def tributacao_do_produto(loja, produto, dados: ProdutoDadosFiscais | None, *, i
 def aplicar_perfil_tributacao_item(item: dict, perfil: str) -> None:
     if not perfil or perfil == 'produto':
         return
+    if perfil == 'cst_61_combustivel':
+        item['icms_situacao_tributaria'] = '61'
+        return
     csosn_map = {
         'csosn_102': '102',
         'csosn_500': '500',
@@ -104,6 +108,117 @@ def aplicar_perfil_tributacao_item(item: dict, perfil: str) -> None:
     csosn = csosn_map.get(perfil)
     if csosn:
         item['icms_situacao_tributaria'] = csosn
+
+
+def _normalizar_cfop(cfop: str) -> str:
+    return ''.join(c for c in (cfop or '') if c.isdigit())[:4]
+
+
+def _resolver_cst_monofasico_combustivel(cfop: str, dados) -> str:
+    from .nfe_catalog import (
+        CFOPS_COMBUSTIVEL_REVENDA_CST61,
+        CST_ICMS_ISENTO_NAO_TRIB_COMB,
+        CST_ICMS_MONOFASICO_COMBUSTIVEL,
+    )
+
+    cst_cad = (dados.cst_icms if dados and dados.cst_icms else '').strip()
+    if cst_cad in CST_ICMS_ISENTO_NAO_TRIB_COMB:
+        return cst_cad
+    if cst_cad in CST_ICMS_MONOFASICO_COMBUSTIVEL:
+        return cst_cad
+    cfop_d = _normalizar_cfop(cfop)
+    if cfop_d in CFOPS_COMBUSTIVEL_REVENDA_CST61:
+        return '61'
+    return '61'
+
+
+def _quantidade_kg_monofasico(
+    produto,
+    *,
+    quantidade: float,
+    unidade: str,
+    peso_liquido_nfe: float | None = None,
+) -> float:
+    if peso_liquido_nfe and peso_liquido_nfe > 0:
+        return float(peso_liquido_nfe)
+    nome = (getattr(produto, 'nome_venda', None) or getattr(produto, 'nome', '') or '')
+    m = re.search(r'(\d+(?:[.,]\d+)?)\s*kg', nome, re.I)
+    if m:
+        kg_un = float(m.group(1).replace(',', '.'))
+        return round(kg_un * float(quantidade), 4)
+    if (unidade or '').lower() == 'kg':
+        return float(quantidade)
+    return 0.0
+
+
+def _aplicar_icms_monofasico_combustivel(
+    item: dict,
+    *,
+    cst: str,
+    dados,
+    qtd_kg: float,
+) -> None:
+    from .nfe_catalog import CST_ICMS_MONOFASICO_COMBUSTIVEL
+
+    if cst not in CST_ICMS_MONOFASICO_COMBUSTIVEL:
+        return
+    item['icms_situacao_tributaria'] = cst
+    item.pop('icms_aliquota', None)
+    item.pop('icms_aliquota_ad_rem', None)
+    if cst != '61':
+        return
+    ad_rem = dados.icms_aliquota_ad_rem if dados and dados.icms_aliquota_ad_rem else None
+    if not ad_rem or float(ad_rem) <= 0:
+        raise ValueError(
+            'Produto sujeito à tributação monofásica (CST 61): cadastre a alíquota ICMS ad rem (R$/kg) '
+            'no cadastro fiscal do produto.',
+        )
+    if qtd_kg <= 0:
+        raise ValueError(
+            'Informe o peso líquido (kg) na seção Transportador/volumes ou use produto com unidade kg / '
+            'descrição com peso (ex.: GLP 13 kg). A quantidade tributada (qBCMonoRet) é obrigatória para CST 61.',
+        )
+    ad = float(Decimal(str(ad_rem)))
+    qtd = float(Decimal(str(qtd_kg)))
+    v_icms = float(
+        (Decimal(str(qtd_kg)) * Decimal(str(ad_rem))).quantize(Decimal('0.01'), rounding=ROUND_HALF_UP),
+    )
+    item['icms_base_calculo_mono_retido'] = qtd
+    item['icms_aliquota_retido'] = ad
+    item['icms_valor_mono_retido'] = v_icms
+
+
+def _aplicar_origens_combustivel_focus(item: dict, dados, *, uf_consumo: str) -> None:
+    from .nfe_catalog import ANP_GLP_ORIGEM
+
+    if not dados:
+        return
+    anp = (dados.codigo_anp or '').strip()
+    pct_imp = _dec(dados.pct_gn_importado) if dados.pct_gn_importado else 0.0
+    pct_nac = _dec(dados.pct_gn_nacional) if dados.pct_gn_nacional else 0.0
+    uf = (uf_consumo or 'RJ').strip().upper()[:2]
+    origens: list[dict] = []
+    if pct_nac > 0 or pct_imp > 0:
+        if pct_nac > 0:
+            origens.append({
+                'indicador_importacao': '0',
+                'uf_origem': uf,
+                'percentual_originario_uf': pct_nac,
+            })
+        if pct_imp > 0:
+            origens.append({
+                'indicador_importacao': '1',
+                'uf_origem': uf,
+                'percentual_originario_uf': pct_imp,
+            })
+    elif anp in ANP_GLP_ORIGEM:
+        origens.append({
+            'indicador_importacao': '0',
+            'uf_origem': uf,
+            'percentual_originario_uf': 100.0,
+        })
+    if origens:
+        item['origens_combustivel'] = origens
 
 
 def _aplicar_grupo_combustivel_focus(item: dict, dados, *, cfop: str, uf_consumo: str) -> None:
@@ -141,6 +256,8 @@ def montar_item_focus_json(
     cfop_override: str | None = None,
     uf_consumo: str = '',
     perfil_tributacao: str = 'produto',
+    peso_liquido_kg: float | None = None,
+    forcar_monofasico_combustivel: bool = False,
 ) -> dict:
     try:
         dados = produto.dados_fiscais
@@ -192,6 +309,33 @@ def montar_item_focus_json(
             item['percentual_gn_importado'] = _dec(dados.pct_gn_importado)
     if cfop_override:
         item['cfop'] = str(cfop_override).replace('.', '')[:4]
-    aplicar_perfil_tributacao_item(item, perfil_tributacao)
+    cfop_item = _normalizar_cfop(item['cfop'])
+    from .nfe_catalog import cfop_exige_grupo_combustivel, produto_sujeito_icms_monofasico
+
+    anp = (dados.codigo_anp if dados else '') or ''
+    monofasico = produto_sujeito_icms_monofasico(cfop_item, anp, ncm=trib['ncm'])
+    if forcar_monofasico_combustivel and cfop_exige_grupo_combustivel(cfop_item) and not monofasico:
+        raise ValueError(
+            f'CFOP {cfop_item} exige produto de combustível: cadastre código ANP e alíquota ad rem no produto.',
+        )
+    if monofasico:
+        from .nfe_catalog import CST_ICMS_ISENTO_NAO_TRIB_COMB
+
+        cst_mono = _resolver_cst_monofasico_combustivel(cfop_item, dados)
+        if cst_mono in CST_ICMS_ISENTO_NAO_TRIB_COMB:
+            item['icms_situacao_tributaria'] = cst_mono
+            item.pop('icms_aliquota', None)
+        else:
+            qtd_kg = _quantidade_kg_monofasico(
+                produto,
+                quantidade=qtd,
+                unidade=trib['unidade'],
+                peso_liquido_nfe=peso_liquido_kg,
+            )
+            _aplicar_icms_monofasico_combustivel(item, cst=cst_mono, dados=dados, qtd_kg=qtd_kg)
+    else:
+        aplicar_perfil_tributacao_item(item, perfil_tributacao)
     _aplicar_grupo_combustivel_focus(item, dados, cfop=item['cfop'], uf_consumo=uf_consumo)
+    if monofasico:
+        _aplicar_origens_combustivel_focus(item, dados, uf_consumo=uf_consumo)
     return item

@@ -106,12 +106,25 @@ def _nfe_dados_from_payload(payload: dict, produto) -> dict:
         bruto = float(item.get('valor_bruto') or 0)
         if bruto > 0:
             v_unit = round(bruto / qtd, 2)
+    from .nfe_catalog import cfop_exige_grupo_combustivel
+
+    cfop = ''.join(c for c in str(item.get('cfop') or '') if c.isdigit())[:4]
+    vols = payload.get('volumes') or []
+    v0 = vols[0] if vols else {}
+    peso_l = float(v0.get('peso_liquido') or 0)
+    if peso_l <= 0:
+        peso_l = float(item.get('icms_base_calculo_mono_retido') or 0)
+    peso_b = float(v0.get('peso_bruto') or 0)
+    q_vol = int(v0.get('quantidade') or 0)
+    trib = payload.get('tributacao_nfe') or payload.get('tributacao') or 'produto'
+    if cfop_exige_grupo_combustivel(cfop) and trib in ('produto', 'csosn_102', ''):
+        trib = 'cst_61_combustivel'
     return {
         'produto': produto,
         'quantidade': qtd,
         'preco_unitario': v_unit,
         'natureza_operacao': payload.get('natureza_operacao') or 'VENDA',
-        'cfop': item.get('cfop'),
+        'cfop': cfop or item.get('cfop'),
         'finalidade_emissao': payload.get('finalidade_emissao') or '1',
         'forma_pagamento': fp.get('forma_pagamento') or '99',
         'valor_desconto': float(payload.get('valor_desconto') or 0),
@@ -132,15 +145,53 @@ def _nfe_dados_from_payload(payload: dict, produto) -> dict:
         'presenca_comprador': payload.get('presenca_comprador') or '1',
         'modalidade_frete': payload.get('modalidade_frete') or '9',
         'valor_frete': float(payload.get('valor_frete') or 0),
-        'tributacao': payload.get('tributacao_nfe') or 'produto',
+        'peso_liquido': peso_l,
+        'peso_bruto': peso_b,
+        'quantidade_volumes': q_vol,
+        'consumidor_final': payload.get('consumidor_final'),
+        'tributacao': trib,
     }
 
 
+def _resolver_produto_documento_nfe(loja, doc: DocumentoFiscal, payload: dict):
+    from app_pdv.models import Produto
+
+    if doc.produto_avulso_id:
+        return doc.produto_avulso
+    snap = doc.snapshot_tributario or {}
+    pid = snap.get('produto_id')
+    items = payload.get('items') or []
+    if not pid and items:
+        pid = items[0].get('codigo_produto')
+    if pid:
+        return Produto.objects.filter(pk=int(pid), loja=loja).first()
+    return None
+
+
 def _montar_payload_para_reemissao(cfg: FiscalConfig, loja, doc: DocumentoFiscal) -> dict:
-    from .focus_payload import montar_payload_emissao, montar_payload_nfe_form, montar_payload_nfce_avulso
+    from .focus_payload import (
+        montar_payload_emissao,
+        montar_payload_nfe_form,
+        montar_payload_nfce_avulso,
+        reenriquecer_payload_nfe_reemissao,
+    )
 
     snap = doc.snapshot_tributario or {}
     payload_orig = doc.payload_envio if isinstance(doc.payload_envio, dict) else {}
+
+    if doc.tipo == 'nfe' and payload_orig.get('items'):
+        produto = _resolver_produto_documento_nfe(loja, doc, payload_orig)
+        if produto:
+            try:
+                return montar_payload_nfe_form(
+                    cfg, loja, _nfe_dados_from_payload(payload_orig, produto),
+                )
+            except ValueError as exc:
+                raise FocusNFeError(str(exc)) from exc
+        try:
+            return reenriquecer_payload_nfe_reemissao(loja, payload_orig)
+        except ValueError as exc:
+            raise FocusNFeError(str(exc)) from exc
 
     if snap.get('emissao_nfe_form') and doc.produto_avulso_id:
         try:
@@ -151,6 +202,11 @@ def _montar_payload_para_reemissao(cfg: FiscalConfig, loja, doc: DocumentoFiscal
             raise FocusNFeError(str(exc)) from exc
 
     if payload_orig.get('items'):
+        if doc.tipo == 'nfe':
+            try:
+                return reenriquecer_payload_nfe_reemissao(loja, payload_orig)
+            except ValueError as exc:
+                raise FocusNFeError(str(exc)) from exc
         return _atualizar_data_emissao_payload(payload_orig)
 
     if doc.venda_id:
