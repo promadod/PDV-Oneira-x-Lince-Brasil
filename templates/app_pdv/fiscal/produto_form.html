@@ -46,8 +46,8 @@
             <div><label>Descrição ANP</label>{{ form.descricao_anp }}</div>
             <div><label>ICMS ad rem (R$)</label>{{ form.icms_aliquota_ad_rem }}</div>
             <div><label>% GLP</label>{{ form.pct_glp }}</div>
-            <div><label>% GN nacional</label>{{ form.pct_gn_nacional }}</div>
-            <div><label>% GN importado</label>{{ form.pct_gn_importado }}</div>
+            <div><label>% GN nacional</label>{{ form.pct_gn_nacional }}<small style="display:block;color:#888;">Composição do GLP (pGNn). Se &gt; 0, exige origComb na NF-e; deixe 0 na revenda simples.</small></div>
+            <div><label>% GN importado</label>{{ form.pct_gn_importado }}<small style="display:block;color:#888;">Composição do GLP (pGNi). Não é o percentual originário da UF (pOrig).</small></div>
         </div>
     </div>
     <div class="card" style="padding:20px;margin-bottom:16px;">

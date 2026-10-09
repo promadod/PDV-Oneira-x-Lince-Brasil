@@ -189,36 +189,34 @@ def _aplicar_icms_monofasico_combustivel(
 
 
 def _aplicar_origens_combustivel_focus(item: dict, dados, *, uf_consumo: str) -> None:
-    from .nfe_catalog import ANP_GLP_ORIGEM
+    """
+    origComb (LA18-20): obrigatório se pGNn ou pGNi != 0 no grupo combustível.
+    pOrig deve totalizar 100 por indImport (LA21-20 para GLP), não confundir com % GN na mistura.
+    """
+    from .nfe_catalog import codigo_uf_ibge
 
     if not dados:
         return
-    anp = (dados.codigo_anp or '').strip()
-    pct_imp = _dec(dados.pct_gn_importado) if dados.pct_gn_importado else 0.0
-    pct_nac = _dec(dados.pct_gn_nacional) if dados.pct_gn_nacional else 0.0
-    uf = (uf_consumo or 'RJ').strip().upper()[:2]
+    pct_gn_n = _dec(dados.pct_gn_nacional) if dados.pct_gn_nacional else 0.0
+    pct_gn_i = _dec(dados.pct_gn_importado) if dados.pct_gn_importado else 0.0
+    if pct_gn_n <= 0 and pct_gn_i <= 0:
+        item.pop('origens_combustivel', None)
+        return
+    uf_ibge = codigo_uf_ibge(uf_consumo or 'RJ')
     origens: list[dict] = []
-    if pct_nac > 0 or pct_imp > 0:
-        if pct_nac > 0:
-            origens.append({
-                'indicador_importacao': '0',
-                'uf_origem': uf,
-                'percentual_originario_uf': pct_nac,
-            })
-        if pct_imp > 0:
-            origens.append({
-                'indicador_importacao': '1',
-                'uf_origem': uf,
-                'percentual_originario_uf': pct_imp,
-            })
-    elif anp in ANP_GLP_ORIGEM:
+    if pct_gn_n > 0:
         origens.append({
             'indicador_importacao': '0',
-            'uf_origem': uf,
+            'uf_origem': uf_ibge,
             'percentual_originario_uf': 100.0,
         })
-    if origens:
-        item['origens_combustivel'] = origens
+    if pct_gn_i > 0:
+        origens.append({
+            'indicador_importacao': '1',
+            'uf_origem': uf_ibge,
+            'percentual_originario_uf': 100.0,
+        })
+    item['origens_combustivel'] = origens
 
 
 def _aplicar_grupo_combustivel_focus(item: dict, dados, *, cfop: str, uf_consumo: str) -> None:
@@ -301,12 +299,6 @@ def montar_item_focus_json(
             item['descricao_anp'] = dados.descricao_anp.strip()[:95]
         if dados.icms_aliquota_ad_rem:
             item['icms_aliquota_ad_rem'] = _dec(dados.icms_aliquota_ad_rem)
-        if dados.pct_glp:
-            item['percentual_glp'] = _dec(dados.pct_glp)
-        if dados.pct_gn_nacional:
-            item['percentual_gn_nacional'] = _dec(dados.pct_gn_nacional)
-        if dados.pct_gn_importado:
-            item['percentual_gn_importado'] = _dec(dados.pct_gn_importado)
     if cfop_override:
         item['cfop'] = str(cfop_override).replace('.', '')[:4]
     cfop_item = _normalizar_cfop(item['cfop'])

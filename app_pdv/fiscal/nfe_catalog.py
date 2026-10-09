@@ -73,6 +73,21 @@ ANP_GLP_ORIGEM = frozenset({
     '210203001', '210203003', '210203004', '210203005',
 })
 
+# Sigla UF → código IBGE (tag cUFOrig em origComb — não usar sigla)
+UF_SIGLA_PARA_IBGE: dict[str, str] = {
+    'AC': '12', 'AL': '27', 'AM': '13', 'AP': '16', 'BA': '29', 'CE': '23', 'DF': '53',
+    'ES': '32', 'GO': '52', 'MA': '21', 'MG': '31', 'MS': '50', 'MT': '51', 'PA': '15',
+    'PB': '25', 'PE': '26', 'PI': '22', 'PR': '41', 'RJ': '33', 'RN': '24', 'RO': '11',
+    'RR': '14', 'RS': '43', 'SC': '42', 'SE': '28', 'SP': '35', 'TO': '17',
+}
+
+
+def codigo_uf_ibge(sigla_uf: str, *, fallback: str = '33') -> str:
+    s = (sigla_uf or '').strip().upper()[:2]
+    if s.isdigit() and len(s) == 2:
+        return s
+    return UF_SIGLA_PARA_IBGE.get(s, fallback)
+
 # CFOPs de saída de combustível (grupo comb obrigatório na NF-e)
 CFOPS_COMBUSTIVEL = {
     '5651', '5652', '5653', '5654', '5655', '5656', '5657', '5658', '5659',
