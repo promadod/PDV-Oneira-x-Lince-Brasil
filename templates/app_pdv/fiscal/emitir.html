@@ -3,10 +3,12 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 <h2>5. Emitir NFC-e</h2>
-<p style="color:#aaa;">Cupom fiscal eletrônico vinculado à venda do PDV.
-    <a href="{% url 'fiscal_emitir_lote' %}" style="color:#03dac6;">NFC-e em lote</a> ·
-    <a href="{% url 'fiscal_emitir_avulsa' %}" style="color:#03dac6;">Emissão avulsa por produto</a> ·
-    <a href="{% url 'fiscal_emitir_nfe' %}" style="color:#03dac6;">NF-e (modelo 55)</a>.</p>
+<p style="color:#aaa;margin-bottom:12px;">Cupom fiscal eletrônico vinculado à venda do PDV.</p>
+<div class="fiscal-link-actions" style="margin-bottom:20px;">
+    <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-btn fiscal-btn--sm">NFC-e em lote</a>
+    <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-btn fiscal-btn--sm">Emissão avulsa</a>
+    <a href="{% url 'fiscal_emitir_nfe' %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">NF-e (modelo 55)</a>
+</div>
 <form method="post" class="card" style="max-width:520px;margin-bottom:20px;" data-submit-lock-msg="Emitindo NFC-e…">
     {% csrf_token %}
     {{ form.tipo }}

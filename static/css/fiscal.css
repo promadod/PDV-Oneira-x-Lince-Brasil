@@ -90,3 +90,302 @@
 .fiscal-form-grid .fiscal-field-check {
     grid-column: 1 / -1;
 }
+
+/* ——— Páginas (documentos, listas) ——— */
+.fiscal-page-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.fiscal-page-head h2 {
+    margin: 0 0 4px;
+    font-size: 1.35rem;
+}
+
+.fiscal-page-sub {
+    margin: 0;
+    color: #9a9ab0;
+    font-size: 0.92rem;
+}
+
+.fiscal-filter-panel {
+    margin-bottom: 18px;
+    padding: 18px 20px;
+    background: #252532;
+    border: 1px solid #3d3d52;
+    border-radius: 12px;
+}
+
+.fiscal-filter-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+    gap: 14px 16px;
+    align-items: end;
+}
+
+.fiscal-filter-grid label {
+    display: block;
+    margin-bottom: 6px;
+    font-size: 0.82rem;
+    color: #b0b0c8;
+    font-weight: 500;
+}
+
+.fiscal-filter-actions {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+    align-items: center;
+}
+
+.fiscal-stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+    gap: 12px;
+    margin-bottom: 18px;
+}
+
+.fiscal-stat-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px 18px;
+    background: linear-gradient(145deg, #2a2a3a 0%, #222230 100%);
+    border: 1px solid #404058;
+    border-radius: 12px;
+    min-height: 72px;
+}
+
+.fiscal-stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.15rem;
+    flex-shrink: 0;
+    background: rgba(21, 160, 165, 0.18);
+    border: 1px solid rgba(21, 160, 165, 0.35);
+    color: #03dac6;
+}
+
+.fiscal-stat-icon--warn {
+    background: rgba(255, 152, 0, 0.12);
+    border-color: rgba(255, 152, 0, 0.35);
+    color: #ffb74d;
+}
+
+.fiscal-stat-icon--danger {
+    background: rgba(207, 102, 121, 0.12);
+    border-color: rgba(207, 102, 121, 0.35);
+    color: #cf6679;
+}
+
+.fiscal-stat-label {
+    font-size: 0.78rem;
+    color: #9a9ab0;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    margin-bottom: 4px;
+}
+
+.fiscal-stat-value {
+    font-size: 1.35rem;
+    font-weight: 700;
+    color: #f2f2f8;
+    line-height: 1.2;
+}
+
+.fiscal-stat-value--sm {
+    font-size: 1.05rem;
+}
+
+.fiscal-table-card {
+    padding: 0;
+    overflow: hidden;
+    border-radius: 12px;
+    border: 1px solid #3d3d52;
+    background: #252532;
+}
+
+.fiscal-table-wrap {
+    overflow-x: auto;
+}
+
+.fiscal-table {
+    width: 100%;
+    border-collapse: collapse;
+    color: #e8e8f0;
+    font-size: 0.9rem;
+}
+
+.fiscal-table thead th {
+    padding: 12px 14px;
+    text-align: left;
+    font-size: 0.78rem;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    color: #9a9ab0;
+    background: rgba(0, 0, 0, 0.25);
+    border-bottom: 1px solid #404058;
+    white-space: nowrap;
+}
+
+.fiscal-table tbody td {
+    padding: 11px 14px;
+    border-bottom: 1px solid #353548;
+    vertical-align: middle;
+}
+
+.fiscal-table tbody tr:hover {
+    background: rgba(3, 218, 198, 0.04);
+}
+
+.fiscal-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.fiscal-ref {
+    font-size: 0.8rem;
+    color: #a8a8c0;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.fiscal-status-pill {
+    display: inline-block;
+    padding: 4px 12px;
+    border-radius: 999px;
+    font-size: 0.78rem;
+    font-weight: 600;
+    border: 1px solid transparent;
+}
+
+.fiscal-status-pill--autorizado {
+    background: rgba(3, 218, 198, 0.15);
+    border-color: rgba(3, 218, 198, 0.45);
+    color: #03dac6;
+}
+
+.fiscal-status-pill--erro,
+.fiscal-status-pill--denegado {
+    background: rgba(207, 102, 121, 0.15);
+    border-color: rgba(207, 102, 121, 0.45);
+    color: #cf6679;
+}
+
+.fiscal-status-pill--cancelado {
+    background: rgba(255, 152, 0, 0.12);
+    border-color: rgba(255, 152, 0, 0.4);
+    color: #ffb74d;
+}
+
+.fiscal-status-pill--processando,
+.fiscal-status-pill--contingencia,
+.fiscal-status-pill--rascunho {
+    background: rgba(255, 187, 51, 0.12);
+    border-color: rgba(255, 187, 51, 0.4);
+    color: #ffbb33;
+}
+
+.fiscal-status-pill--default {
+    background: rgba(255, 255, 255, 0.06);
+    border-color: #52526a;
+    color: #ccc;
+}
+
+/* Botões com moldura (ações em tabelas e links) */
+.fiscal-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    text-decoration: none;
+    cursor: pointer;
+    border: 1px solid #52526a;
+    background: #3a3a50;
+    color: #f0f0f8;
+    transition: background 0.15s, border-color 0.15s, color 0.15s;
+    line-height: 1.2;
+    font-family: inherit;
+}
+
+.fiscal-btn:hover {
+    background: #454560;
+    border-color: #03dac6;
+    color: #fff;
+}
+
+.fiscal-btn--primary {
+    background: rgba(3, 218, 198, 0.12);
+    border-color: rgba(3, 218, 198, 0.55);
+    color: #03dac6;
+}
+
+.fiscal-btn--primary:hover {
+    background: rgba(3, 218, 198, 0.22);
+    color: #fff;
+}
+
+.fiscal-btn--accent {
+    background: #15a0a5;
+    border-color: #15a0a5;
+    color: #0d1a1a;
+}
+
+.fiscal-btn--accent:hover {
+    filter: brightness(1.08);
+    color: #000;
+}
+
+.fiscal-btn--warn {
+    background: rgba(255, 152, 0, 0.12);
+    border-color: rgba(255, 152, 0, 0.55);
+    color: #ffb74d;
+}
+
+.fiscal-btn--warn:hover {
+    background: rgba(255, 152, 0, 0.22);
+    color: #fff;
+}
+
+.fiscal-btn--sm {
+    padding: 5px 11px;
+    font-size: 0.8rem;
+}
+
+.fiscal-btn-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.fiscal-btn-row form {
+    margin: 0;
+    display: inline-flex;
+}
+
+.fiscal-link-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+}
+
+.fiscal-table-foot {
+    padding: 10px 14px;
+    font-size: 0.82rem;
+    color: #888;
+    border-top: 1px solid #353548;
+}

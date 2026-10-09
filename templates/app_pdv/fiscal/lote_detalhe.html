@@ -34,7 +34,7 @@
                 </td>
                 <td>
                     {% if item.documento %}
-                    <a href="{% url 'fiscal_documento_detalhe' item.documento_id %}" style="color:#03dac6;">{{ item.documento.ref }}</a>
+                    <a href="{% url 'fiscal_documento_detalhe' item.documento_id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">{{ item.documento.ref }}</a>
                     {% else %}—{% endif %}
                 </td>
                 <td style="font-size:0.85em;color:#aaa;">{{ item.mensagem|truncatechars:120 }}</td>

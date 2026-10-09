@@ -13,14 +13,14 @@
     {% elif doc.produto_avulso_id %}<p><strong>Origem:</strong> Emissão avulsa — {{ doc.produto_avulso.nome_venda }} (#{{ doc.produto_avulso_id }})</p>
     {% endif %}
     {% if doc.em_contingencia %}<p style="color:#ff9800;">Emitido em contingência</p>{% endif %}
-    <div style="display:flex;gap:12px;flex-wrap:wrap;margin-top:12px;">
-        {% if doc.url_xml or doc.caminho_xml %}<a class="btn" style="background:#333;" href="{% url 'fiscal_documento_arquivo' doc.id 'xml' %}" target="_blank">XML</a>{% endif %}
-        {% if doc.url_pdf or doc.caminho_pdf %}<a class="btn" style="background:#333;" href="{% url 'fiscal_documento_arquivo' doc.id 'pdf' %}" target="_blank">DANFE/PDF</a>{% endif %}
-        <a href="{% url 'fiscal_documentos' %}" class="btn" style="background:#444;">Voltar</a>
+    <div class="fiscal-btn-row" style="margin-top:12px;">
+        {% if doc.url_xml or doc.caminho_xml %}<a class="fiscal-btn" href="{% url 'fiscal_documento_arquivo' doc.id 'xml' %}" target="_blank">XML</a>{% endif %}
+        {% if doc.url_pdf or doc.caminho_pdf %}<a class="fiscal-btn" href="{% url 'fiscal_documento_arquivo' doc.id 'pdf' %}" target="_blank">DANFE/PDF</a>{% endif %}
+        <a href="{% url 'fiscal_documentos' %}" class="fiscal-btn">Voltar</a>
         {% if doc.status == 'erro' or doc.status == 'denegado' %}
-        <form method="post" action="{% url 'fiscal_documento_reemitir' doc.id %}" style="display:inline;" data-submit-lock-msg="Reemitindo…">
+        <form method="post" action="{% url 'fiscal_documento_reemitir' doc.id %}" data-submit-lock-msg="Reemitindo…">
             {% csrf_token %}
-            <button type="submit" class="btn" style="background:#ff9800;color:#000;">Reemitir</button>
+            <button type="submit" class="fiscal-btn fiscal-btn--warn">Reemitir</button>
         </form>
         {% endif %}
     </div>

@@ -7,7 +7,7 @@
         <h2 style="margin:0;">Produtos — cadastro fiscal</h2>
         <p style="color:#888;margin:4px 0 0;font-size:0.9em;">NCM, CFOP, tributos e ANP por item (como NetFiscal).</p>
     </div>
-    <a href="{% url 'fiscal_emitir_avulsa' %}" class="btn btn-success">Emissão avulsa</a>
+    <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-btn fiscal-btn--accent">Emissão avulsa</a>
 </div>
 <div class="card">
     <table style="width:100%;border-collapse:collapse;color:#fff;">
@@ -28,8 +28,10 @@
                 <td>{% if p.dados_fiscais %}{{ p.dados_fiscais.cfop_venda|default:"—" }}{% else %}—{% endif %}</td>
                 <td>{% if p.dados_fiscais and p.dados_fiscais.codigo_anp %}{{ p.dados_fiscais.codigo_anp }}{% else %}—{% endif %}</td>
                 <td>
-                    <a href="{% url 'fiscal_produto_editar' p.id %}" style="color:#03dac6;">Cadastro fiscal</a>
-                    · <a href="{% url 'fiscal_emitir_avulsa' %}?produto={{ p.id }}" style="color:#03dac6;">Emitir avulsa</a>
+                    <div class="fiscal-link-actions">
+                        <a href="{% url 'fiscal_produto_editar' p.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">Cadastro fiscal</a>
+                        <a href="{% url 'fiscal_emitir_avulsa' %}?produto={{ p.id }}" class="fiscal-btn fiscal-btn--sm">Emitir avulsa</a>
+                    </div>
                 </td>
             </tr>
             {% empty %}

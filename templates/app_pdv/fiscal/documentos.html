@@ -1,67 +1,156 @@
 {% extends 'base.html' %}
+{% load humanize %}
 {% block title %}Documentos Fiscais{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
-<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">
-    <h2 style="margin:0;">3 / 5 — Documentos (NF-e / NFC-e / NFS-e)</h2>
-    <a href="{% url 'fiscal_emitir' %}" class="btn">Emitir novo</a>
+
+<div class="fiscal-page-head">
+    <div>
+        <h2>Documentos fiscais</h2>
+        <p class="fiscal-page-sub">NF-e, NFC-e e NFS-e emitidos no período</p>
+    </div>
+    <a href="{% url 'fiscal_emitir' %}" class="fiscal-btn fiscal-btn--accent"><i class="fas fa-plus"></i> Emitir novo</a>
 </div>
-<form method="get" class="card" style="margin-bottom:16px;display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;" data-submit-lock="off">
-    <div>
-        <label>Tipo</label>
-        <select name="tipo" class="form-control">
-            <option value="">Todos</option>
-            <option value="nfce" {% if filtro_tipo == 'nfce' %}selected{% endif %}>NFC-e</option>
-            <option value="nfe" {% if filtro_tipo == 'nfe' %}selected{% endif %}>NF-e</option>
-            <option value="nfse" {% if filtro_tipo == 'nfse' %}selected{% endif %}>NFS-e</option>
-        </select>
+
+<form method="get" class="fiscal-filter-panel" data-submit-lock="off">
+    <div class="fiscal-filter-grid">
+        <div>
+            <label for="id_periodo">Período</label>
+            <select name="periodo" id="id_periodo" class="form-control">
+                <option value="hoje" {% if filtro_periodo == 'hoje' %}selected{% endif %}>Hoje</option>
+                <option value="ontem" {% if filtro_periodo == 'ontem' %}selected{% endif %}>Ontem</option>
+                <option value="7dias" {% if filtro_periodo == '7dias' %}selected{% endif %}>Últimos 7 dias</option>
+                <option value="mes_atual" {% if filtro_periodo == 'mes_atual' %}selected{% endif %}>Mês atual</option>
+                <option value="mes_anterior" {% if filtro_periodo == 'mes_anterior' %}selected{% endif %}>Mês anterior</option>
+                <option value="personalizado" {% if filtro_periodo == 'personalizado' %}selected{% endif %}>Período personalizado</option>
+            </select>
+        </div>
+        <div>
+            <label for="id_data_inicial">Data inicial</label>
+            <input type="date" name="data_inicial" id="id_data_inicial" class="form-control" value="{{ filtro_data_inicial }}">
+        </div>
+        <div>
+            <label for="id_data_final">Data final</label>
+            <input type="date" name="data_final" id="id_data_final" class="form-control" value="{{ filtro_data_final }}">
+        </div>
+        <div>
+            <label for="id_tipo">Tipo</label>
+            <select name="tipo" id="id_tipo" class="form-control">
+                <option value="">Todos</option>
+                <option value="nfce" {% if filtro_tipo == 'nfce' %}selected{% endif %}>NFC-e</option>
+                <option value="nfe" {% if filtro_tipo == 'nfe' %}selected{% endif %}>NF-e</option>
+                <option value="nfse" {% if filtro_tipo == 'nfse' %}selected{% endif %}>NFS-e</option>
+            </select>
+        </div>
+        <div>
+            <label for="id_status">Status</label>
+            <select name="status" id="id_status" class="form-control">
+                <option value="">Todos</option>
+                <option value="autorizado" {% if filtro_status == 'autorizado' %}selected{% endif %}>Autorizado</option>
+                <option value="processando" {% if filtro_status == 'processando' %}selected{% endif %}>Processando</option>
+                <option value="erro" {% if filtro_status == 'erro' %}selected{% endif %}>Erro</option>
+                <option value="cancelado" {% if filtro_status == 'cancelado' %}selected{% endif %}>Cancelado</option>
+                <option value="denegado" {% if filtro_status == 'denegado' %}selected{% endif %}>Denegado</option>
+            </select>
+        </div>
+        <div class="fiscal-filter-actions">
+            <button type="submit" class="fiscal-btn fiscal-btn--accent"><i class="fas fa-search"></i> Pesquisar</button>
+        </div>
     </div>
-    <div>
-        <label>Status</label>
-        <select name="status" class="form-control">
-            <option value="">Todos</option>
-            <option value="autorizado" {% if filtro_status == 'autorizado' %}selected{% endif %}>Autorizado</option>
-            <option value="processando" {% if filtro_status == 'processando' %}selected{% endif %}>Processando</option>
-            <option value="erro" {% if filtro_status == 'erro' %}selected{% endif %}>Erro</option>
-            <option value="cancelado" {% if filtro_status == 'cancelado' %}selected{% endif %}>Cancelado</option>
-        </select>
-    </div>
-    <button type="submit" class="btn">Filtrar</button>
 </form>
-<div class="card">
-    <table style="width:100%;border-collapse:collapse;color:#fff;">
-        <thead>
-            <tr style="border-bottom:1px solid #444;text-align:left;">
-                <th style="padding:12px;">Ref</th><th>Tipo</th><th>Número</th><th>Status</th><th>Valor</th><th>Origem</th><th></th>
-            </tr>
-        </thead>
-        <tbody>
-            {% for d in documentos %}
-            <tr style="border-bottom:1px solid #333;">
-                <td style="padding:10px;font-size:0.85em;">{{ d.ref }}</td>
-                <td>{{ d.get_tipo_display }}</td>
-                <td>{{ d.numero|default:"—" }}</td>
-                <td style="color:{% if d.status == 'autorizado' %}#03dac6{% elif d.status == 'erro' %}#cf6679{% else %}#ffbb33{% endif %};">{{ d.get_status_display }}</td>
-                <td>R$ {{ d.valor_total }}</td>
-                <td>
-                    {% if d.venda_id %}Venda #{{ d.venda_id }}
-                    {% elif d.produto_avulso_id %}Avulsa · {{ d.produto_avulso.nome_venda }}
-                    {% else %}—{% endif %}
-                </td>
-                <td style="white-space:nowrap;">
-                    <a href="{% url 'fiscal_documento_detalhe' d.id %}" style="color:#03dac6;">Abrir</a>
-                    {% if d.status == 'erro' or d.status == 'denegado' %}
-                    <form method="post" action="{% url 'fiscal_documento_reemitir' d.id %}" style="display:inline;margin:0;" data-submit-lock-msg="Reemitindo…">
-                        {% csrf_token %}
-                        <button type="submit" style="background:none;border:none;color:#ffbb33;cursor:pointer;padding:0 0 0 10px;font:inherit;" title="Enviar novamente com os mesmos dados">Reemitir</button>
-                    </form>
-                    {% endif %}
-                </td>
-            </tr>
-            {% empty %}
-            <tr><td colspan="7" style="padding:20px;text-align:center;">Nenhum documento.</td></tr>
-            {% endfor %}
-        </tbody>
-    </table>
+
+<div class="fiscal-stats-grid">
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon"><i class="fas fa-file-invoice"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Documentos</div>
+            <div class="fiscal-stat-value">{{ doc_stats.total_documentos|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon"><i class="fas fa-check-circle"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Autorizadas</div>
+            <div class="fiscal-stat-value">{{ doc_stats.autorizados|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon"><i class="fas fa-dollar-sign"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Faturamento</div>
+            <div class="fiscal-stat-value fiscal-stat-value--sm">R$ {{ doc_stats.faturamento|floatformat:2|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon fiscal-stat-icon--warn"><i class="fas fa-motorcycle"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Taxa de entrega</div>
+            <div class="fiscal-stat-value fiscal-stat-value--sm">R$ {{ doc_stats.taxa_entrega|floatformat:2|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon fiscal-stat-icon--danger"><i class="fas fa-ban"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Canceladas</div>
+            <div class="fiscal-stat-value">{{ doc_stats.cancelados|intcomma }}</div>
+        </div>
+    </div>
 </div>
+
+<div class="fiscal-table-card">
+    <div class="fiscal-table-wrap">
+        <table class="fiscal-table">
+            <thead>
+                <tr>
+                    <th>Número</th>
+                    <th>Doc.</th>
+                    <th>Emissão</th>
+                    <th>Operador</th>
+                    <th>Cliente</th>
+                    <th>Status</th>
+                    <th>Valor</th>
+                    <th>Origem</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in documentos %}
+                <tr>
+                    <td>{{ d.numero|default:"—" }}</td>
+                    <td>{{ d.get_tipo_display }}</td>
+                    <td style="white-space:nowrap;">{{ d.criado_em|date:"d/m/Y H:i" }}</td>
+                    <td style="font-size:0.85em;">{{ d.fiscal_operador_label }}</td>
+                    <td>{{ d.fiscal_cliente_label }}</td>
+                    <td>
+                        <span class="fiscal-status-pill fiscal-status-pill--{{ d.status|default:'default' }}">{{ d.get_status_display }}</span>
+                    </td>
+                    <td style="white-space:nowrap;">R$ {{ d.valor_total|floatformat:2 }}</td>
+                    <td style="font-size:0.88em;">
+                        {% if d.venda_id %}Venda #{{ d.venda_id }}
+                        {% elif d.produto_avulso_id %}Avulsa · {{ d.produto_avulso.nome_venda }}
+                        {% else %}<span class="fiscal-ref" title="{{ d.ref }}">{{ d.ref|truncatechars:24 }}</span>{% endif %}
+                    </td>
+                    <td>
+                        <div class="fiscal-link-actions">
+                            <a href="{% url 'fiscal_documento_detalhe' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">Abrir</a>
+                            {% if d.status == 'erro' or d.status == 'denegado' %}
+                            <form method="post" action="{% url 'fiscal_documento_reemitir' d.id %}" data-submit-lock-msg="Reemitindo…">
+                                {% csrf_token %}
+                                <button type="submit" class="fiscal-btn fiscal-btn--warn fiscal-btn--sm" title="Enviar novamente com os mesmos dados">Reemitir</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="9" style="padding:28px;text-align:center;color:#888;">Nenhum documento no período.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if documentos %}
+    <div class="fiscal-table-foot">Exibindo até {{ doc_limite }} registros · Refine o período ou filtros para reduzir a lista.</div>
+    {% endif %}
+</div>
+
 {% endblock %}

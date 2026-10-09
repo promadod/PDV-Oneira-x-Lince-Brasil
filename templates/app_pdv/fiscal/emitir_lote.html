@@ -125,7 +125,7 @@
                 <td>{{ l.total_autorizado }}</td>
                 <td>{{ l.total_erro }}</td>
                 <td>{{ l.criado_em|date:"d/m/Y H:i" }}</td>
-                <td><a href="{% url 'fiscal_lote_detalhe' l.id %}" style="color:#03dac6;">Detalhes</a></td>
+                <td><a href="{% url 'fiscal_lote_detalhe' l.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">Detalhes</a></td>
             </tr>
             {% empty %}
             <tr><td colspan="7" style="padding:16px;color:#888;">Nenhum lote processado ainda.</td></tr>

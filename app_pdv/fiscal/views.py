@@ -365,17 +365,39 @@ def fiscal_emitir_avulsa(request):
 @login_required
 @requer_acesso_fiscal
 def fiscal_documentos(request):
+    from .documentos_service import (
+        cliente_documento,
+        operador_documento,
+        queryset_documentos_periodo,
+        resolver_periodo,
+        somatorio_documentos,
+    )
+
     loja = check_loja(request)
     tipo = (request.GET.get('tipo') or '').strip()
     status = (request.GET.get('status') or '').strip()
-    qs = DocumentoFiscal.objects.filter(loja=loja).select_related('venda', 'produto_avulso')
-    if tipo:
-        qs = qs.filter(tipo=tipo)
-    if status:
-        qs = qs.filter(status=status)
+    start, end, periodo, data_inicial, data_final = resolver_periodo(request)
+    qs = queryset_documentos_periodo(loja, start=start, end=end, tipo=tipo, status=status)
+    stats = somatorio_documentos(qs)
+    documentos = list(qs[:500])
+    for doc in documentos:
+        doc.fiscal_cliente_label = cliente_documento(doc)
+        doc.fiscal_operador_label = operador_documento(doc)
     return render(
-        request, 'app_pdv/fiscal/documentos.html',
-        _ctx(request, loja, documentos=qs[:200], filtro_tipo=tipo, filtro_status=status),
+        request,
+        'app_pdv/fiscal/documentos.html',
+        _ctx(
+            request,
+            loja,
+            documentos=documentos,
+            filtro_tipo=tipo,
+            filtro_status=status,
+            filtro_periodo=periodo,
+            filtro_data_inicial=data_inicial,
+            filtro_data_final=data_final,
+            doc_stats=stats,
+            doc_limite=500,
+        ),
     )
 
 

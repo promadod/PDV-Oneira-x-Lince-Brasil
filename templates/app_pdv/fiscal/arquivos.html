@@ -14,10 +14,12 @@
         <tbody>
             {% for d in documentos %}
             <tr style="border-bottom:1px solid #333;">
-                <td style="padding:8px;"><a href="{% url 'fiscal_documento_detalhe' d.id %}" style="color:#03dac6;">{{ d.get_tipo_display }} {{ d.numero|default:d.ref }}</a></td>
+                <td style="padding:8px;">
+                    <a href="{% url 'fiscal_documento_detalhe' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">{{ d.get_tipo_display }} {{ d.numero|default:d.ref }}</a>
+                </td>
                 <td style="font-size:0.8em;">{{ d.chave_acesso|default:"—" }}</td>
-                <td>{% if d.url_xml or d.caminho_xml %}<a href="{% url 'fiscal_documento_arquivo' d.id 'xml' %}" target="_blank" style="color:#03dac6;">abrir</a>{% else %}—{% endif %}</td>
-                <td>{% if d.url_pdf or d.caminho_pdf %}<a href="{% url 'fiscal_documento_arquivo' d.id 'pdf' %}" target="_blank" style="color:#03dac6;">abrir</a>{% else %}—{% endif %}</td>
+                <td>{% if d.url_xml or d.caminho_xml %}<a href="{% url 'fiscal_documento_arquivo' d.id 'xml' %}" target="_blank" class="fiscal-btn fiscal-btn--sm">Abrir</a>{% else %}—{% endif %}</td>
+                <td>{% if d.url_pdf or d.caminho_pdf %}<a href="{% url 'fiscal_documento_arquivo' d.id 'pdf' %}" target="_blank" class="fiscal-btn fiscal-btn--sm">Abrir</a>{% else %}—{% endif %}</td>
             </tr>
             {% empty %}
             <tr><td colspan="4" style="padding:20px;text-align:center;">Nenhum arquivo disponível.</td></tr>
