@@ -367,6 +367,8 @@ def fiscal_emitir_avulsa(request):
 def fiscal_documentos(request):
     from .documentos_service import (
         cliente_documento,
+        documento_status_efetivo,
+        documento_status_rotulo,
         operador_documento,
         queryset_documentos_periodo,
         resolver_periodo,
@@ -383,6 +385,8 @@ def fiscal_documentos(request):
     for doc in documentos:
         doc.fiscal_cliente_label = cliente_documento(doc)
         doc.fiscal_operador_label = operador_documento(doc)
+        doc.fiscal_status_key = documento_status_efetivo(doc)
+        doc.fiscal_status_label = documento_status_rotulo(doc)
     return render(
         request,
         'app_pdv/fiscal/documentos.html',

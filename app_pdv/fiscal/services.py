@@ -435,6 +435,9 @@ def _aplicar_retorno_focus(doc: DocumentoFiscal, retorno: dict):
     }
     if status in mapping:
         doc.status = mapping[status]
+    sefaz = str(retorno.get('status_sefaz') or doc.status_sefaz or '').strip()
+    if sefaz in ('100', '150') and doc.status not in ('cancelado', 'denegado'):
+        doc.status = 'autorizado'
     doc.numero = str(retorno.get('numero') or doc.numero or '')
     doc.serie = str(retorno.get('serie') or doc.serie or '')
     doc.chave_acesso = str(retorno.get('chave_nfe') or retorno.get('chave') or doc.chave_acesso or '')

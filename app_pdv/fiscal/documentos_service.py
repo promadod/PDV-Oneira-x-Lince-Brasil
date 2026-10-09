@@ -4,10 +4,50 @@ from __future__ import annotations
 from datetime import datetime, time, timedelta
 from decimal import Decimal
 
-from django.db.models import Count, Sum
+from django.db.models import F, Q, Sum, Value
+from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 from .models import DocumentoFiscal
+
+# Documentos considerados autorizados nos cards (alinhado à exibição na tabela).
+_Q_AUTORIZADO = (
+    Q(status='autorizado')
+    | Q(status__iexact='autorizada')
+    | Q(payload_retorno__status__iexact='autorizado')
+    | Q(payload_retorno__status__iexact='autorizada')
+    | (
+        Q(chave_acesso__gt='')
+        & Q(status_sefaz__in=['100', '150'])
+        & ~Q(status__in=['cancelado', 'denegado'])
+    )
+)
+
+
+def documento_status_efetivo(doc: DocumentoFiscal) -> str:
+    """Status para pill da listagem (inclui notas já autorizadas na SEFAZ com status local desatualizado)."""
+    payload = doc.payload_retorno if isinstance(doc.payload_retorno, dict) else {}
+    ps = (payload.get('status') or '').lower().strip()
+    if ps in ('autorizado', 'autorizada'):
+        return 'autorizado'
+    s = (doc.status or 'rascunho').strip().lower()
+    if s in ('autorizado', 'autorizada'):
+        return 'autorizado'
+    if doc.chave_acesso and (doc.status_sefaz or '').strip() in ('100', '150'):
+        if s not in ('cancelado', 'denegado'):
+            return 'autorizado'
+    return s
+
+
+def documento_status_rotulo(doc: DocumentoFiscal) -> str:
+    rotulos = dict(DocumentoFiscal.STATUS_CHOICES)
+    chave = documento_status_efetivo(doc)
+    return rotulos.get(chave, chave.replace('_', ' ').title())
+
+
+def _queryset_agregacao(qs):
+    """Agregações sem select_related/order_by (evita contagem distorcida em joins)."""
+    return DocumentoFiscal.objects.filter(pk__in=qs.values_list('pk', flat=True))
 
 
 def _parse_date(value: str):
@@ -81,26 +121,26 @@ def queryset_documentos_periodo(loja, *, start: datetime, end: datetime, tipo: s
 
 def somatorio_documentos(qs) -> dict:
     """Agregados no mesmo recorte de filtros (tipo/status/período)."""
-    base = qs
-    total_docs = base.count()
-    por_status = {
-        row['status']: row['c']
-        for row in base.values('status').annotate(c=Count('id'))
-    }
-    autorizados = por_status.get('autorizado', 0)
-    cancelados = por_status.get('cancelado', 0)
-    faturamento = base.filter(status='autorizado').aggregate(
-        s=Sum('valor_total'),
-    )['s'] or Decimal('0')
-    taxa_entrega = base.filter(status='autorizado', venda__isnull=False).aggregate(
-        s=Sum('venda__taxa_entrega'),
+    ag = _queryset_agregacao(qs)
+    total_docs = ag.count()
+    autorizados_qs = ag.filter(_Q_AUTORIZADO)
+    autorizados = autorizados_qs.count()
+    cancelados = ag.filter(status='cancelado').count()
+    faturamento = autorizados_qs.aggregate(s=Sum('valor_total'))['s'] or Decimal('0')
+    zero = Value(Decimal('0'))
+    total_taxas = autorizados_qs.filter(venda__isnull=False).aggregate(
+        s=Sum(
+            Coalesce(F('venda__taxa_entrega'), zero)
+            + Coalesce(F('venda__taxa_servico'), zero),
+        ),
     )['s'] or Decimal('0')
     return {
         'total_documentos': total_docs,
         'autorizados': autorizados,
         'cancelados': cancelados,
         'faturamento': faturamento,
-        'taxa_entrega': taxa_entrega,
+        'total_taxas': total_taxas,
+        'taxa_entrega': total_taxas,
     }
 
 
