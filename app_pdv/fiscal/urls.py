@@ -8,6 +8,7 @@ urlpatterns = [
     path('focus/salvar/', views.fiscal_focus_salvar, name='fiscal_focus_salvar'),
     path('focus/testar/', views.fiscal_focus_testar, name='fiscal_focus_testar'),
     path('focus/webhooks/', views.fiscal_focus_registrar_webhooks, name='fiscal_focus_registrar_webhooks'),
+    path('acbr/testar/', views.fiscal_acbr_testar, name='fiscal_acbr_testar'),
     path('config/', views.fiscal_config, name='fiscal_config'),
     path('matriz/', views.fiscal_matriz, name='fiscal_matriz'),
     path('matriz/<int:pk>/excluir/', views.fiscal_matriz_excluir, name='fiscal_matriz_excluir'),

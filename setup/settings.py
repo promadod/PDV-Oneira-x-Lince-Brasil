@@ -209,6 +209,24 @@ FOCUS_NFE_API_BASE_PRODUCAO = os.getenv(
 ).strip()
 FOCUS_NFE_TIMEOUT_SECONDS = int(os.getenv('FOCUS_NFE_TIMEOUT_SECONDS', '45') or 45)
 
+# --- Fiscal / ACBr API (OAuth 2 client_credentials) ---
+ACBR_API_CLIENT_ID = os.getenv('ACBR_API_CLIENT_ID', '').strip()
+ACBR_API_CLIENT_SECRET = os.getenv('ACBR_API_CLIENT_SECRET', '').strip()
+ACBR_API_TOKEN_URL = os.getenv(
+    'ACBR_API_TOKEN_URL',
+    'https://auth.acbr.api.br/realms/ACBrAPI/protocol/openid-connect/token',
+).strip()
+ACBR_API_BASE_HOMOLOGACAO = os.getenv(
+    'ACBR_API_BASE_HOMOLOGACAO', 'https://hom.acbr.api.br'
+).strip()
+ACBR_API_BASE_PRODUCAO = os.getenv(
+    'ACBR_API_BASE_PRODUCAO', 'https://prod.acbr.api.br'
+).strip()
+ACBR_API_BASE = os.getenv('ACBR_API_BASE', '').strip()
+ACBR_API_AMBIENTE = os.getenv('ACBR_API_AMBIENTE', 'producao').strip()
+ACBR_API_SCOPE = os.getenv('ACBR_API_SCOPE', 'empresa nfe nfce nfse cep cnpj').strip()
+ACBR_API_TIMEOUT_SECONDS = int(os.getenv('ACBR_API_TIMEOUT_SECONDS', '45') or 45)
+
 # --- Observabilidade: logs JSON + nível configurável ---
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOGGING = {

@@ -526,6 +526,15 @@ def processar_webhook(payload: dict, headers: dict | None = None, loja=None):
     return log
 
 
+def testar_conexao_acbr() -> dict:
+    from .acbr_client import AcbrApiError, client_from_settings
+
+    client = client_from_settings()
+    if not client.credenciais_ok():
+        raise AcbrApiError('Informe ACBR_API_CLIENT_ID e ACBR_API_CLIENT_SECRET no .env.')
+    return client.testar_conexao()
+
+
 def testar_conexao_focus(cfg: FiscalConfig) -> dict:
     if not cfg.focus_token:
         raise FocusNFeError('Informe o token Focus NFe antes de testar.')

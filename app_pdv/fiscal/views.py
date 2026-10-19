@@ -1,6 +1,7 @@
 import json
 import logging
 
+from django.conf import settings
 from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
@@ -13,6 +14,7 @@ from app_pdv.models import ItemVenda, Produto, Venda
 from app_pdv.views import check_loja, loja_usa_taxa_servico
 
 from .access import requer_acesso_fiscal
+from .acbr_client import AcbrApiError, acbr_configurada, client_from_settings
 from .focus_client import FocusNFeError
 from .forms import (
     CancelarDocumentoForm,
@@ -53,6 +55,7 @@ from .services import (
     listar_gatilhos_focus,
     processar_webhook,
     registrar_gatilhos_focus,
+    testar_conexao_acbr,
     testar_conexao_focus,
     url_webhook_sistema,
 )
@@ -126,8 +129,11 @@ def _focus_integracao_page(request, loja, *, form=None):
             gatilhos = listar_gatilhos_focus(cfg)
         except FocusNFeError:
             gatilhos = []
+    acbr_ok = acbr_configurada()
+    acbr_client = client_from_settings() if acbr_ok else None
     checklist = [
-        {'ok': bool(cfg.focus_token), 'texto': 'Token da API fiscal configurado (Basic Auth)'},
+        {'ok': acbr_ok, 'texto': 'ACBr API: Client ID e Secret no servidor (.env)'},
+        {'ok': bool(cfg.focus_token), 'texto': 'Token Focus NFe configurado (Basic Auth)'},
         {'ok': bool(''.join(c for c in (cfg.cnpj or loja.cnpj or '') if c.isdigit())), 'texto': 'CNPJ do emitente preenchido'},
         {'ok': cfg.ambiente == 'homologacao' or cfg.ambiente == 'producao', 'texto': f'Ambiente: {cfg.get_ambiente_display()}'},
         {'ok': bool(cfg.emite_nfce or cfg.emite_nfe), 'texto': 'Tipo de documento habilitado (NF-e / NFC-e)'},
@@ -143,6 +149,10 @@ def _focus_integracao_page(request, loja, *, form=None):
             webhook_sugerida=webhook_sugerida,
             gatilhos=gatilhos,
             checklist=checklist,
+            acbr_configurada=acbr_ok,
+            acbr_client_id=(acbr_client.client_id[:6] + '…') if acbr_client and acbr_client.client_id else '',
+            acbr_base_url=acbr_client.base_url if acbr_client else '',
+            acbr_ambiente=getattr(settings, 'ACBR_API_AMBIENTE', 'producao'),
         ),
     )
 
@@ -209,6 +219,31 @@ def fiscal_focus_testar(request):
     except FocusNFeError as exc:
         _log_focus_acao('testar_falhou', loja.id, ambiente=cfg.ambiente, erro=str(exc))
         messages.error(request, str(exc))
+    return redirect('fiscal_focus')
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_acbr_testar(request):
+    loja = check_loja(request)
+    _log_focus_acao('testar_acbr', loja.id)
+    try:
+        teste = testar_conexao_acbr()
+        _log_focus_acao(
+            'testar_acbr_ok', loja.id,
+            base=teste.get('base_url'), empresas=teste.get('empresas_cadastradas'),
+        )
+        messages.success(
+            request,
+            f'ACBr API OK ({teste.get("base_url")}). '
+            f'Scope: {teste.get("scope") or "—"}. '
+            f'Empresas cadastradas: {teste.get("empresas_cadastradas", 0)}. '
+            f'Token expira em {teste.get("expires_in") or "—"} s.',
+        )
+    except AcbrApiError as exc:
+        _log_focus_acao('testar_acbr_falhou', loja.id, erro=str(exc))
+        messages.error(request, f'ACBr API: {exc}')
     return redirect('fiscal_focus')
 
 

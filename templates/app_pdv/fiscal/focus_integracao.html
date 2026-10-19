@@ -28,6 +28,24 @@
     </div>
 </div>
 
+<div class="card" style="margin-bottom:16px;padding:20px;">
+    <h3 style="color:#15a0a5;margin-top:0;">ACBr API</h3>
+    <p style="color:#ccc;font-size:0.9em;margin-top:0;">
+        Autenticação OAuth 2 (<code>client_credentials</code>) no servidor.
+        O teste pede o token em <code>auth.acbr.api.br</code> e consulta <code>GET /empresas</code> em
+        <code>{{ acbr_base_url|default:"https://prod.acbr.api.br" }}</code>.
+        A emissão de NF-e/NFC-e continua na Focus até a troca de provedor.
+    </p>
+    <ul style="color:#aaa;font-size:0.9em;margin:0 0 14px;padding-left:18px;">
+        <li>Credenciais: {% if acbr_configurada %}configuradas (Client ID {{ acbr_client_id }}){% else %}ausentes no .env{% endif %}</li>
+        <li>Ambiente ACBr: {{ acbr_ambiente|default:"producao" }}</li>
+    </ul>
+    <form method="post" action="{% url 'fiscal_acbr_testar' %}" data-submit-lock-msg="Testando ACBr…">
+        {% csrf_token %}
+        <button type="submit" class="btn btn-success" {% if not acbr_configurada %}disabled{% endif %}>Testar ACBr API</button>
+    </form>
+</div>
+
 <form method="post" action="{% url 'fiscal_focus_salvar' %}" data-submit-lock-msg="Salvando integração…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;padding:20px;">
