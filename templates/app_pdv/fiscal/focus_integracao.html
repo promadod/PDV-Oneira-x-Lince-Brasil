@@ -65,16 +65,11 @@
                 {{ form.acbr_client_secret }}
                 <small style="color:#888;">{{ form.acbr_client_secret.help_text }}</small>
             </div>
-            <div style="grid-column:1/-1;">
-                <label>URL webhook (pública HTTPS)</label>
-                {{ form.webhook_url_configurada }}
-                <small style="color:#888;">Sugestão: {{ webhook_sugerida }}</small>
-            </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
             <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão…">Testar conexão</button>
             <button type="submit" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar credenciais</button>
-            <span style="color:#888;font-size:0.85em;">Testar autentica na ACBr (<code>prod.acbr.api.br</code>) com o Client ID e o Client Secret. Não usa a Focus.</span>
+            <span style="color:#888;font-size:0.85em;">Testar envia o Client ID e o Client Secret para <code>https://auth.acbr.api.br/realms/ACBrAPI/protocol/openid-connect/token</code>.</span>
         </div>
     </div>
 </form>

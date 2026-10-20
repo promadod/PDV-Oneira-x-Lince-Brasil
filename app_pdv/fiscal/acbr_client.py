@@ -92,7 +92,11 @@ class AcbrApiClient:
                 or resp.text
                 or 'Erro ao autenticar na ACBr API'
             )
-            raise AcbrApiError(str(msg), status_code=resp.status_code, payload=data)
+            raise AcbrApiError(
+                f'{msg} (endpoint: {self.token_url})',
+                status_code=resp.status_code,
+                payload=data,
+            )
 
         expires_in = int(data.get('expires_in') or 0)
         _TOKEN_CACHE.update({
@@ -163,8 +167,16 @@ class AcbrApiClient:
 def client_from_fiscal_config(config) -> AcbrApiClient:
     """Credenciais digitadas na loja; se vazias, usa o .env do servidor."""
     base = client_from_settings()
-    client_id = (getattr(config, 'acbr_client_id', '') or '').strip() or base.client_id
-    client_secret = (getattr(config, 'acbr_client_secret', '') or '').strip() or base.client_secret
+    client_id = (getattr(config, 'acbr_client_id', '') or '').strip()
+    client_secret = (getattr(config, 'acbr_client_secret', '') or '').strip()
+    if client_id and not client_secret:
+        if client_id == base.client_id:
+            client_secret = base.client_secret
+    elif not client_id and not client_secret:
+        client_id = base.client_id
+        client_secret = base.client_secret
+    elif not client_id:
+        client_id = base.client_id
     return AcbrApiClient(
         client_id=client_id,
         client_secret=client_secret,

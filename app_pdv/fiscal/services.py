@@ -530,6 +530,8 @@ def testar_conexao_acbr(cfg: FiscalConfig | None = None) -> dict:
     from .acbr_client import AcbrApiError, client_from_fiscal_config, client_from_settings
 
     client = client_from_fiscal_config(cfg) if cfg is not None else client_from_settings()
+    if client.client_id and not client.client_secret:
+        raise AcbrApiError('Informe o Client Secret junto com o Client ID. O secret da ACBr só aparece uma vez no console.')
     if not client.credenciais_ok():
         raise AcbrApiError(
             'Informe o Client ID e o Client Secret da ACBr, ou configure ACBR_API_CLIENT_ID e ACBR_API_CLIENT_SECRET no .env.',

@@ -556,12 +556,11 @@ class FocusIntegracaoForm(forms.ModelForm):
 
     class Meta:
         model = FiscalConfig
-        fields = ['ambiente', 'acbr_client_id', 'acbr_client_secret', 'webhook_url_configurada']
+        fields = ['ambiente', 'acbr_client_id', 'acbr_client_secret']
         widgets = {
             'acbr_client_id': forms.TextInput(attrs={'class': 'form-control', 'autocomplete': 'off'}),
             'acbr_client_secret': forms.PasswordInput(render_value=False, attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
             'ambiente': forms.Select(attrs={'class': 'form-control'}),
-            'webhook_url_configurada': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://seu-dominio/api/fiscal/webhooks/focus/'}),
         }
 
     def __init__(self, *args, **kwargs):
