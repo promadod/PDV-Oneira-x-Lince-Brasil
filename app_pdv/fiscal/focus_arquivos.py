@@ -48,7 +48,7 @@ def resolver_url_arquivo_focus(cfg: FiscalConfig, caminho: str) -> str:
     if not p:
         return ''
     if p.startswith('http://') or p.startswith('https://'):
-        if 'oneirasistemas.com.br' in p or 'localhost' in p:
+        if 'oneirasistemas.com.br' in p or 'lincebrasilsistemas.com.br' in p or 'localhost' in p:
             path_only = p.split('.com.br', 1)[-1].split('.br', 1)[-1]
             if not path_only.startswith('/'):
                 path_only = '/' + path_only.lstrip('/')

@@ -4,7 +4,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-DOMAINS=(-d oneirasistemas.com.br -d www.oneirasistemas.com.br)
+DOMAINS=(
+  -d oneirasistemas.com.br
+  -d www.oneirasistemas.com.br
+  -d lincebrasilsistemas.com.br
+  -d www.lincebrasilsistemas.com.br
+)
 EMAIL="${LETSENCRYPT_EMAIL:-admin@oneirasistemas.com.br}"
 
 echo "Garantindo volumes e nginx com ACME..."
@@ -27,10 +32,11 @@ docker run --rm \
   -w /var/www/certbot \
   "${DOMAINS[@]}" \
   --email "$EMAIL" \
+  --cert-name oneirasistemas.com.br \
+  --expand \
   --agree-tos \
   --no-eff-email \
-  --non-interactive \
-  --keep-until-expiring
+  --non-interactive
 
 echo "Recarregando nginx..."
 docker compose -f docker-compose.yml -f docker-compose.prod.yml exec -T nginx nginx -s reload || \
