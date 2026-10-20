@@ -569,7 +569,10 @@ class FocusIntegracaoForm(forms.ModelForm):
         self.fields['acbr_client_secret'].label = 'Client Secret'
         self.fields['acbr_client_id'].required = False
         self.fields['acbr_client_secret'].required = False
-        self.fields['ambiente'].help_text = 'Ambiente fiscal da loja. A autenticação desta tela usa a ACBr API, não a Focus.'
+        self.fields['ambiente'].help_text = (
+            'Homologação usa credencial Sandbox em hom.acbr.api.br. '
+            'Produção usa credencial de Produção em prod.acbr.api.br.'
+        )
         self.fields['acbr_client_id'].help_text = 'Client ID gerado no console da ACBr API.'
         self.fields['acbr_client_secret'].help_text = 'Client Secret da ACBr. Deixe em branco para manter o valor já salvo.'
 

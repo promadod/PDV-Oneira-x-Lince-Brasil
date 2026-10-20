@@ -62,6 +62,7 @@ class AcbrApiClient:
             and _TOKEN_CACHE.get('access_token')
             and float(_TOKEN_CACHE.get('expires_at') or 0) > agora + 60
             and _TOKEN_CACHE.get('client_id') == self.client_id
+            and _TOKEN_CACHE.get('base_url') == self.base_url
         ):
             return _TOKEN_CACHE['access_token']
         try:
@@ -103,6 +104,7 @@ class AcbrApiClient:
             'access_token': data['access_token'],
             'expires_at': agora + max(expires_in, 60),
             'client_id': self.client_id,
+            'base_url': self.base_url,
             'token_type': data.get('token_type') or 'Bearer',
             'scope': data.get('scope') or self.scope,
             'expires_in': expires_in,
@@ -177,11 +179,18 @@ def client_from_fiscal_config(config) -> AcbrApiClient:
         client_secret = base.client_secret
     elif not client_id:
         client_id = base.client_id
+    ambiente = (getattr(config, 'ambiente', '') or '').strip().lower()
+    if ambiente == 'homologacao':
+        api_base = _cfg('ACBR_API_BASE_HOMOLOGACAO', 'https://hom.acbr.api.br')
+    elif ambiente == 'producao':
+        api_base = _cfg('ACBR_API_BASE_PRODUCAO', 'https://prod.acbr.api.br')
+    else:
+        api_base = base.base_url
     return AcbrApiClient(
         client_id=client_id,
         client_secret=client_secret,
         token_url=base.token_url,
-        base_url=base.base_url,
+        base_url=api_base,
         scope=base.scope,
         timeout=base.timeout,
     )
