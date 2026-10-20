@@ -447,7 +447,7 @@ def fiscal_documento_reemitir(request, pk):
 def fiscal_documento_detalhe(request, pk):
     loja = check_loja(request)
     doc = get_object_or_404(
-        DocumentoFiscal.objects.select_related('produto_avulso', 'venda').prefetch_related('eventos'),
+        DocumentoFiscal.objects.select_related('produto_avulso', 'venda'),
         pk=pk, loja=loja,
     )
     from .focus_arquivos import preencher_caminhos_acbr

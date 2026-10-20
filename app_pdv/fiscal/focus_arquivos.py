@@ -3,6 +3,8 @@ from __future__ import annotations
 
 import logging
 import re
+import unicodedata
+import zlib
 from typing import Optional
 
 import requests
@@ -298,6 +300,167 @@ def _baixar_acbr(cfg: FiscalConfig, caminho: str) -> Optional[bytes]:
         return None
 
 
+_ALVO_AMBIENTE = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO SEM VALOR FISCAL'
+_OP_TEXTO_PDF = re.compile(r'BT [0-9.]+ [0-9.]+ Td \(((?:\\.|[^\\)])*)\) Tj')
+_STREAM_FLATE = re.compile(
+    rb'(<<[^>]*?/Length\s+)(\d+)([^>]*?>>\s*stream\r?\n)(.*?)(\r?\nendstream)',
+    re.S,
+)
+
+
+def _sem_acento(texto: str) -> str:
+    base = unicodedata.normalize('NFD', texto or '')
+    return ''.join(c for c in base if unicodedata.category(c) != 'Mn')
+
+
+def _norm_ambiente(texto: str) -> str:
+    texto = _sem_acento(texto).upper()
+    texto = re.sub(r'[^A-Z0-9 ]+', ' ', texto)
+    return re.sub(r'\s+', ' ', texto).strip()
+
+
+def _classe_texto_danfe(texto: str) -> str:
+    """banner: faixa de ambiente. item: descricao trocada pela frase de homologacao."""
+    n = _norm_ambiente(texto)
+    if len(n) < 8:
+        return 'manter'
+    if n == 'SEM VALOR FISCAL' or n.startswith('EMITIDA EM AMBIENTE'):
+        return 'banner'
+    if n.startswith('NOTA FISCAL EMITIDA EM AMBIENTE'):
+        return 'banner'
+    if n in _ALVO_AMBIENTE:
+        return 'item'
+    return 'manter'
+
+
+def _quebrar_descricao(texto: str, largura: int = 19) -> list[str]:
+    texto = re.sub(r'\s+', ' ', (texto or '').strip())
+    if not texto:
+        return []
+    linhas = []
+    while texto:
+        if len(texto) <= largura:
+            linhas.append(texto)
+            break
+        corte = texto.rfind(' ', 0, largura + 1)
+        if corte <= 0:
+            corte = largura
+        linhas.append(texto[:corte].strip())
+        texto = texto[corte:].strip()
+    return linhas
+
+
+def _pdf_literal(texto: str) -> str:
+    texto = texto.encode('latin-1', errors='ignore').decode('latin-1')
+    return texto.replace('\\', r'\\').replace('(', r'\(').replace(')', r'\)')
+
+
+def _pdf_unescape(texto: str) -> str:
+    return re.sub(r'\\([\\()])', r'\1', texto)
+
+
+def _descricao_primeiro_item(doc: DocumentoFiscal) -> str:
+    envio = doc.payload_envio if isinstance(doc.payload_envio, dict) else {}
+    itens = envio.get('items') or []
+    if itens:
+        nome = str(itens[0].get('descricao') or '').strip()
+        if nome and _classe_texto_danfe(nome) == 'manter':
+            return nome
+    produto = getattr(doc, 'produto_avulso', None)
+    if produto is not None:
+        return (getattr(produto, 'nome_venda', None) or getattr(produto, 'nome', None) or '').strip()
+    return ''
+
+
+def _limpar_stream_danfe(data: bytes, descricao: str) -> tuple[bytes, bool]:
+    texto = data.decode('latin-1')
+    matches = list(_OP_TEXTO_PDF.finditer(texto))
+    classes = [_classe_texto_danfe(_pdf_unescape(m.group(1))) for m in matches]
+    if 'banner' not in classes and 'item' not in classes:
+        return data, False
+    linhas = _quebrar_descricao(descricao)
+    item_i = 0
+    partes = []
+    cursor = 0
+    for match, classe in zip(matches, classes):
+        partes.append(texto[cursor:match.start(1)])
+        if classe == 'item':
+            linha = linhas[item_i] if item_i < len(linhas) else ''
+            item_i += 1
+            partes.append(_pdf_literal(linha))
+        elif classe == 'banner':
+            partes.append('')
+        else:
+            partes.append(match.group(1))
+        cursor = match.end(1)
+    partes.append(texto[cursor:])
+    return ''.join(partes).encode('latin-1'), True
+
+
+def _limpar_prefixo_pdf(prefixo: bytes, descricao: str) -> tuple[bytes, bool]:
+    mudou = False
+
+    def _trocar(match: re.Match) -> bytes:
+        nonlocal mudou
+        bloco_ini = match.group(0)
+        if b'FlateDecode' not in bloco_ini:
+            return bloco_ini
+        try:
+            data = zlib.decompress(match.group(4))
+        except zlib.error:
+            return bloco_ini
+        novo, alterou = _limpar_stream_danfe(data, descricao)
+        if not alterou:
+            return bloco_ini
+        mudou = True
+        comp = zlib.compress(novo)
+        return match.group(1) + str(len(comp)).encode() + match.group(3) + comp + match.group(5)
+
+    return _STREAM_FLATE.sub(_trocar, prefixo), mudou
+
+
+def _remontar_pdf(prefixo: bytes, pdf_original: bytes) -> bytes:
+    objetos = list(re.finditer(rb'(?m)^(\d+) (\d+) obj\b', prefixo))
+    entradas = {0: (0, 65535, 'f')}
+    tamanho = 1
+    for match in objetos:
+        num = int(match.group(1))
+        entradas[num] = (match.start(), int(match.group(2)), 'n')
+        tamanho = max(tamanho, num + 1)
+    linhas = [f'xref\n0 {tamanho}\n']
+    for i in range(tamanho):
+        off, gen, flag = entradas.get(i, (0, 65535, 'f'))
+        linhas.append(f'{off:010d} {gen:05d} {flag} \n')
+    mi = re.search(rb'trailer\s*<<(.+?)>>', pdf_original, re.S)
+    interno = (mi.group(1) if mi else b'\n/Root 1 0 R\n')
+    interno = re.sub(rb'/Size\s+\d+', f'/Size {tamanho}'.encode(), interno)
+    if b'/Size' not in interno:
+        interno = f'\n/Size {tamanho}'.encode() + interno
+    xref_pos = len(prefixo)
+    return (
+        prefixo
+        + ''.join(linhas).encode()
+        + b'trailer\n<<'
+        + interno
+        + b'>>\nstartxref\n'
+        + str(xref_pos).encode()
+        + b'\n%%EOF'
+    )
+
+
+def ocultar_ambiente_danfe(pdf: bytes, descricao: str = '') -> bytes:
+    """Tira do DANFCE a faixa de homologação/produção. O XML enviado à SEFAZ não muda."""
+    if not pdf or not pdf.startswith(b'%PDF'):
+        return pdf
+    idx = pdf.rfind(b'\nxref\n')
+    if idx < 0:
+        return pdf
+    prefixo, mudou = _limpar_prefixo_pdf(pdf[:idx + 1], descricao)
+    if not mudou:
+        return pdf
+    return _remontar_pdf(prefixo, pdf)
+
+
 def obter_conteudo_documento(
     cfg: FiscalConfig,
     doc: DocumentoFiscal,
@@ -320,7 +483,9 @@ def obter_conteudo_documento(
             return None, '', ''
         content_type = detectar_content_type(conteudo, caminho)
         ext = 'xml' if formato == 'xml' else 'pdf'
-        if formato == 'pdf' and content_type.startswith('text/html'):
+        if formato == 'pdf' and conteudo.startswith(b'%PDF'):
+            conteudo = ocultar_ambiente_danfe(conteudo, _descricao_primeiro_item(doc))
+        elif formato == 'pdf' and content_type.startswith('text/html'):
             ext = 'html'
             conteudo = personalizar_danfce_html(conteudo)
         fname = f'{doc.chave_acesso or doc.ref}.{ext}'
@@ -348,7 +513,9 @@ def obter_conteudo_documento(
         return None, '', ''
 
     content_type = detectar_content_type(conteudo, url_usada or '')
-    if formato == 'pdf' and content_type.startswith('text/html'):
+    if formato == 'pdf' and conteudo.startswith(b'%PDF'):
+        conteudo = ocultar_ambiente_danfe(conteudo, _descricao_primeiro_item(doc))
+    elif formato == 'pdf' and content_type.startswith('text/html'):
         ext = 'html'
         conteudo = personalizar_danfce_html(conteudo)
     fname = f'{doc.chave_acesso or doc.ref}.{ext}'
