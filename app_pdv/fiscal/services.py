@@ -233,6 +233,58 @@ def _montar_payload_para_reemissao(cfg: FiscalConfig, loja, doc: DocumentoFiscal
     raise FocusNFeError('Não há dados suficientes para reemitir este documento.')
 
 
+def _provedor_acbr(cfg: FiscalConfig):
+    from .acbr_client import client_from_fiscal_config
+
+    client = client_from_fiscal_config(cfg)
+    return client if client.credenciais_ok() else None
+
+
+def _disparar_emissao_acbr(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dict):
+    import time
+
+    from .acbr_client import AcbrApiError
+    from .acbr_payload import pedido_emissao, retorno_acbr_para_interno
+
+    tipo = _endpoint_tipo(doc.tipo)
+    campo_numero = 'proximo_numero_nfe' if tipo == 'nfe' else 'proximo_numero_nfce'
+    campo_serie = 'serie_nfe' if tipo == 'nfe' else 'serie_nfce'
+    cfg = FiscalConfig.objects.select_for_update().get(pk=cfg.pk)
+    numero = int(getattr(cfg, campo_numero) or 1)
+    serie = int(getattr(cfg, campo_serie) or 1)
+    try:
+        pedido = pedido_emissao(cfg, payload, tipo=tipo, ref=doc.ref, numero=numero, serie=serie)
+    except ValueError as exc:
+        raise FocusNFeError(str(exc)) from exc
+    DocumentoFiscalEvento.objects.create(
+        documento=doc,
+        tipo='envio',
+        descricao=f'Documento enviado para ACBr API ({pedido["ambiente"]})',
+        payload=pedido,
+    )
+    client = _provedor_acbr(cfg)
+    try:
+        dfe = client.emitir_dfe(tipo, pedido)
+        for _ in range(3):
+            if not isinstance(dfe, dict) or (dfe.get('status') or '') != 'pendente' or not dfe.get('id'):
+                break
+            time.sleep(2)
+            dfe = client.consultar_dfe(tipo, dfe['id'])
+    except AcbrApiError as exc:
+        doc.status = 'erro'
+        doc.mensagem_sefaz = str(exc)[:500]
+        doc.payload_retorno = exc.payload if isinstance(exc.payload, dict) else {'raw': exc.payload}
+        doc.save(update_fields=['status', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+        DocumentoFiscalEvento.objects.create(
+            documento=doc, tipo='erro', descricao=str(exc)[:500], payload=doc.payload_retorno,
+        )
+        raise FocusNFeError(str(exc), status_code=exc.status_code, payload=exc.payload) from exc
+    setattr(cfg, campo_numero, numero + 1)
+    cfg.save(update_fields=[campo_numero])
+    _aplicar_retorno_focus(doc, retorno_acbr_para_interno(dfe if isinstance(dfe, dict) else {}))
+    return doc
+
+
 def _disparar_emissao_focus(
     doc: DocumentoFiscal,
     cfg: FiscalConfig,
@@ -240,6 +292,8 @@ def _disparar_emissao_focus(
     *,
     params_extra: dict | None = None,
 ) -> DocumentoFiscal:
+    if _provedor_acbr(cfg) and _endpoint_tipo(doc.tipo) in ('nfce', 'nfe'):
+        return _disparar_emissao_acbr(doc, cfg, payload)
     DocumentoFiscalEvento.objects.create(
         documento=doc,
         tipo='envio',
@@ -281,8 +335,10 @@ def _endpoint_tipo(tipo: str) -> str:
 @transaction.atomic
 def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe_dados=None, payload_extra=None):
     cfg = get_or_create_config(loja)
-    if not cfg.focus_token:
-        raise FocusNFeError('Configure o token Focus NFe em Configurações Fiscais.')
+    if tipo in ('nfce', 'nfe') and not _provedor_acbr(cfg):
+        raise FocusNFeError('Configure o Client ID e o Client Secret da ACBr API em Integração API.')
+    if tipo.startswith('nfse') and not cfg.focus_token and not _provedor_acbr(cfg):
+        raise FocusNFeError('Configure as credenciais da ACBr API em Integração API.')
 
     if tipo == 'nfe' and not cfg.emite_nfe:
         raise FocusNFeError('Emissão de NF-e desabilitada nesta loja.')

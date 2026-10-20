@@ -145,6 +145,15 @@ class AcbrApiClient:
             raise AcbrApiError(str(msg), status_code=resp.status_code, payload=data)
         return data
 
+    def emitir_dfe(self, tipo: str, pedido: dict) -> Any:
+        """POST /nfce ou /nfe. O host segue o ambiente (hom ou prod)."""
+        caminho = 'nfe' if tipo == 'nfe' else 'nfce'
+        return self._request('POST', caminho, json_body=pedido)
+
+    def consultar_dfe(self, tipo: str, documento_id: str) -> Any:
+        caminho = 'nfe' if tipo == 'nfe' else 'nfce'
+        return self._request('GET', f'{caminho}/{documento_id}')
+
     def listar_empresas(self) -> Any:
         return self._request('GET', 'empresas')
 
