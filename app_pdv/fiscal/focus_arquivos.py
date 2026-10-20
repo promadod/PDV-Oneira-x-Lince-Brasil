@@ -255,6 +255,49 @@ def _baixar_com_fallbacks(cfg: FiscalConfig, urls: list[str]) -> tuple[Optional[
     return None, ''
 
 
+def id_documento_acbr(doc: DocumentoFiscal) -> str:
+    ret = doc.payload_retorno if isinstance(doc.payload_retorno, dict) else {}
+    doc_id = str(ret.get('id') or '').strip()
+    if doc_id.startswith(('nfc_', 'nfe_')):
+        return doc_id
+    return ''
+
+
+def preencher_caminhos_acbr(doc: DocumentoFiscal) -> None:
+    """Aponta XML e DANFCE para a ACBr quando a nota já foi autorizada."""
+    doc_id = id_documento_acbr(doc)
+    if not doc_id or doc.status not in ('autorizado', 'cancelado'):
+        return
+    tipo = 'nfe' if doc.tipo == 'nfe' or doc_id.startswith('nfe_') else 'nfce'
+    fields = []
+    if not (doc.caminho_xml or '').strip():
+        doc.caminho_xml = f'acbr:{tipo}/{doc_id}/xml'
+        fields.append('caminho_xml')
+    if not (doc.caminho_pdf or '').strip():
+        doc.caminho_pdf = f'acbr:{tipo}/{doc_id}/pdf'
+        fields.append('caminho_pdf')
+    if fields:
+        fields.append('atualizado_em')
+        doc.save(update_fields=fields)
+
+
+def _baixar_acbr(cfg: FiscalConfig, caminho: str) -> Optional[bytes]:
+    from .acbr_client import AcbrApiError, client_from_fiscal_config
+
+    resto = (caminho or '')[5:]
+    if not resto:
+        return None
+    accept = 'application/pdf' if resto.endswith('/pdf') else 'application/xml, text/xml, */*'
+    client = client_from_fiscal_config(cfg)
+    if not client.credenciais_ok():
+        return None
+    try:
+        return client.baixar_arquivo(resto, accept=accept)
+    except AcbrApiError:
+        logger.exception('Falha ao baixar arquivo ACBr %s', resto)
+        return None
+
+
 def obter_conteudo_documento(
     cfg: FiscalConfig,
     doc: DocumentoFiscal,
@@ -266,6 +309,23 @@ def obter_conteudo_documento(
     Retorna (bytes, content_type, filename).
     formato: xml | pdf  (pdf inclui DANFCE HTML para NFC-e)
     """
+    if formato not in ('xml', 'pdf'):
+        return None, '', ''
+    if refresh:
+        preencher_caminhos_acbr(doc)
+    caminho = (doc.caminho_xml if formato == 'xml' else doc.caminho_pdf) or ''
+    if caminho.startswith('acbr:'):
+        conteudo = _baixar_acbr(cfg, caminho)
+        if not conteudo:
+            return None, '', ''
+        content_type = detectar_content_type(conteudo, caminho)
+        ext = 'xml' if formato == 'xml' else 'pdf'
+        if formato == 'pdf' and content_type.startswith('text/html'):
+            ext = 'html'
+            conteudo = personalizar_danfce_html(conteudo)
+        fname = f'{doc.chave_acesso or doc.ref}.{ext}'
+        return conteudo, content_type, fname
+
     if formato == 'xml':
         urls = [url_xml_documento(cfg, doc)]
         ext = 'xml'

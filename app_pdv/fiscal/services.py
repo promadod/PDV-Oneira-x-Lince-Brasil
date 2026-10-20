@@ -510,6 +510,8 @@ def _aplicar_retorno_focus(doc: DocumentoFiscal, retorno: dict):
     doc.url_xml = resolver_url_arquivo_focus(cfg, str(caminho_xml))
     doc.url_pdf = resolver_url_arquivo_focus(cfg, str(caminho_pdf))
     doc.save()
+    from .focus_arquivos import preencher_caminhos_acbr
+    preencher_caminhos_acbr(doc)
     DocumentoFiscalEvento.objects.create(
         documento=doc, tipo='retorno_focus', descricao=f'Status: {doc.status}', payload=retorno,
     )

@@ -8,6 +8,22 @@ _HOMOLOG_XPROD = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FIS
 
 _CSOSN_SN102 = {'102', '103', '300', '400'}
 _PIS_NT = {'04', '05', '06', '07', '08', '09'}
+# NFC-e no RJ exige o grupo card (tpIntegra) em crédito, débito e PIX.
+_TPAG_COM_CARTAO = {'03', '04', '17'}
+
+
+def _det_pagamento(pag: dict, v_nf: float) -> dict:
+    """Grupo detPag. Cartão e PIX sem TEF vão como pagamento não integrado."""
+    tpag = str(pag.get('forma_pagamento') or '01').zfill(2)[:2]
+    det = {
+        'tPag': tpag,
+        'vPag': round(_num(pag.get('valor_pagamento'), v_nf), 2),
+    }
+    if tpag in _TPAG_COM_CARTAO:
+        det['card'] = {'tpIntegra': 2}
+    if tpag == '99':
+        det['xPag'] = (str(pag.get('descricao_pagamento') or 'Outros').strip() or 'Outros')[:60]
+    return det
 
 
 def _num(value, default=0):
@@ -117,12 +133,7 @@ def pedido_emissao(cfg: FiscalConfig, payload: dict, *, tipo: str, ref: str, num
     ibge = ''.join(c for c in (cfg.codigo_ibge or '') if c.isdigit())
     if len(ibge) != 7:
         raise ValueError('Informe o código IBGE do município em Config. Fiscal antes de emitir.')
-    pagamentos = []
-    for pag in payload.get('formas_pagamento') or []:
-        pagamentos.append({
-            'tPag': str(pag.get('forma_pagamento') or '01').zfill(2)[:2],
-            'vPag': round(_num(pag.get('valor_pagamento'), v_nf), 2),
-        })
+    pagamentos = [_det_pagamento(pag, v_nf) for pag in (payload.get('formas_pagamento') or [])]
     if not pagamentos:
         pagamentos.append({'tPag': '01', 'vPag': v_nf})
     ide = {

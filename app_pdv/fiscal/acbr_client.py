@@ -145,6 +145,26 @@ class AcbrApiClient:
             raise AcbrApiError(str(msg), status_code=resp.status_code, payload=data)
         return data
 
+    def baixar_arquivo(self, path: str, *, accept: str = '*/*') -> bytes:
+        """GET binário (XML ou PDF). O path é relativo ao host do ambiente."""
+        token = self.obter_token()
+        url = f'{self.base_url}/{path.lstrip("/")}'
+        try:
+            resp = requests.get(
+                url,
+                headers={'Authorization': f'Bearer {token}', 'Accept': accept},
+                timeout=max(self.timeout, 90),
+            )
+        except requests.RequestException as exc:
+            logger.exception('ACBr API download failed: %s', url)
+            raise AcbrApiError(f'Falha de conexão com ACBr API: {exc}') from exc
+        if resp.status_code >= 400 or not resp.content:
+            raise AcbrApiError(
+                f'Arquivo indisponível na ACBr API (HTTP {resp.status_code}).',
+                status_code=resp.status_code,
+            )
+        return resp.content
+
     def emitir_dfe(self, tipo: str, pedido: dict) -> Any:
         """POST /nfce ou /nfe. O host segue o ambiente (hom ou prod)."""
         caminho = 'nfe' if tipo == 'nfe' else 'nfce'

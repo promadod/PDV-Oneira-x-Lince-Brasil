@@ -450,6 +450,8 @@ def fiscal_documento_detalhe(request, pk):
         DocumentoFiscal.objects.select_related('produto_avulso', 'venda').prefetch_related('eventos'),
         pk=pk, loja=loja,
     )
+    from .focus_arquivos import preencher_caminhos_acbr
+    preencher_caminhos_acbr(doc)
     cancel_form = CancelarDocumentoForm()
     cce_form = CartaCorrecaoForm()
     return render(
@@ -669,12 +671,14 @@ def fiscal_documento_arquivo(request, pk, formato):
     loja = check_loja(request)
     doc = get_object_or_404(DocumentoFiscal, pk=pk, loja=loja)
     cfg = get_or_create_config(loja)
-    from .focus_arquivos import obter_conteudo_documento
+    from .focus_arquivos import id_documento_acbr, obter_conteudo_documento, preencher_caminhos_acbr
 
     if formato not in ('xml', 'pdf'):
         return HttpResponse(status=404)
-    if not cfg.focus_token:
-        messages.error(request, 'Token da API fiscal não configurado.')
+    preencher_caminhos_acbr(doc)
+    usa_acbr = bool(id_documento_acbr(doc) or (doc.caminho_xml or '').startswith('acbr:'))
+    if not usa_acbr and not cfg.focus_token:
+        messages.error(request, 'Credenciais da API fiscal não configuradas.')
         return redirect('fiscal_documento_detalhe', pk=pk)
     conteudo, content_type, fname = obter_conteudo_documento(cfg, doc, formato=formato, refresh=True)
     if not conteudo:
@@ -689,7 +693,12 @@ def fiscal_documento_arquivo(request, pk, formato):
 @requer_acesso_fiscal
 def fiscal_arquivos(request):
     loja = check_loja(request)
-    docs = DocumentoFiscal.objects.filter(loja=loja, status='autorizado').order_by('-criado_em')[:100]
+    docs = list(
+        DocumentoFiscal.objects.filter(loja=loja, status='autorizado').order_by('-criado_em')[:100]
+    )
+    from .focus_arquivos import preencher_caminhos_acbr
+    for doc in docs:
+        preencher_caminhos_acbr(doc)
     return render(request, 'app_pdv/fiscal/arquivos.html', _ctx(request, loja, documentos=docs))
 
 
