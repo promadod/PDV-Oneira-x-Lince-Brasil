@@ -552,33 +552,35 @@ class ManifestacaoForm(forms.Form):
 
 
 class FocusIntegracaoForm(forms.ModelForm):
-    """Credenciais e ambiente da API fiscal (Basic Auth — token como usuário, senha vazia)."""
+    """Credenciais OAuth da ACBr API (Client ID + Client Secret)."""
 
     class Meta:
         model = FiscalConfig
-        fields = ['ambiente', 'focus_token', 'focus_empresa_id', 'webhook_url_configurada']
+        fields = ['ambiente', 'acbr_client_id', 'acbr_client_secret', 'webhook_url_configurada']
         widgets = {
-            'focus_token': forms.PasswordInput(render_value=True, attrs={'class': 'form-control', 'autocomplete': 'off'}),
+            'acbr_client_id': forms.TextInput(attrs={'class': 'form-control', 'autocomplete': 'off'}),
+            'acbr_client_secret': forms.PasswordInput(render_value=False, attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
             'ambiente': forms.Select(attrs={'class': 'form-control'}),
-            'focus_empresa_id': forms.TextInput(attrs={'class': 'form-control', 'placeholder': 'Opcional — ID da empresa no provedor'}),
             'webhook_url_configurada': forms.URLInput(attrs={'class': 'form-control', 'placeholder': 'https://seu-dominio/api/fiscal/webhooks/focus/'}),
         }
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.fields['focus_token'].label = 'Token da API fiscal'
-        self.fields['focus_empresa_id'].label = 'ID empresa (provedor)'
-        self.fields['ambiente'].help_text = 'Homologação para testes; produção gera documentos com validade fiscal.'
-        self.fields['focus_token'].help_text = 'Token alfanumérico da loja (HTTP Basic, senha em branco).'
-        self.fields['focus_token'].required = False
+        self.fields['acbr_client_id'].label = 'Client ID'
+        self.fields['acbr_client_secret'].label = 'Client Secret'
+        self.fields['acbr_client_id'].required = False
+        self.fields['acbr_client_secret'].required = False
+        self.fields['ambiente'].help_text = 'Ambiente fiscal da loja. A autenticação desta tela usa a ACBr API, não a Focus.'
+        self.fields['acbr_client_id'].help_text = 'Client ID gerado no console da ACBr API.'
+        self.fields['acbr_client_secret'].help_text = 'Client Secret da ACBr. Deixe em branco para manter o valor já salvo.'
 
-    def clean_focus_token(self):
-        token = (self.cleaned_data.get('focus_token') or '').strip()
-        if token:
-            return token
-        if self.instance.pk and (self.instance.focus_token or '').strip():
-            return self.instance.focus_token
-        raise forms.ValidationError('Informe o token Focus NFe.')
+    def clean_acbr_client_secret(self):
+        secret = (self.cleaned_data.get('acbr_client_secret') or '').strip()
+        if secret:
+            return secret
+        if self.instance.pk and (self.instance.acbr_client_secret or '').strip():
+            return self.instance.acbr_client_secret
+        return ''
 
 
 class EmitirLoteForm(forms.Form):

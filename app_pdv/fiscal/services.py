@@ -526,12 +526,14 @@ def processar_webhook(payload: dict, headers: dict | None = None, loja=None):
     return log
 
 
-def testar_conexao_acbr() -> dict:
-    from .acbr_client import AcbrApiError, client_from_settings
+def testar_conexao_acbr(cfg: FiscalConfig | None = None) -> dict:
+    from .acbr_client import AcbrApiError, client_from_fiscal_config, client_from_settings
 
-    client = client_from_settings()
+    client = client_from_fiscal_config(cfg) if cfg is not None else client_from_settings()
     if not client.credenciais_ok():
-        raise AcbrApiError('Informe ACBR_API_CLIENT_ID e ACBR_API_CLIENT_SECRET no .env.')
+        raise AcbrApiError(
+            'Informe o Client ID e o Client Secret da ACBr, ou configure ACBR_API_CLIENT_ID e ACBR_API_CLIENT_SECRET no .env.',
+        )
     return client.testar_conexao()
 
 

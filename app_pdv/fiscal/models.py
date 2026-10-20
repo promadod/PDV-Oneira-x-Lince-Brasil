@@ -41,6 +41,15 @@ class FiscalConfig(models.Model):
         help_text='Token da empresa na Focus (Basic Auth). Armazenado apenas no servidor.',
     )
     focus_empresa_id = models.CharField(max_length=64, blank=True, default='', verbose_name='ID empresa Focus')
+    acbr_client_id = models.CharField(
+        max_length=128, blank=True, default='',
+        verbose_name='ACBr Client ID',
+    )
+    acbr_client_secret = models.CharField(
+        max_length=512, blank=True, default='',
+        verbose_name='ACBr Client Secret',
+        help_text='Credencial OAuth da ACBr API. Armazenada apenas no servidor.',
+    )
     certificado_status = models.CharField(
         max_length=40, blank=True, default='nao_enviado',
         help_text='nao_enviado | valido | expirado | erro',

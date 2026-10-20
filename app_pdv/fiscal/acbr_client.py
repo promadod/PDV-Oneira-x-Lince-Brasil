@@ -160,6 +160,21 @@ class AcbrApiClient:
         }
 
 
+def client_from_fiscal_config(config) -> AcbrApiClient:
+    """Credenciais digitadas na loja; se vazias, usa o .env do servidor."""
+    base = client_from_settings()
+    client_id = (getattr(config, 'acbr_client_id', '') or '').strip() or base.client_id
+    client_secret = (getattr(config, 'acbr_client_secret', '') or '').strip() or base.client_secret
+    return AcbrApiClient(
+        client_id=client_id,
+        client_secret=client_secret,
+        token_url=base.token_url,
+        base_url=base.base_url,
+        scope=base.scope,
+        timeout=base.timeout,
+    )
+
+
 def client_from_settings() -> AcbrApiClient:
     ambiente = _cfg('ACBR_API_AMBIENTE', 'producao').lower()
     if ambiente in ('homologacao', 'hom', 'sandbox'):

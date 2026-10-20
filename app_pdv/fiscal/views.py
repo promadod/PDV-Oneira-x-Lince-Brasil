@@ -52,9 +52,7 @@ from .services import (
     get_or_create_config,
     processar_lote_avulso_emissao,
     processar_lote_emissao,
-    listar_gatilhos_focus,
     processar_webhook,
-    registrar_gatilhos_focus,
     testar_conexao_acbr,
     testar_conexao_focus,
     url_webhook_sistema,
@@ -124,16 +122,10 @@ def _focus_integracao_page(request, loja, *, form=None):
             initial={'webhook_url_configurada': cfg.webhook_url_configurada or webhook_sugerida},
         )
     gatilhos = []
-    if cfg.focus_token:
-        try:
-            gatilhos = listar_gatilhos_focus(cfg)
-        except FocusNFeError:
-            gatilhos = []
-    acbr_ok = acbr_configurada()
-    acbr_client = client_from_settings() if acbr_ok else None
+    acbr_ok = acbr_configurada() or bool((cfg.acbr_client_id or '').strip() and (cfg.acbr_client_secret or '').strip())
+    acbr_client = client_from_settings() if acbr_configurada() else None
     checklist = [
-        {'ok': acbr_ok, 'texto': 'ACBr API: Client ID e Secret no servidor (.env)'},
-        {'ok': bool(cfg.focus_token), 'texto': 'Token Focus NFe configurado (Basic Auth)'},
+        {'ok': acbr_ok, 'texto': 'ACBr API: Client ID e Client Secret (loja ou .env do servidor)'},
         {'ok': bool(''.join(c for c in (cfg.cnpj or loja.cnpj or '') if c.isdigit())), 'texto': 'CNPJ do emitente preenchido'},
         {'ok': cfg.ambiente == 'homologacao' or cfg.ambiente == 'producao', 'texto': f'Ambiente: {cfg.get_ambiente_display()}'},
         {'ok': bool(cfg.emite_nfce or cfg.emite_nfe), 'texto': 'Tipo de documento habilitado (NF-e / NFC-e)'},
@@ -206,19 +198,21 @@ def fiscal_focus_testar(request):
         return _focus_integracao_page(request, loja, form=form)
     cfg = form.save()
     try:
-        teste = testar_conexao_focus(cfg)
+        teste = testar_conexao_acbr(cfg)
         _log_focus_acao(
             'testar_ok', loja.id,
-            ambiente=cfg.ambiente, gatilhos=teste['gatilhos_cadastrados'],
+            base=teste.get('base_url'), empresas=teste.get('empresas_cadastradas'),
         )
         messages.success(
             request,
-            f'Conexão OK ({cfg.get_ambiente_display()}). '
-            f'Gatilhos ativos: {teste["gatilhos_cadastrados"]}.',
+            f'ACBr API OK ({teste.get("base_url")}). '
+            f'Scope: {teste.get("scope") or "—"}. '
+            f'Empresas cadastradas: {teste.get("empresas_cadastradas", 0)}. '
+            f'Token expira em {teste.get("expires_in") or "—"} s.',
         )
-    except FocusNFeError as exc:
-        _log_focus_acao('testar_falhou', loja.id, ambiente=cfg.ambiente, erro=str(exc))
-        messages.error(request, str(exc))
+    except AcbrApiError as exc:
+        _log_focus_acao('testar_falhou', loja.id, erro=str(exc))
+        messages.error(request, f'ACBr API: {exc}')
     return redirect('fiscal_focus')
 
 
@@ -252,19 +246,11 @@ def fiscal_acbr_testar(request):
 @require_POST
 def fiscal_focus_registrar_webhooks(request):
     loja = check_loja(request)
-    cfg = get_or_create_config(loja)
-    webhook_sugerida = url_webhook_sistema(request)
-    _log_focus_acao('registrar_webhooks', loja.id)
-    url_hook = (request.POST.get('webhook_url') or cfg.webhook_url_configurada or webhook_sugerida).strip()
-    eventos = request.POST.getlist('eventos_webhook')
-    try:
-        resultados = registrar_gatilhos_focus(cfg, url_hook, eventos=eventos or None)
-        ok = sum(1 for r in resultados if r.get('ok'))
-        _log_focus_acao('registrar_webhooks_ok', loja.id, registrados=ok)
-        messages.success(request, f'{ok} gatilho(s) registrado(s) na API.')
-    except FocusNFeError as exc:
-        _log_focus_acao('registrar_webhooks_falhou', loja.id, erro=str(exc))
-        messages.error(request, str(exc))
+    _log_focus_acao('registrar_webhooks_ignorado', loja.id)
+    messages.info(
+        request,
+        'O cadastro de gatilhos da Focus não é mais usado. A autenticação desta tela é feita na ACBr API.',
+    )
     return redirect('fiscal_focus')
 
 
