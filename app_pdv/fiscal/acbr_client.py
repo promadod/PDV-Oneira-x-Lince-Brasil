@@ -2,10 +2,17 @@
 from __future__ import annotations
 
 import logging
+import socket
 import time
 from typing import Any, Optional
 
 import requests
+import urllib3
+from requests.adapters import HTTPAdapter
+from urllib3.connection import HTTPSConnection
+from urllib3.connectionpool import HTTPSConnectionPool
+from urllib3.exceptions import NameResolutionError, NewConnectionError
+from urllib3.util import connection as urllib3_connection
 from django.conf import settings
 
 logger = logging.getLogger(__name__)
@@ -22,6 +29,54 @@ class AcbrApiError(Exception):
 
 def _cfg(name: str, default: str = '') -> str:
     return str(getattr(settings, name, default) or default).strip()
+
+
+class _IPv4HTTPSConnection(HTTPSConnection):
+    """O container não tem rota IPv6. A ACBr publica AAAA e a conexão morre com errno 101."""
+
+    def _new_conn(self) -> socket.socket:
+        host = self._dns_host
+        port = self.port
+        try:
+            enderecos = socket.getaddrinfo(host, port, socket.AF_INET, socket.SOCK_STREAM)
+        except socket.gaierror as exc:
+            raise NameResolutionError(self.host, self, exc) from exc
+        if not enderecos:
+            raise NameResolutionError(self.host, self, socket.gaierror('sem IPv4'))
+        ip = enderecos[0][4][0]
+        try:
+            sock = urllib3_connection.create_connection(
+                (ip, port),
+                self.timeout,
+                source_address=self.source_address,
+                socket_options=self.socket_options,
+            )
+        except OSError as exc:
+            raise NewConnectionError(
+                self, f'Failed to establish a new connection: {exc}',
+            ) from exc
+        return sock
+
+
+class _IPv4HTTPSConnectionPool(HTTPSConnectionPool):
+    ConnectionCls = _IPv4HTTPSConnection
+
+
+class _IPv4Adapter(HTTPAdapter):
+    def init_poolmanager(self, connections, maxsize, block=False, **pool_kwargs):
+        self.poolmanager = urllib3.PoolManager(
+            num_pools=connections,
+            maxsize=maxsize,
+            block=block,
+            **pool_kwargs,
+        )
+        self.poolmanager.pool_classes_by_scheme['https'] = _IPv4HTTPSConnectionPool
+
+
+def _sessao_ipv4() -> requests.Session:
+    sessao = requests.Session()
+    sessao.mount('https://', _IPv4Adapter())
+    return sessao
 
 
 class AcbrApiClient:
@@ -47,6 +102,7 @@ class AcbrApiClient:
         ))).rstrip('/')
         self.scope = scope or _cfg('ACBR_API_SCOPE', 'empresa nfe nfce nfse cep cnpj')
         self.timeout = timeout or int(getattr(settings, 'ACBR_API_TIMEOUT_SECONDS', 45) or 45)
+        self._http = _sessao_ipv4()
 
     def credenciais_ok(self) -> bool:
         return bool(self.client_id and self.client_secret)
@@ -66,7 +122,7 @@ class AcbrApiClient:
         ):
             return _TOKEN_CACHE['access_token']
         try:
-            resp = requests.post(
+            resp = self._http.post(
                 self.token_url,
                 data={
                     'grant_type': 'client_credentials',
@@ -115,7 +171,7 @@ class AcbrApiClient:
         token = self.obter_token()
         url = f'{self.base_url}/{path.lstrip("/")}'
         try:
-            resp = requests.request(
+            resp = self._http.request(
                 method,
                 url,
                 params=params,
@@ -150,7 +206,7 @@ class AcbrApiClient:
         token = self.obter_token()
         url = f'{self.base_url}/{path.lstrip("/")}'
         try:
-            resp = requests.get(
+            resp = self._http.get(
                 url,
                 headers={'Authorization': f'Bearer {token}', 'Accept': accept},
                 timeout=max(self.timeout, 90),
