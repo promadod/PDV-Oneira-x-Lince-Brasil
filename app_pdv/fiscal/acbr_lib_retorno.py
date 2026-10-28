@@ -12,11 +12,18 @@ def _dig(obj: Any, *paths: str, default=''):
         cur: Any = obj
         ok = True
         for part in path.split('.'):
-            if isinstance(cur, dict) and part in cur:
-                cur = cur[part]
-            else:
+            if not isinstance(cur, dict):
                 ok = False
                 break
+            if part in cur:
+                cur = cur[part]
+                continue
+            # ACBr JSON às vezes vem com CStat/XMotivo (maiúsculas).
+            match = next((k for k in cur if k.lower() == part.lower()), None)
+            if match is None:
+                ok = False
+                break
+            cur = cur[match]
         if ok and cur not in (None, ''):
             return cur
     return default

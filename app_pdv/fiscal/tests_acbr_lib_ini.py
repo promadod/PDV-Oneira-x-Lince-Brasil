@@ -64,3 +64,17 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertEqual(interno['numero'], '7')
         self.assertEqual(interno['status_sefaz'], '100')
         self.assertTrue(interno['chave_nfe'].startswith('33'))
+
+    def test_retorno_rejeicao_envio_maiusculo(self):
+        interno = retorno_lib_para_interno({
+            'ok': True,
+            'resposta': {
+                'Envio': {
+                    'CStat': 704,
+                    'XMotivo': 'Rejeicao: NFC-e com Data-Hora de emissão atrasada',
+                },
+            },
+        }, numero=21, serie=1)
+        self.assertEqual(interno['status'], 'erro_autorizacao')
+        self.assertEqual(interno['status_sefaz'], '704')
+        self.assertIn('atrasada', interno['mensagem_sefaz'])

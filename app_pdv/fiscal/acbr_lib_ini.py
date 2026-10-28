@@ -32,14 +32,20 @@ def _fmt_qtd(value) -> str:
 
 
 def _dh_emi(payload: dict) -> str:
+    """Data/hora local (Brasil). Contêiner em UTC sem TZ gera dhEmi atrasada na SEFAZ (cStat 704)."""
+    from zoneinfo import ZoneInfo
+
+    tz_br = ZoneInfo('America/Sao_Paulo')
     raw = payload.get('data_emissao') or ''
     if raw:
         try:
             dt = datetime.fromisoformat(str(raw).replace('Z', '+00:00'))
-            return timezone.localtime(dt).strftime('%d/%m/%Y %H:%M:%S')
+            if timezone.is_naive(dt):
+                dt = timezone.make_aware(dt, timezone.get_current_timezone())
+            return timezone.localtime(dt, tz_br).strftime('%d/%m/%Y %H:%M:%S')
         except (TypeError, ValueError):
             pass
-    return timezone.localtime(timezone.now()).strftime('%d/%m/%Y %H:%M:%S')
+    return timezone.localtime(timezone.now(), tz_br).strftime('%d/%m/%Y %H:%M:%S')
 
 
 def _ini_escape(value) -> str:
