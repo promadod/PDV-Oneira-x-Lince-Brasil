@@ -54,8 +54,9 @@ services:
       ACBR_LIB_SERVICOS: /opt/acbrlib/ACBrNFeServicos.ini
     volumes:
       - media_data:/media
+    # Só localhost no host (debug). No Contabo a web fala via rede interna acbr-lib:8091.
     ports:
-      - "${ACBR_LIB_PORT:-8091}:8091"
+      - "127.0.0.1:${ACBR_LIB_PORT:-8091}:8091"
     expose:
       - "8091"
     healthcheck:
