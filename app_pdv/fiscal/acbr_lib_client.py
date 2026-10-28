@@ -63,12 +63,12 @@ class AcbrLibClient:
         except ValueError:
             data = {'raw': resp.text}
         if resp.status_code >= 400 or (isinstance(data, dict) and data.get('ok') is False):
-            msg = (
-                (data.get('erro') if isinstance(data, dict) else None)
-                or (data.get('detalhe') if isinstance(data, dict) else None)
-                or resp.text
-                or f'Erro worker HTTP {resp.status_code}'
-            )
+            erro = (data.get('erro') if isinstance(data, dict) else None) or ''
+            detalhe = (data.get('detalhe') if isinstance(data, dict) else None) or ''
+            if erro and detalhe and detalhe not in erro:
+                msg = f'{erro}: {detalhe}'
+            else:
+                msg = erro or detalhe or resp.text or f'Erro worker HTTP {resp.status_code}'
             raise AcbrLibError(str(msg), status_code=resp.status_code, payload=data if isinstance(data, dict) else {})
         return data if isinstance(data, dict) else {'raw': data}
 
