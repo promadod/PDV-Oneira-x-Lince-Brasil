@@ -569,7 +569,7 @@ class FocusIntegracaoForm(forms.ModelForm):
             'acbr_lib_pfx_senha',
         ]
         widgets = {
-            'provedor_emissao': forms.RadioSelect,
+            'provedor_emissao': forms.Select(attrs={'class': 'form-control', 'id': 'id_provedor_emissao'}),
             'acbr_client_id': forms.TextInput(attrs={'class': 'form-control', 'autocomplete': 'off'}),
             'acbr_client_secret': forms.PasswordInput(render_value=False, attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
             'acbr_lib_pfx_senha': forms.PasswordInput(render_value=False, attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
@@ -591,8 +591,13 @@ class FocusIntegracaoForm(forms.ModelForm):
         )
         self.fields['acbr_client_id'].help_text = 'Client ID gerado no console da ACBr API (modo API).'
         self.fields['acbr_client_secret'].help_text = 'Client Secret da ACBr. Deixe em branco para manter o valor já salvo.'
+        self.fields['provedor_emissao'].label = 'Provedor'
+        self.fields['provedor_emissao'].choices = [
+            ('api', 'ACBr API (OAuth HTTP)'),
+            ('lib', 'ACBrLib Pro (SEFAZ direto)'),
+        ]
         self.fields['provedor_emissao'].help_text = (
-            'API = OAuth HTTP (atual). Lib = libacbrnfe64.so via worker Docker (SEFAZ direto).'
+            'API usa Client ID/Secret. Lib usa certificado A1 (.pfx) neste formulário.'
         )
 
     def clean_acbr_client_secret(self):
