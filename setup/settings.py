@@ -227,6 +227,12 @@ ACBR_API_AMBIENTE = os.getenv('ACBR_API_AMBIENTE', 'producao').strip()
 ACBR_API_SCOPE = os.getenv('ACBR_API_SCOPE', 'empresa nfe nfce nfse cep cnpj').strip()
 ACBR_API_TIMEOUT_SECONDS = int(os.getenv('ACBR_API_TIMEOUT_SECONDS', '45') or 45)
 
+# --- Fiscal / ACBrLib (worker sidecar Console MT) ---
+ACBR_LIB_ENABLED = os.getenv('ACBR_LIB_ENABLED', 'False').strip()
+ACBR_LIB_WORKER_URL = os.getenv('ACBR_LIB_WORKER_URL', 'http://acbr-lib:8091').strip()
+ACBR_LIB_SCHEMAS_PATH = os.getenv('ACBR_LIB_SCHEMAS_PATH', '/opt/acbrlib/Schemas/NFe').strip()
+ACBR_LIB_TIMEOUT_SECONDS = int(os.getenv('ACBR_LIB_TIMEOUT_SECONDS', '120') or 120)
+
 # --- Observabilidade: logs JSON + nível configurável ---
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO').upper()
 LOGGING = {

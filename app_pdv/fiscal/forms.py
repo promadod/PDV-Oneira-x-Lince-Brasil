@@ -552,14 +552,27 @@ class ManifestacaoForm(forms.Form):
 
 
 class FocusIntegracaoForm(forms.ModelForm):
-    """Credenciais OAuth da ACBr API (Client ID + Client Secret)."""
+    """Provedor de emissão + credenciais ACBr API / ACBrLib."""
+
+    acbr_lib_pfx_arquivo = forms.FileField(
+        required=False,
+        label='Certificado A1 (.pfx / .p12)',
+        help_text='Obrigatório no modo ACBrLib. Arquivo fica só no servidor (volume media).',
+        widget=forms.ClearableFileInput(attrs={'class': 'form-control', 'accept': '.pfx,.p12'}),
+    )
 
     class Meta:
         model = FiscalConfig
-        fields = ['ambiente', 'acbr_client_id', 'acbr_client_secret']
+        fields = [
+            'provedor_emissao', 'ambiente',
+            'acbr_client_id', 'acbr_client_secret',
+            'acbr_lib_pfx_senha',
+        ]
         widgets = {
+            'provedor_emissao': forms.RadioSelect,
             'acbr_client_id': forms.TextInput(attrs={'class': 'form-control', 'autocomplete': 'off'}),
             'acbr_client_secret': forms.PasswordInput(render_value=False, attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
+            'acbr_lib_pfx_senha': forms.PasswordInput(render_value=False, attrs={'class': 'form-control', 'autocomplete': 'new-password'}),
             'ambiente': forms.Select(attrs={'class': 'form-control'}),
         }
 
@@ -569,12 +582,18 @@ class FocusIntegracaoForm(forms.ModelForm):
         self.fields['acbr_client_secret'].label = 'Client Secret'
         self.fields['acbr_client_id'].required = False
         self.fields['acbr_client_secret'].required = False
+        self.fields['acbr_lib_pfx_senha'].required = False
+        self.fields['acbr_lib_pfx_senha'].label = 'Senha do certificado A1'
+        self.fields['acbr_lib_pfx_senha'].help_text = 'Deixe em branco para manter a senha já salva.'
         self.fields['ambiente'].help_text = (
-            'Homologação usa credencial Sandbox em hom.acbr.api.br. '
-            'Produção usa credencial de Produção em prod.acbr.api.br.'
+            'Homologação: SEFAZ homolog / ACBr API hom.acbr.api.br. '
+            'Produção: SEFAZ produção / ACBr API prod.acbr.api.br.'
         )
-        self.fields['acbr_client_id'].help_text = 'Client ID gerado no console da ACBr API.'
+        self.fields['acbr_client_id'].help_text = 'Client ID gerado no console da ACBr API (modo API).'
         self.fields['acbr_client_secret'].help_text = 'Client Secret da ACBr. Deixe em branco para manter o valor já salvo.'
+        self.fields['provedor_emissao'].help_text = (
+            'API = OAuth HTTP (atual). Lib = libacbrnfe64.so via worker Docker (SEFAZ direto).'
+        )
 
     def clean_acbr_client_secret(self):
         secret = (self.cleaned_data.get('acbr_client_secret') or '').strip()
@@ -582,6 +601,14 @@ class FocusIntegracaoForm(forms.ModelForm):
             return secret
         if self.instance.pk and (self.instance.acbr_client_secret or '').strip():
             return self.instance.acbr_client_secret
+        return ''
+
+    def clean_acbr_lib_pfx_senha(self):
+        senha = (self.cleaned_data.get('acbr_lib_pfx_senha') or '').strip()
+        if senha:
+            return senha
+        if self.instance.pk and (self.instance.acbr_lib_pfx_senha or '').strip():
+            return self.instance.acbr_lib_pfx_senha
         return ''
 
 

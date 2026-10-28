@@ -35,6 +35,15 @@ class FiscalConfig(models.Model):
     codigo_ibge = models.CharField(max_length=7, blank=True, default='', verbose_name='Código IBGE município')
 
     ambiente = models.CharField(max_length=20, choices=AMBIENTE_CHOICES, default='homologacao')
+    PROVEDOR_CHOICES = [
+        ('api', 'ACBr API (OAuth HTTP)'),
+        ('lib', 'ACBrLib Pro (SEFAZ direto)'),
+    ]
+    provedor_emissao = models.CharField(
+        max_length=10, choices=PROVEDOR_CHOICES, default='api',
+        verbose_name='Provedor de emissão',
+        help_text='API = caminho atual. Lib = worker com libacbrnfe64.so.',
+    )
     focus_token = models.CharField(
         max_length=255, blank=True, default='',
         verbose_name='Token Focus NFe',
@@ -49,6 +58,16 @@ class FiscalConfig(models.Model):
         max_length=512, blank=True, default='',
         verbose_name='ACBr Client Secret',
         help_text='Credencial OAuth da ACBr API. Armazenada apenas no servidor.',
+    )
+    acbr_lib_pfx_path = models.CharField(
+        max_length=500, blank=True, default='',
+        verbose_name='Caminho do certificado A1 (PFX)',
+        help_text='Relativo ao MEDIA_ROOT ou absoluto no volume compartilhado com o worker.',
+    )
+    acbr_lib_pfx_senha = models.CharField(
+        max_length=255, blank=True, default='',
+        verbose_name='Senha do certificado A1',
+        help_text='Armazenada apenas no servidor.',
     )
     certificado_status = models.CharField(
         max_length=40, blank=True, default='nao_enviado',

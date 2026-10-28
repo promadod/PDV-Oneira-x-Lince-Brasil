@@ -491,6 +491,22 @@ def obter_conteudo_documento(
         fname = f'{doc.chave_acesso or doc.ref}.{ext}'
         return conteudo, content_type, fname
 
+    # Arquivos gerados pela ACBrLib (relativos ao MEDIA_ROOT).
+    if caminho and not caminho.startswith(('http://', 'https://', 'acbr:')):
+        from pathlib import Path
+
+        from django.conf import settings as dj_settings
+
+        media_path = Path(dj_settings.MEDIA_ROOT) / caminho
+        if media_path.is_file():
+            conteudo = media_path.read_bytes()
+            content_type = detectar_content_type(conteudo, caminho)
+            ext = 'xml' if formato == 'xml' else 'pdf'
+            if formato == 'pdf' and conteudo.startswith(b'%PDF'):
+                conteudo = ocultar_ambiente_danfe(conteudo, _descricao_primeiro_item(doc))
+            fname = f'{doc.chave_acesso or doc.ref}.{ext}'
+            return conteudo, content_type, fname
+
     if formato == 'xml':
         urls = [url_xml_documento(cfg, doc)]
         ext = 'xml'

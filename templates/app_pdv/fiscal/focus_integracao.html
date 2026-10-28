@@ -3,7 +3,7 @@
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 
-<h2 style="margin-bottom:20px;">Integração API fiscal (v2)</h2>
+<h2 style="margin-bottom:20px;">Integração fiscal (API / ACBrLib)</h2>
 
 <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
     <div class="card" style="padding:16px;">
@@ -17,8 +17,8 @@
             {% endfor %}
         </ul>
         <p style="color:#888;font-size:0.85em;margin-top:12px;">
-            Certificado A1 e CSC são configurados junto à SEFAZ / provedor. Campos CSC também em
-            <a href="{% url 'fiscal_config' %}" style="color:#03dac6;">Config. Fiscal</a>.
+            CSC NFC-e em <a href="{% url 'fiscal_config' %}" style="color:#03dac6;">Config. Fiscal</a>.
+            Certificado A1 no modo Lib fica neste formulário.
         </p>
     </div>
     <div class="card" style="padding:16px;">
@@ -28,49 +28,83 @@
     </div>
 </div>
 
-<div class="card" style="margin-bottom:16px;padding:20px;">
-    <h3 style="color:#15a0a5;margin-top:0;">ACBr API</h3>
-    <p style="color:#ccc;font-size:0.9em;margin-top:0;">
-        Autenticação OAuth 2 (<code>client_credentials</code>) no servidor.
-        O teste pede o token em <code>auth.acbr.api.br</code> e consulta <code>GET /empresas</code> em
-        <code>{{ acbr_base_url|default:"https://prod.acbr.api.br" }}</code>.
-    </p>
-    <ul style="color:#aaa;font-size:0.9em;margin:0 0 14px;padding-left:18px;">
-        <li>Credenciais: {% if acbr_configurada %}configuradas (Client ID {{ acbr_client_id }}){% else %}ausentes no .env{% endif %}</li>
-        <li>Ambiente ACBr: {{ acbr_ambiente|default:"producao" }}</li>
-    </ul>
-    <form method="post" action="{% url 'fiscal_acbr_testar' %}" data-submit-lock-msg="Testando ACBr…">
-        {% csrf_token %}
-        <button type="submit" class="btn btn-success" {% if not acbr_configurada %}disabled{% endif %}>Testar ACBr API</button>
-    </form>
-</div>
-
-<form method="post" action="{% url 'fiscal_focus_salvar' %}" data-submit-lock-msg="Salvando integração…">
+<form method="post" action="{% url 'fiscal_focus_salvar' %}" enctype="multipart/form-data" data-submit-lock-msg="Salvando integração…">
     {% csrf_token %}
     <div class="card" style="margin-bottom:16px;padding:20px;">
-        <h3 style="color:#15a0a5;margin-top:0;">Credenciais API</h3>
+        <h3 style="color:#15a0a5;margin-top:0;">Provedor de emissão</h3>
+        <p style="color:#aaa;font-size:0.9em;margin-top:0;">{{ form.provedor_emissao.help_text }}</p>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px;">
+            {% for radio in form.provedor_emissao %}
+            <label style="display:flex;align-items:center;gap:8px;color:#ddd;">{{ radio.tag }} {{ radio.choice_label }}</label>
+            {% endfor %}
+        </div>
         <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
             <div>
                 <label>Ambiente</label>
                 {{ form.ambiente }}
                 <small style="color:#888;">{{ form.ambiente.help_text }}</small>
             </div>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">ACBr API (OAuth)</h3>
+        <p style="color:#ccc;font-size:0.9em;margin-top:0;">
+            Usado quando o provedor é <strong>ACBr API</strong>.
+            Teste: token em <code>auth.acbr.api.br</code> + <code>GET /empresas</code>.
+        </p>
+        <ul style="color:#aaa;font-size:0.9em;margin:0 0 14px;padding-left:18px;">
+            <li>Credenciais globais: {% if acbr_configurada %}ok (Client ID {{ acbr_client_id }}){% else %}ausentes no .env{% endif %}</li>
+            <li>Ambiente ACBr (.env): {{ acbr_ambiente|default:"producao" }}</li>
+        </ul>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
             <div>
                 <label>{{ form.acbr_client_id.label }}</label>
                 {{ form.acbr_client_id }}
                 <small style="color:#888;">{{ form.acbr_client_id.help_text }}</small>
             </div>
-            <div style="grid-column:1/-1;">
+            <div>
                 <label>{{ form.acbr_client_secret.label }}</label>
                 {{ form.acbr_client_secret }}
                 <small style="color:#888;">{{ form.acbr_client_secret.help_text }}</small>
             </div>
         </div>
         <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
-            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão…">Testar conexão</button>
-            <button type="submit" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar credenciais</button>
-            <span style="color:#888;font-size:0.85em;">Homologação consulta <code>hom.acbr.api.br</code> (credencial Sandbox). Produção consulta <code>prod.acbr.api.br</code>.</span>
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão…">Testar ACBr API (loja)</button>
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_acbr_testar' %}" formnovalidate {% if not acbr_configurada %}disabled{% endif %} data-submit-lock-msg="Testando ACBr…">Testar ACBr API (.env)</button>
         </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">ACBrLib Pro (SEFAZ direto)</h3>
+        <p style="color:#ccc;font-size:0.9em;margin-top:0;">
+            Usado quando o provedor é <strong>ACBrLib</strong>.
+            O Django chama o worker <code>acbr-lib:8091</code>, que carrega <code>libacbrnfe64.so</code>.
+        </p>
+        <ul style="color:#aaa;font-size:0.9em;margin:0 0 14px;padding-left:18px;">
+            <li>Worker: {% if acbr_lib_habilitada %}habilitado (ACBR_LIB_ENABLED){% else %}<span style="color:#cf6679;">desabilitado no .env</span>{% endif %}</li>
+            <li>PFX nesta loja: {% if acbr_lib_pfx_ok %}enviado{% else %}<span style="color:#cf6679;">ausente</span>{% endif %}</li>
+        </ul>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+                <label>{{ form.acbr_lib_pfx_arquivo.label }}</label>
+                {{ form.acbr_lib_pfx_arquivo }}
+                <small style="color:#888;">{{ form.acbr_lib_pfx_arquivo.help_text }}</small>
+            </div>
+            <div>
+                <label>{{ form.acbr_lib_pfx_senha.label }}</label>
+                {{ form.acbr_lib_pfx_senha }}
+                <small style="color:#888;">{{ form.acbr_lib_pfx_senha.help_text }}</small>
+            </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_acbr_lib_testar' %}" {% if not acbr_lib_habilitada %}disabled{% endif %} data-submit-lock-msg="Consultando SEFAZ…">Consultar status SEFAZ (Lib)</button>
+        </div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:24px;align-items:center;">
+        <button type="submit" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar integração</button>
+        <span style="color:#888;font-size:0.85em;">Avulsa / NF-e / Documentos usam o provedor escolhido acima.</span>
     </div>
 </form>
 

@@ -23,12 +23,16 @@ services:
       POSTGRES_HOST: db
       POSTGRES_PORT: "5432"
       SECURE_SSL_REDIRECT: ${SECURE_SSL_REDIRECT:-False}
+      # Sempre a rede Docker interna (não use 127.0.0.1 aqui — isso quebra no Contabo).
+      ACBR_LIB_WORKER_URL: http://acbr-lib:8091
     volumes:
       - media_data:/app/media
       - static_data:/app/staticfiles
     depends_on:
       db:
         condition: service_healthy
+      acbr-lib:
+        condition: service_started
     expose:
       - "8000"
     healthcheck:
@@ -37,6 +41,29 @@ services:
       timeout: 5s
       retries: 5
       start_period: 40s
+
+  acbr-lib:
+    build:
+      context: .
+      dockerfile: deploy/acbrlib/Dockerfile
+    restart: unless-stopped
+    environment:
+      OPENSSL_CONF: /opt/acbrlib/openssl-legacy.cnf
+      ACBR_LIB_SO: /opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so
+      ACBR_LIB_SCHEMAS: /opt/acbrlib/Schemas/NFe
+      ACBR_LIB_SERVICOS: /opt/acbrlib/ACBrNFeServicos.ini
+    volumes:
+      - media_data:/media
+    ports:
+      - "${ACBR_LIB_PORT:-8091}:8091"
+    expose:
+      - "8091"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8091/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 25s
 
   nginx:
     image: nginx:1.27-alpine

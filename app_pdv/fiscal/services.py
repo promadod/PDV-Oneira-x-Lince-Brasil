@@ -285,6 +285,72 @@ def _disparar_emissao_acbr(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dic
     return doc
 
 
+def _disparar_emissao_acbr_lib(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dict):
+    from .acbr_lib_client import (
+        AcbrLibError,
+        AcbrLibClient,
+        config_worker_from_fiscal,
+        salvar_arquivos_lib,
+    )
+    from .acbr_lib_ini import montar_ini_nfe
+    from .acbr_lib_retorno import retorno_lib_para_interno
+
+    tipo = _endpoint_tipo(doc.tipo)
+    campo_numero = 'proximo_numero_nfe' if tipo == 'nfe' else 'proximo_numero_nfce'
+    campo_serie = 'serie_nfe' if tipo == 'nfe' else 'serie_nfce'
+    cfg = FiscalConfig.objects.select_for_update().get(pk=cfg.pk)
+    numero = int(getattr(cfg, campo_numero) or 1)
+    serie = int(getattr(cfg, campo_serie) or 1)
+    try:
+        ini = montar_ini_nfe(cfg, payload, tipo=tipo, numero=numero, serie=serie)
+    except ValueError as exc:
+        raise FocusNFeError(str(exc)) from exc
+
+    worker_cfg = config_worker_from_fiscal(cfg)
+    worker_cfg['modelo'] = '55' if tipo == 'nfe' else '65'
+    if tipo == 'nfce' and not (cfg.csc_id and cfg.csc_token):
+        raise FocusNFeError('CSC ID e CSC Token são obrigatórios para NFC-e via ACBrLib.')
+    if not (worker_cfg.get('pfx_path') or '').strip():
+        raise FocusNFeError('Envie o certificado A1 (.pfx) em Integração API (modo ACBrLib).')
+
+    DocumentoFiscalEvento.objects.create(
+        documento=doc,
+        tipo='envio',
+        descricao=f'Documento enviado para ACBrLib ({cfg.ambiente})',
+        payload={'ini_preview': ini[:2000], 'config': {**worker_cfg, 'pfx_senha': '***'}},
+    )
+    client = AcbrLibClient()
+    try:
+        bruto = client.emitir(worker_cfg, ini)
+    except AcbrLibError as exc:
+        doc.status = 'erro'
+        doc.mensagem_sefaz = str(exc)[:500]
+        doc.payload_retorno = exc.payload if isinstance(exc.payload, dict) else {'raw': exc.payload}
+        doc.save(update_fields=['status', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+        DocumentoFiscalEvento.objects.create(
+            documento=doc, tipo='erro', descricao=str(exc)[:500], payload=doc.payload_retorno,
+        )
+        raise FocusNFeError(str(exc), status_code=exc.status_code, payload=exc.payload) from exc
+
+    interno = retorno_lib_para_interno(bruto if isinstance(bruto, dict) else {}, numero=numero, serie=serie)
+    chave = interno.get('chave_nfe') or interno.get('chave') or ''
+    arquivos = salvar_arquivos_lib(
+        doc.loja_id, chave or doc.ref,
+        xml_b64=(bruto or {}).get('xml_b64') or '',
+        pdf_b64=(bruto or {}).get('pdf_b64') or '',
+    )
+    interno.update(arquivos)
+    if arquivos.get('caminho_xml'):
+        interno['caminho_xml_nota_fiscal'] = arquivos['caminho_xml']
+    if arquivos.get('caminho_pdf'):
+        interno['caminho_danfe'] = arquivos['caminho_pdf']
+
+    setattr(cfg, campo_numero, numero + 1)
+    cfg.save(update_fields=[campo_numero])
+    _aplicar_retorno_focus(doc, interno)
+    return doc
+
+
 def _disparar_emissao_focus(
     doc: DocumentoFiscal,
     cfg: FiscalConfig,
@@ -292,6 +358,8 @@ def _disparar_emissao_focus(
     *,
     params_extra: dict | None = None,
 ) -> DocumentoFiscal:
+    if (getattr(cfg, 'provedor_emissao', 'api') or 'api') == 'lib' and _endpoint_tipo(doc.tipo) in ('nfce', 'nfe'):
+        return _disparar_emissao_acbr_lib(doc, cfg, payload)
     if _provedor_acbr(cfg) and _endpoint_tipo(doc.tipo) in ('nfce', 'nfe'):
         return _disparar_emissao_acbr(doc, cfg, payload)
     DocumentoFiscalEvento.objects.create(
@@ -332,11 +400,29 @@ def _endpoint_tipo(tipo: str) -> str:
     }.get(tipo, 'nfce')
 
 
+def _provedor_lib_ok(cfg: FiscalConfig) -> bool:
+    from .acbr_lib_client import acbr_lib_habilitada
+
+    if (getattr(cfg, 'provedor_emissao', 'api') or 'api') != 'lib':
+        return False
+    if not acbr_lib_habilitada():
+        return False
+    return bool((getattr(cfg, 'acbr_lib_pfx_path', '') or '').strip())
+
+
 @transaction.atomic
 def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe_dados=None, payload_extra=None):
     cfg = get_or_create_config(loja)
-    if tipo in ('nfce', 'nfe') and not _provedor_acbr(cfg):
-        raise FocusNFeError('Configure o Client ID e o Client Secret da ACBr API em Integração API.')
+    usa_lib = (getattr(cfg, 'provedor_emissao', 'api') or 'api') == 'lib'
+    if tipo in ('nfce', 'nfe'):
+        if usa_lib:
+            from .acbr_lib_client import acbr_lib_habilitada
+            if not acbr_lib_habilitada():
+                raise FocusNFeError('ACBrLib desabilitada no servidor (ACBR_LIB_ENABLED).')
+            if not (cfg.acbr_lib_pfx_path or '').strip():
+                raise FocusNFeError('Envie o certificado A1 (.pfx) em Integração API para emitir via ACBrLib.')
+        elif not _provedor_acbr(cfg):
+            raise FocusNFeError('Configure o Client ID e o Client Secret da ACBr API em Integração API.')
     if tipo.startswith('nfse') and not cfg.focus_token and not _provedor_acbr(cfg):
         raise FocusNFeError('Configure as credenciais da ACBr API em Integração API.')
 
@@ -595,6 +681,30 @@ def testar_conexao_acbr(cfg: FiscalConfig | None = None) -> dict:
             'Informe o Client ID e o Client Secret da ACBr, ou configure ACBR_API_CLIENT_ID e ACBR_API_CLIENT_SECRET no .env.',
         )
     return client.testar_conexao()
+
+
+def testar_status_acbr_lib(cfg: FiscalConfig) -> dict:
+    from .acbr_lib_client import (
+        AcbrLibClient,
+        AcbrLibError,
+        acbr_lib_habilitada,
+        config_worker_from_fiscal,
+    )
+
+    if not acbr_lib_habilitada():
+        raise AcbrLibError('ACBrLib desabilitada (defina ACBR_LIB_ENABLED=True no .env).')
+    worker_cfg = config_worker_from_fiscal(cfg)
+    if not (worker_cfg.get('pfx_path') or '').strip():
+        raise AcbrLibError('Envie o certificado A1 (.pfx) antes de consultar o status SEFAZ.')
+    health = AcbrLibClient().health()
+    status = AcbrLibClient().status_servico(worker_cfg)
+    return {
+        'ok': True,
+        'health': health,
+        'status': status,
+        'uf': worker_cfg.get('uf'),
+        'ambiente': worker_cfg.get('ambiente'),
+    }
 
 
 def testar_conexao_focus(cfg: FiscalConfig) -> dict:

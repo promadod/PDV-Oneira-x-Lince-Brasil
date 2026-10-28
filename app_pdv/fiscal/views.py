@@ -15,6 +15,7 @@ from app_pdv.views import check_loja, loja_usa_taxa_servico
 
 from .access import requer_acesso_fiscal
 from .acbr_client import AcbrApiError, acbr_configurada, client_from_settings
+from .acbr_lib_client import AcbrLibError, acbr_lib_habilitada
 from .focus_client import FocusNFeError
 from .forms import (
     CancelarDocumentoForm,
@@ -55,6 +56,7 @@ from .services import (
     processar_webhook,
     testar_conexao_acbr,
     testar_conexao_focus,
+    testar_status_acbr_lib,
     url_webhook_sistema,
 )
 
@@ -113,6 +115,22 @@ def _log_focus_acao(acao: str, loja_id: int, **kwargs):
     )
 
 
+def _salvar_pfx_lib(loja, uploaded) -> str:
+    """Grava PFX em MEDIA_ROOT/fiscal/certs/<loja_id>/certificado.pfx e devolve path relativo."""
+    from pathlib import Path
+
+    from django.conf import settings as dj_settings
+
+    media = Path(dj_settings.MEDIA_ROOT)
+    pasta = media / 'fiscal' / 'certs' / str(loja.id)
+    pasta.mkdir(parents=True, exist_ok=True)
+    destino = pasta / 'certificado.pfx'
+    with destino.open('wb') as fh:
+        for chunk in uploaded.chunks():
+            fh.write(chunk)
+    return str(destino.relative_to(media)).replace('\\', '/')
+
+
 def _focus_integracao_page(request, loja, *, form=None):
     cfg = get_or_create_config(loja)
     webhook_sugerida = url_webhook_sistema(request)
@@ -124,8 +142,13 @@ def _focus_integracao_page(request, loja, *, form=None):
     gatilhos = []
     acbr_ok = acbr_configurada() or bool((cfg.acbr_client_id or '').strip() and (cfg.acbr_client_secret or '').strip())
     acbr_client = client_from_settings() if acbr_configurada() else None
+    lib_on = acbr_lib_habilitada()
+    lib_pfx_ok = bool((cfg.acbr_lib_pfx_path or '').strip())
     checklist = [
-        {'ok': acbr_ok, 'texto': 'ACBr API: Client ID e Client Secret (loja ou .env do servidor)'},
+        {'ok': (cfg.provedor_emissao or 'api') in ('api', 'lib'), 'texto': f'Provedor: {cfg.get_provedor_emissao_display()}'},
+        {'ok': acbr_ok if (cfg.provedor_emissao or 'api') == 'api' else True, 'texto': 'ACBr API: Client ID e Client Secret (loja ou .env)'},
+        {'ok': lib_on if (cfg.provedor_emissao or 'api') == 'lib' else True, 'texto': 'ACBrLib: ACBR_LIB_ENABLED no servidor'},
+        {'ok': lib_pfx_ok if (cfg.provedor_emissao or 'api') == 'lib' else True, 'texto': 'ACBrLib: certificado A1 (.pfx) enviado'},
         {'ok': bool(''.join(c for c in (cfg.cnpj or loja.cnpj or '') if c.isdigit())), 'texto': 'CNPJ do emitente preenchido'},
         {'ok': cfg.ambiente == 'homologacao' or cfg.ambiente == 'producao', 'texto': f'Ambiente: {cfg.get_ambiente_display()}'},
         {'ok': bool(cfg.emite_nfce or cfg.emite_nfe), 'texto': 'Tipo de documento habilitado (NF-e / NFC-e)'},
@@ -145,6 +168,9 @@ def _focus_integracao_page(request, loja, *, form=None):
             acbr_client_id=(acbr_client.client_id[:6] + '…') if acbr_client and acbr_client.client_id else '',
             acbr_base_url=acbr_client.base_url if acbr_client else '',
             acbr_ambiente=getattr(settings, 'ACBR_API_AMBIENTE', 'producao'),
+            acbr_lib_habilitada=lib_on,
+            acbr_lib_pfx_ok=lib_pfx_ok,
+            provedor_atual=cfg.provedor_emissao or 'api',
         ),
     )
 
@@ -172,10 +198,17 @@ def fiscal_focus_salvar(request):
     loja = check_loja(request)
     cfg = get_or_create_config(loja)
     _log_focus_acao('salvar', loja.id)
-    form = FocusIntegracaoForm(request.POST, instance=cfg)
+    form = FocusIntegracaoForm(request.POST, request.FILES, instance=cfg)
     if form.is_valid():
-        form.save()
-        _log_focus_acao('salvar_ok', loja.id, ambiente=form.instance.ambiente)
+        obj = form.save(commit=False)
+        uploaded = form.cleaned_data.get('acbr_lib_pfx_arquivo')
+        if uploaded:
+            obj.acbr_lib_pfx_path = _salvar_pfx_lib(loja, uploaded)
+        obj.save()
+        _log_focus_acao(
+            'salvar_ok', loja.id,
+            ambiente=obj.ambiente, provedor=obj.provedor_emissao, pfx=bool(obj.acbr_lib_pfx_path),
+        )
         messages.success(request, 'Integração fiscal salva.')
     else:
         _log_focus_acao('salvar_invalid', loja.id, erros=form.errors.as_json())
@@ -191,12 +224,16 @@ def fiscal_focus_testar(request):
     loja = check_loja(request)
     cfg = get_or_create_config(loja)
     _log_focus_acao('testar', loja.id)
-    form = FocusIntegracaoForm(request.POST, instance=cfg)
+    form = FocusIntegracaoForm(request.POST, request.FILES, instance=cfg)
     if not form.is_valid():
         _log_focus_acao('testar_form_invalid', loja.id, erros=form.errors.as_json())
         messages.error(request, 'Corrija os campos do formulário antes de testar a conexão.')
         return _focus_integracao_page(request, loja, form=form)
-    cfg = form.save()
+    cfg = form.save(commit=False)
+    uploaded = form.cleaned_data.get('acbr_lib_pfx_arquivo')
+    if uploaded:
+        cfg.acbr_lib_pfx_path = _salvar_pfx_lib(loja, uploaded)
+    cfg.save()
     try:
         teste = testar_conexao_acbr(cfg)
         _log_focus_acao(
@@ -238,6 +275,29 @@ def fiscal_acbr_testar(request):
     except AcbrApiError as exc:
         _log_focus_acao('testar_acbr_falhou', loja.id, erro=str(exc))
         messages.error(request, f'ACBr API: {exc}')
+    return redirect('fiscal_focus')
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_acbr_lib_testar(request):
+    loja = check_loja(request)
+    cfg = get_or_create_config(loja)
+    _log_focus_acao('testar_acbr_lib', loja.id)
+    try:
+        teste = testar_status_acbr_lib(cfg)
+        st = teste.get('status') or {}
+        _log_focus_acao('testar_acbr_lib_ok', loja.id, uf=teste.get('uf'))
+        detalhe = st.get('texto') or st.get('resposta') or st
+        messages.success(
+            request,
+            f'ACBrLib OK (UF {teste.get("uf")}, {teste.get("ambiente")}). '
+            f'Resposta SEFAZ: {str(detalhe)[:400]}',
+        )
+    except AcbrLibError as exc:
+        _log_focus_acao('testar_acbr_lib_falhou', loja.id, erro=str(exc))
+        messages.error(request, f'ACBrLib: {exc}')
     return redirect('fiscal_focus')
 
 
