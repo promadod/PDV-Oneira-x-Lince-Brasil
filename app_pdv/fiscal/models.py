@@ -33,6 +33,11 @@ class FiscalConfig(models.Model):
     municipio = models.CharField(max_length=100, blank=True, default='')
     uf = models.CharField(max_length=2, blank=True, default='')
     codigo_ibge = models.CharField(max_length=7, blank=True, default='', verbose_name='Código IBGE município')
+    telefone = models.CharField(
+        max_length=20, blank=True, default='',
+        verbose_name='Telefone (DANFE)',
+        help_text='Exibido no cabeçalho do DANFE/NFC-e (tag fone do emitente).',
+    )
 
     ambiente = models.CharField(max_length=20, choices=AMBIENTE_CHOICES, default='homologacao')
     PROVEDOR_CHOICES = [

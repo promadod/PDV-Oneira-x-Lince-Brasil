@@ -17,7 +17,7 @@ class FiscalConfigForm(forms.ModelForm):
         fields = [
             'razao_social', 'nome_fantasia', 'cnpj', 'inscricao_estadual', 'inscricao_municipal',
             'cnae', 'crt', 'logradouro', 'numero', 'complemento', 'bairro', 'cep',
-            'municipio', 'uf', 'codigo_ibge',
+            'municipio', 'uf', 'codigo_ibge', 'telefone',
             'serie_nfe', 'serie_nfce', 'serie_nfse',
             'proximo_numero_nfe', 'proximo_numero_nfce', 'proximo_numero_nfse',
             'csc_id', 'csc_token',

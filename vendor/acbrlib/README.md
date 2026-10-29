@@ -10,4 +10,6 @@ Artefatos necessários ao worker `acbr-lib` (Docker).
 | `openssl-legacy.cnf` | Receita Docker ACBr (OpenSSL 3 + legacy) |
 
 Extraído de `downloads_acbrlib-demos/ACBrLibNFeDemo-Linux-*.7z`.
-Atualize a SO pela versão Pro quando tiver licença.
+
+**Demo:** só homologação e ~30 min por processo (depois `-999 Demo expirou`).
+O worker recicla sozinho; para produção contínua use a SO **Pro** (ACBr Pro).

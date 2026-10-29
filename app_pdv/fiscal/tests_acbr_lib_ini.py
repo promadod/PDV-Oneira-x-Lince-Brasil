@@ -21,6 +21,7 @@ class _Cfg:
     bairro = 'Centro'
     cep = '20040020'
     municipio = 'Rio de Janeiro'
+    telefone = '21994495071'
     csc_id = '1'
     csc_token = 'abc'
 
@@ -52,6 +53,7 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertIn('[Produto001]', ini)
         self.assertIn('[pag001]', ini)
         self.assertIn('vNF=100.00', ini)
+        self.assertIn('Fone=21994495071', ini)
 
     def test_retorno_autorizado(self):
         interno = retorno_lib_para_interno({
@@ -78,3 +80,27 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertEqual(interno['status'], 'erro_autorizacao')
         self.assertEqual(interno['status_sefaz'], '704')
         self.assertIn('atrasada', interno['mensagem_sefaz'])
+
+    def test_retorno_duplicidade_204_com_protocolo(self):
+        chave = '33261012636948000117650010000000261914987130'
+        interno = retorno_lib_para_interno({
+            'ok': True,
+            'resposta': {
+                'Envio': {
+                    'CStat': 204,
+                    'XMotivo': 'Rejeicao: Duplicidade de NF-e',
+                    'Msg': 'Rejeicao: Duplicidade de NF-e',
+                    'NFe26': {
+                        'cStat': 100,
+                        'chDFe': chave,
+                        'nProt': '333260002801509',
+                        'xMotivo': 'Autorizado o uso da NF-e',
+                    },
+                },
+            },
+        }, numero=26, serie=1)
+        self.assertEqual(interno['status'], 'autorizado')
+        self.assertEqual(interno['status_sefaz'], '100')
+        self.assertEqual(interno['protocolo'], '333260002801509')
+        self.assertEqual(interno['chave_nfe'], chave)
+        self.assertIn('Autorizado', interno['mensagem_sefaz'])

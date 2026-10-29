@@ -108,7 +108,13 @@ def montar_ini_nfe(
         'cMunFG': ibge,
         'verProc': 'OneiraPDV',
     }))
-    sections.append(_section('Emitente', {
+    fone = _digitos(
+        payload.get('fone_emitente')
+        or payload.get('telefone_emitente')
+        or getattr(cfg, 'telefone', '')
+        or getattr(getattr(cfg, 'loja', None), 'whatsapp_numero_empresa', '')
+    )
+    emitente = {
         'CRT': str(cfg.crt or '1'),
         'CNPJCPF': cnpj,
         'xNome': (cfg.razao_social or cfg.nome_fantasia or 'EMITENTE')[:60],
@@ -127,7 +133,10 @@ def montar_ini_nfe(
         'CEP': _digitos(cfg.cep).zfill(8)[:8],
         'cPais': '1058',
         'xPais': 'BRASIL',
-    }))
+    }
+    if fone:
+        emitente['Fone'] = fone[-11:] if len(fone) > 11 else fone
+    sections.append(_section('Emitente', emitente))
 
     cpf = _digitos(payload.get('cpf_destinatario'))
     cnpj_dest = _digitos(payload.get('cnpj_destinatario'))

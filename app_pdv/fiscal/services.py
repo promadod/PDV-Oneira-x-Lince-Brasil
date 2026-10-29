@@ -2,11 +2,14 @@
 from __future__ import annotations
 
 import copy
+import logging
 import uuid
 from decimal import Decimal
 
 from django.db import transaction
 from django.utils import timezone
+
+logger = logging.getLogger(__name__)
 
 from .focus_client import FocusNFeError, client_from_config
 from .focus_payload import montar_payload_emissao
@@ -285,6 +288,48 @@ def _disparar_emissao_acbr(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dic
     return doc
 
 
+def _sincronizar_csc_acbr_api(cfg: FiscalConfig) -> FiscalConfig:
+    """Alinha CSC e telefone com a ACBr API (CSC evita 464; fone aparece no DANFE)."""
+    from .acbr_client import AcbrApiError, client_from_fiscal_config
+
+    if not ((getattr(cfg, 'acbr_client_id', '') or '').strip() and (getattr(cfg, 'acbr_client_secret', '') or '').strip()):
+        return cfg
+    cnpj = ''.join(ch for ch in str(getattr(cfg, 'cnpj', '') or '') if ch.isdigit())
+    if len(cnpj) not in (11, 14):
+        return cfg
+    client = client_from_fiscal_config(cfg)
+    updates: list[str] = []
+    try:
+        data = client.consultar_config_nfce(cnpj)
+    except AcbrApiError as exc:
+        logger.warning('Não foi possível sincronizar CSC da ACBr API: %s', exc)
+        data = None
+    sefaz = (data or {}).get('sefaz') if isinstance(data, dict) else None
+    if isinstance(sefaz, dict):
+        api_id = str(sefaz.get('id_csc') or '').strip()
+        api_csc = str(sefaz.get('csc') or '').strip()
+        if api_id and api_csc:
+            id6 = api_id.zfill(6) if api_id.isdigit() else api_id
+            if (cfg.csc_id or '').strip() != id6 or (cfg.csc_token or '').strip() != api_csc:
+                cfg.csc_id = id6
+                cfg.csc_token = api_csc
+                updates.extend(['csc_id', 'csc_token'])
+                logger.info('CSC sincronizado da ACBr API para loja/config %s (IdCSC=%s)', cfg.pk, id6)
+    if not (cfg.telefone or '').strip():
+        try:
+            emp = client._request('GET', f'empresas/{cnpj}')
+            fone = ''.join(ch for ch in str((emp or {}).get('fone') or '') if ch.isdigit())
+            if fone:
+                cfg.telefone = fone
+                updates.append('telefone')
+                logger.info('Telefone emitente sincronizado da ACBr API (%s)', fone)
+        except AcbrApiError as exc:
+            logger.warning('Não foi possível obter telefone da empresa na ACBr API: %s', exc)
+    if updates:
+        cfg.save(update_fields=updates)
+    return cfg
+
+
 def _disparar_emissao_acbr_lib(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dict):
     from .acbr_lib_client import (
         AcbrLibError,
@@ -299,6 +344,12 @@ def _disparar_emissao_acbr_lib(doc: DocumentoFiscal, cfg: FiscalConfig, payload:
     campo_numero = 'proximo_numero_nfe' if tipo == 'nfe' else 'proximo_numero_nfce'
     campo_serie = 'serie_nfe' if tipo == 'nfe' else 'serie_nfce'
     cfg = FiscalConfig.objects.select_for_update().get(pk=cfg.pk)
+    if tipo == 'nfce':
+        cfg = _sincronizar_csc_acbr_api(cfg)
+    if not payload.get('fone_emitente'):
+        fone = ''.join(ch for ch in str(getattr(cfg, 'telefone', '') or '') if ch.isdigit())
+        if fone:
+            payload = {**payload, 'fone_emitente': fone}
     numero = int(getattr(cfg, campo_numero) or 1)
     serie = int(getattr(cfg, campo_serie) or 1)
     try:

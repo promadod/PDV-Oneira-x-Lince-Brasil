@@ -8,6 +8,7 @@ import os
 import shutil
 import tempfile
 import threading
+import time
 import traceback
 from ctypes import (
     CDLL,
@@ -31,10 +32,14 @@ SO_PATH = os.environ.get('ACBR_LIB_SO', '/opt/acbrlib/Linux/CONSOLE-MT/libacbrnf
 SCHEMAS_PATH = os.environ.get('ACBR_LIB_SCHEMAS', '/opt/acbrlib/Schemas/NFe')
 SERVICOS_PATH = os.environ.get('ACBR_LIB_SERVICOS', '/opt/acbrlib/ACBrNFeServicos.ini')
 WORK_ROOT = Path(os.environ.get('ACBR_LIB_WORK', '/var/acbrlib/work'))
+# Demo ACBrLib: ~30 min por processo; reciclamos antes para evitar -999 "Demo expirou".
+DEMO_MAX_SECONDS = int(os.environ.get('ACBR_LIB_DEMO_MAX_SECONDS', '1500') or '1500')
 
 app = Flask(__name__)
 _LOCK = threading.Lock()
 _LIB: CDLL | None = None
+_PROCESS_STARTED = time.monotonic()
+_EXIT_SCHEDULED = False
 
 
 class AcbrLibError(Exception):
@@ -42,6 +47,30 @@ class AcbrLibError(Exception):
         super().__init__(message)
         self.code = code
         self.detalhe = detalhe
+
+
+def _demo_expirou_texto(*parts: Any) -> bool:
+    blob = ' '.join(str(p or '') for p in parts).lower()
+    return 'demo' in blob and 'expirou' in blob
+
+
+def _schedule_worker_exit(motivo: str) -> None:
+    """Gunicorn sobe um worker novo; a Demo volta a valer por ~30 min."""
+    global _EXIT_SCHEDULED
+    if _EXIT_SCHEDULED:
+        return
+    _EXIT_SCHEDULED = True
+    logger.warning('Reciclando worker ACBrLib (%s)', motivo)
+
+    def _kill():
+        time.sleep(0.4)
+        os._exit(0)
+
+    threading.Thread(target=_kill, daemon=True).start()
+
+
+def _demo_precisa_reciclar() -> bool:
+    return (time.monotonic() - _PROCESS_STARTED) >= max(60, DEMO_MAX_SECONDS)
 
 
 def _b(s: str | None) -> bytes:
@@ -142,6 +171,8 @@ def _aplicar_config(lib: CDLL, handle: c_void_p, cfg: dict, work: Path) -> None:
     pdf.mkdir(parents=True, exist_ok=True)
 
     _cfg(lib, handle, 'Principal', 'TipoResposta', '2')
+    # Respostas em UTF-8; o INI da nota é gravado em CP1252 (compatível com a Lib ANSI).
+    _cfg(lib, handle, 'Principal', 'CodificacaoResposta', '0')
     _cfg(lib, handle, 'Principal', 'LogNivel', str(cfg.get('log_nivel', '2')))
     _cfg(lib, handle, 'Principal', 'LogPath', str(work))
 
@@ -149,6 +180,9 @@ def _aplicar_config(lib: CDLL, handle: c_void_p, cfg: dict, work: Path) -> None:
     _cfg(lib, handle, 'DFe', 'SSLHttpLib', str(cfg.get('ssl_http', '3')))
     _cfg(lib, handle, 'DFe', 'SSLXmlSignLib', str(cfg.get('ssl_xml', '4')))
     _cfg(lib, handle, 'DFe', 'UF', (cfg.get('uf') or 'RJ').upper()[:2])
+    # tzManual: sem isso a Lib usa /etc/localtime (UTC no Debian) e grava dhEmi+00:00 → SEFAZ 704.
+    _cfg(lib, handle, 'DFe', 'TimeZone.Modo', str(cfg.get('tz_modo', '2')))
+    _cfg(lib, handle, 'DFe', 'TimeZone.Str', str(cfg.get('tz_str') or '-03:00'))
     pfx = cfg.get('pfx_path') or ''
     if pfx:
         _cfg(lib, handle, 'DFe', 'ArquivoPFX', pfx)
@@ -162,6 +196,8 @@ def _aplicar_config(lib: CDLL, handle: c_void_p, cfg: dict, work: Path) -> None:
     _cfg(lib, handle, 'NFe', 'ModeloDF', str(modelo))
     _cfg(lib, handle, 'NFe', 'VersaoDF', str(cfg.get('versao_df', '3')))
     _cfg(lib, handle, 'NFe', 'SSLType', str(cfg.get('ssl_type', '5')))
+    # Mantém ç/ã/õ no XML e no DANFE (API já envia acentuado).
+    _cfg(lib, handle, 'NFe', 'RetirarAcentos', '0')
     _cfg(lib, handle, 'NFe', 'PathSchemas', cfg.get('schemas_path') or SCHEMAS_PATH)
     _cfg(lib, handle, 'NFe', 'PathSalvar', str(out))
     _cfg(lib, handle, 'NFe', 'PathNFe', str(out))
@@ -176,6 +212,12 @@ def _aplicar_config(lib: CDLL, handle: c_void_p, cfg: dict, work: Path) -> None:
             _cfg(lib, handle, 'NFe', 'CSC', str(cfg['csc_token']))
 
     _cfg(lib, handle, 'DANFE', 'PathPDF', str(pdf))
+    # Rodapé do PDF nativo: sessão [Sistema], não [DANFE] (DANFE.Sistema não existe nesta Lib).
+    # O DANFE final é regenerado no Django sem o texto Demo.
+    try:
+        _cfg(lib, handle, 'Sistema', 'Nome', str(cfg.get('sistema') or 'Oneira PDV'))
+    except AcbrLibError as exc:
+        logger.warning('Sistema.Nome ignorado: %s %s', exc, exc.detalhe)
     lib.NFE_ConfigGravar(handle, _b(str(work / 'ACBrLib.ini')))
 
 
@@ -234,15 +276,28 @@ def status_servico(cfg: dict) -> dict:
             return {'ok': True, 'codigo': code, 'resposta': _parse_jsonish(texto), 'texto': texto}
 
 
+def _gravar_ini_nota(path: Path, ini_conteudo: str) -> None:
+    """XML NFe/Assinar exige UTF-8. Com LANG=C.UTF-8 a Lib lê o INI corretamente (sem mojibake)."""
+    path.write_text(ini_conteudo or '', encoding='utf-8')
+
+
 def emitir(cfg: dict, ini_conteudo: str) -> dict:
     if not (ini_conteudo or '').strip():
         raise AcbrLibError('INI da nota vazio')
     with _LOCK:
         for lib, handle, work in _session(cfg):
             ini_path = work / 'nota.ini'
-            ini_path.write_text(ini_conteudo, encoding='utf-8')
+            _gravar_ini_nota(ini_path, ini_conteudo)
             _check(lib, handle, lib.NFE_LimparLista(handle), 'NFE_LimparLista')
-            _check(lib, handle, lib.NFE_CarregarINI(handle, _b(str(ini_path))), 'NFE_CarregarINI')
+            # Prefere conteúdo INI em UTF-8 (evita path + codepage do SO).
+            # Fallback: arquivo se a Lib rejeitar o buffer.
+            code_ini = lib.NFE_CarregarINI(handle, _b(ini_conteudo))
+            if code_ini != 0:
+                logger.warning(
+                    'NFE_CarregarINI(conteúdo) código %s — tentando arquivo: %s',
+                    code_ini, _ultimo_retorno(lib, handle),
+                )
+                _check(lib, handle, lib.NFE_CarregarINI(handle, _b(str(ini_path))), 'NFE_CarregarINI')
             _check(lib, handle, lib.NFE_Assinar(handle), 'NFE_Assinar')
             try:
                 _check(lib, handle, lib.NFE_Validar(handle), 'NFE_Validar')
@@ -321,14 +376,36 @@ def health():
     return jsonify(info), status
 
 
+def _resposta_demo_recycle():
+    _schedule_worker_exit('limite Demo ~30min')
+    return jsonify({
+        'ok': False,
+        'erro': 'demo_recycle',
+        'codigo': -999,
+        'detalhe': (
+            'ACBrLib Demo atingiu o limite de ~30 minutos neste processo. '
+            'O worker está reiniciando; tente de novo em alguns segundos '
+            '(ou use a SO Pro, sem esse limite).'
+        ),
+    }), 503
+
+
 @app.post('/status')
 def api_status():
+    if _demo_precisa_reciclar():
+        return _resposta_demo_recycle()
     body = request.get_json(silent=True) or {}
     cfg = body.get('config') or body
     try:
         WORK_ROOT.mkdir(parents=True, exist_ok=True)
         return jsonify(status_servico(cfg))
     except AcbrLibError as exc:
+        if _demo_expirou_texto(exc, exc.detalhe):
+            _schedule_worker_exit('Demo expirou no StatusServico')
+            return jsonify({
+                'ok': False, 'erro': 'demo_expired', 'codigo': exc.code,
+                'detalhe': exc.detalhe or str(exc),
+            }), 503
         return jsonify({
             'ok': False, 'erro': str(exc), 'codigo': exc.code, 'detalhe': exc.detalhe,
         }), 400
@@ -339,6 +416,8 @@ def api_status():
 
 @app.post('/emitir')
 def api_emitir():
+    if _demo_precisa_reciclar():
+        return _resposta_demo_recycle()
     body = request.get_json(silent=True) or {}
     cfg = body.get('config') or {}
     ini = body.get('ini') or ''
@@ -346,6 +425,16 @@ def api_emitir():
         WORK_ROOT.mkdir(parents=True, exist_ok=True)
         return jsonify(emitir(cfg, ini))
     except AcbrLibError as exc:
+        if _demo_expirou_texto(exc, exc.detalhe):
+            _schedule_worker_exit('Demo expirou no Enviar')
+            return jsonify({
+                'ok': False, 'erro': 'demo_expired', 'codigo': exc.code,
+                'detalhe': (
+                    'O Demo da ACBrLibNFe expirou neste processo (limite ~30 min). '
+                    'Worker reiniciando — reemitir em alguns segundos. '
+                    'Para produção contínua, substitua a SO pela versão Pro.'
+                ),
+            }), 503
         return jsonify({
             'ok': False, 'erro': str(exc), 'codigo': exc.code, 'detalhe': exc.detalhe,
         }), 400

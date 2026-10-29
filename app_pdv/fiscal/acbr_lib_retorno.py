@@ -47,6 +47,47 @@ def _cstat_para_status(cstat: str) -> str:
     return 'erro'
 
 
+def _iter_dicts(obj: Any, *, depth: int = 0):
+    if depth > 6 or not isinstance(obj, dict):
+        return
+    yield obj
+    for v in obj.values():
+        if isinstance(v, dict):
+            yield from _iter_dicts(v, depth=depth + 1)
+
+
+def _autorizacao_em_duplicidade(resp: dict) -> dict:
+    """cStat 204: a Lib aninha o protNFe autorizado em Envio.NFe{n} (cStat 100 + nProt)."""
+    for bloco in _iter_dicts(resp):
+        cstat = str(_dig(bloco, 'cStat', default='') or '').strip()
+        if cstat not in ('100', '150'):
+            continue
+        protocolo = str(_dig(bloco, 'nProt', 'Protocolo', default='') or '').strip()
+        chave = str(_dig(bloco, 'chNFe', 'chDFe', 'Chave', default='') or '').strip()
+        if not protocolo and not chave:
+            continue
+        xmotivo = str(_dig(bloco, 'xMotivo', default='') or '').strip()
+        return {
+            'cstat': cstat,
+            'protocolo': protocolo,
+            'chave': chave,
+            'xmotivo': xmotivo or 'Autorizado o uso da NF-e',
+        }
+    # Fallback: protocolo no XML embutido da rejeição 204.
+    blob = str(resp)
+    m_prot = re.search(r'<nProt>([^<]+)</nProt>', blob)
+    m_ch = re.search(r'<chNFe>(\d{44})</chNFe>', blob)
+    m_cs = re.search(r'<cStat>(100|150)</cStat>', blob)
+    if m_prot and m_cs:
+        return {
+            'cstat': m_cs.group(1),
+            'protocolo': m_prot.group(1),
+            'chave': m_ch.group(1) if m_ch else '',
+            'xmotivo': 'Autorizado o uso da NF-e',
+        }
+    return {}
+
+
 def retorno_lib_para_interno(payload: dict, *, numero: int | None = None, serie: int | None = None) -> dict:
     """Converte POST /emitir do worker para o dict de _aplicar_retorno_focus."""
     if not isinstance(payload, dict):
@@ -73,12 +114,12 @@ def retorno_lib_para_interno(payload: dict, *, numero: int | None = None, serie:
     xmotivo = str(_dig(
         resp,
         'EnvRetorno.xMotivo', 'xMotivo', 'Status.xMotivo', 'Retorno.xMotivo',
-        'Envio.xMotivo', 'NFeRetorno.xMotivo', 'mensagem',
+        'Envio.xMotivo', 'Envio.Msg', 'NFeRetorno.xMotivo', 'mensagem',
         default='',
     ) or '')
     protocolo = str(_dig(
         resp,
-        'EnvRetorno.nProt', 'nProt', 'Protocolo', 'Retorno.nProt',
+        'EnvRetorno.nProt', 'nProt', 'Protocolo', 'Retorno.nProt', 'Envio.NProt',
         default='',
     ) or '')
     chave = str(_dig(
@@ -97,6 +138,15 @@ def retorno_lib_para_interno(payload: dict, *, numero: int | None = None, serie:
         m2 = re.search(r'"?xMotivo"?\s*[:=]\s*"([^"]+)"', resp['raw'])
         if m2:
             xmotivo = m2.group(1)
+
+    # 204 = duplicidade: a nota já está autorizada; usar protocolo aninhado.
+    if str(cstat).strip() == '204':
+        aut = _autorizacao_em_duplicidade(resp)
+        if aut:
+            cstat = aut['cstat']
+            protocolo = protocolo or aut['protocolo']
+            chave = chave or aut['chave']
+            xmotivo = aut['xmotivo']
 
     status = _cstat_para_status(cstat)
     if not cstat and payload.get('ok') and chave:

@@ -4,6 +4,9 @@ FROM python:3.12-slim-bookworm
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    TZ=America/Sao_Paulo \
+    LANG=C.UTF-8 \
+    LC_ALL=C.UTF-8 \
     ACBR_LIB_SO=/opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so \
     ACBR_LIB_SCHEMAS=/opt/acbrlib/Schemas/NFe \
     ACBR_LIB_SERVICOS=/opt/acbrlib/ACBrNFeServicos.ini \
@@ -18,7 +21,10 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     libxml2 \
     ca-certificates \
     curl \
+    tzdata \
     && ln -sf /usr/lib/x86_64-linux-gnu/libxml2.so.2 /usr/lib/x86_64-linux-gnu/libxml2.so \
+    && ln -snf /usr/share/zoneinfo/America/Sao_Paulo /etc/localtime \
+    && echo America/Sao_Paulo > /etc/timezone \
     && rm -rf /var/lib/apt/lists/*
 
 COPY deploy/acbrlib/requirements.txt /opt/worker/requirements.txt

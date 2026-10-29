@@ -233,6 +233,13 @@ class AcbrApiClient:
     def listar_empresas(self) -> Any:
         return self._request('GET', 'empresas')
 
+    def consultar_config_nfce(self, cnpj: str) -> Any:
+        """GET /empresas/{cnpj}/nfce — CRT, ambiente e CSC (id_csc/csc) da empresa."""
+        digits = ''.join(ch for ch in str(cnpj or '') if ch.isdigit())
+        if len(digits) not in (11, 14):
+            raise AcbrApiError('CNPJ/CPF inválido para consultar config NFC-e.')
+        return self._request('GET', f'empresas/{digits}/nfce')
+
     def testar_conexao(self) -> dict:
         token = self.obter_token(forcar=True)
         empresas = self.listar_empresas()

@@ -32,6 +32,14 @@ def worker_base_url() -> str:
     return _cfg('ACBR_LIB_WORKER_URL', 'http://acbr-lib:8091').rstrip('/')
 
 
+def _normalizar_id_csc(value: str) -> str:
+    """IdCSC SEFAZ: até 6 dígitos com zeros à esquerda (ex.: 2 → 000002)."""
+    raw = (value or '').strip()
+    if raw.isdigit():
+        return raw.zfill(6)[:6]
+    return raw
+
+
 class AcbrLibClient:
     def __init__(self, *, base_url: str | None = None, timeout: Optional[int] = None):
         self.base_url = (base_url or worker_base_url()).rstrip('/')
@@ -51,11 +59,18 @@ class AcbrLibClient:
             )
         return data if isinstance(data, dict) else {'raw': data}
 
-    def _post(self, path: str, body: dict) -> dict:
+    def _post(self, path: str, body: dict, *, _retry_demo: bool = True) -> dict:
+        import time
+
         url = f'{self.base_url}/{path.lstrip("/")}'
         try:
             resp = requests.post(url, json=body, timeout=self.timeout)
         except requests.RequestException as exc:
+            # Worker pode estar reiniciando após reciclagem da Demo.
+            if _retry_demo:
+                logger.warning('ACBrLib worker %s indisponível; retry após reciclagem: %s', path, exc)
+                time.sleep(2.0)
+                return self._post(path, body, _retry_demo=False)
             logger.exception('ACBrLib worker %s', path)
             raise AcbrLibError(f'Falha de conexão com worker ACBrLib: {exc}') from exc
         try:
@@ -65,7 +80,23 @@ class AcbrLibClient:
         if resp.status_code >= 400 or (isinstance(data, dict) and data.get('ok') is False):
             erro = (data.get('erro') if isinstance(data, dict) else None) or ''
             detalhe = (data.get('detalhe') if isinstance(data, dict) else None) or ''
-            if erro and detalhe and detalhe not in erro:
+            # Demo expirou / reciclagem: aguarda novo worker e tenta 1x.
+            if _retry_demo and (
+                resp.status_code == 503
+                or erro in ('demo_expired', 'demo_recycle')
+                or ('demo' in f'{erro} {detalhe}'.lower() and 'expirou' in f'{erro} {detalhe}'.lower())
+            ):
+                logger.warning('ACBrLib Demo recycle em %s; retry em 2s', path)
+                time.sleep(2.0)
+                return self._post(path, body, _retry_demo=False)
+            if erro in ('demo_expired', 'demo_recycle') or (
+                'demo' in f'{erro} {detalhe}'.lower() and 'expirou' in f'{erro} {detalhe}'.lower()
+            ):
+                msg = (
+                    detalhe
+                    or 'ACBrLib Demo expirou (~30 min por processo). Reinicie o worker ou use a SO Pro.'
+                )
+            elif erro and detalhe and detalhe not in erro:
                 msg = f'{erro}: {detalhe}'
             else:
                 msg = erro or detalhe or resp.text or f'Erro worker HTTP {resp.status_code}'
@@ -101,7 +132,8 @@ def config_worker_from_fiscal(cfg) -> dict:
         'modelo': '65',  # sobrescrito na emissão
         'pfx_path': pfx_worker,
         'pfx_senha': getattr(cfg, 'acbr_lib_pfx_senha', '') or '',
-        'csc_id': (cfg.csc_id or '').strip(),
+        # IdCSC na SEFAZ é sequencial de 6 dígitos; ACBr calcula o hash com esse valor.
+        'csc_id': _normalizar_id_csc(getattr(cfg, 'csc_id', '') or ''),
         'csc_token': (cfg.csc_token or '').strip(),
         'schemas_path': _cfg('ACBR_LIB_SCHEMAS_PATH', '/opt/acbrlib/Schemas/NFe'),
         'forma_emissao': '9' if getattr(cfg, 'contingencia_ativa', False) else '0',
@@ -109,7 +141,11 @@ def config_worker_from_fiscal(cfg) -> dict:
 
 
 def salvar_arquivos_lib(loja_id: int, chave: str, *, xml_b64: str = '', pdf_b64: str = '') -> dict[str, str]:
-    """Grava XML/PDF no MEDIA_ROOT e devolve caminhos relativos."""
+    """Grava XML/PDF no MEDIA_ROOT e devolve caminhos relativos.
+
+    O PDF da ACBrLib (Fortes) no Linux costuma corromper acentos (SacolÃ£o) e omitir
+    o telefone; regeneramos o DANFE a partir do XML UTF-8 autorizado.
+    """
     from django.conf import settings as dj_settings
 
     media = Path(getattr(dj_settings, 'MEDIA_ROOT', '.') or '.')
@@ -117,14 +153,23 @@ def salvar_arquivos_lib(loja_id: int, chave: str, *, xml_b64: str = '', pdf_b64:
     pasta.mkdir(parents=True, exist_ok=True)
     base = (chave or 'sem_chave').strip() or 'sem_chave'
     out: dict[str, str] = {}
+    xml_path = pasta / f'{base}.xml'
+    pdf_path = pasta / f'{base}.pdf'
     if xml_b64:
-        path = pasta / f'{base}.xml'
-        path.write_bytes(base64.b64decode(xml_b64))
-        out['caminho_xml'] = str(path.relative_to(media)).replace('\\', '/')
+        xml_path.write_bytes(base64.b64decode(xml_b64))
+        out['caminho_xml'] = str(xml_path.relative_to(media)).replace('\\', '/')
     if pdf_b64:
-        path = pasta / f'{base}.pdf'
-        path.write_bytes(base64.b64decode(pdf_b64))
-        out['caminho_pdf'] = str(path.relative_to(media)).replace('\\', '/')
+        pdf_path.write_bytes(base64.b64decode(pdf_b64))
+        out['caminho_pdf'] = str(pdf_path.relative_to(media)).replace('\\', '/')
+    # Preferir DANFE próprio (acentos + fone + sem rodapé Demo).
+    if xml_path.is_file():
+        try:
+            from .danfe_nfce_pdf import regenerar_pdf_de_xml
+
+            if regenerar_pdf_de_xml(xml_path, pdf_path):
+                out['caminho_pdf'] = str(pdf_path.relative_to(media)).replace('\\', '/')
+        except Exception:
+            logger.exception('Falha ao regenerar DANFE NFC-e a partir do XML')
     return out
 
 
