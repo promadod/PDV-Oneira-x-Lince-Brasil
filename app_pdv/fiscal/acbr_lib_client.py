@@ -28,6 +28,18 @@ def acbr_lib_habilitada() -> bool:
     return flag in ('1', 'true', 'yes', 'on')
 
 
+def _mensagem_http_worker(status_code: int, corpo: str) -> str:
+    texto = (corpo or '').strip()
+    html = texto[:32].lower().startswith('<!doctype') or '<html' in texto[:80].lower()
+    if html or status_code == 404:
+        return (
+            f'Worker ACBrLib HTTP {status_code}: rota de consulta CNPJ ausente. '
+            'Reconstrua o container acbr-lib '
+            '(docker compose up -d --build acbr-lib).'
+        )
+    return texto or f'Erro worker HTTP {status_code}'
+
+
 def worker_base_url() -> str:
     return _cfg('ACBR_LIB_WORKER_URL', 'http://acbr-lib:8091').rstrip('/')
 
@@ -99,7 +111,7 @@ class AcbrLibClient:
             elif erro and detalhe and detalhe not in erro:
                 msg = f'{erro}: {detalhe}'
             else:
-                msg = erro or detalhe or resp.text or f'Erro worker HTTP {resp.status_code}'
+                msg = erro or detalhe or _mensagem_http_worker(resp.status_code, resp.text)
             raise AcbrLibError(str(msg), status_code=resp.status_code, payload=data if isinstance(data, dict) else {})
         return data if isinstance(data, dict) else {'raw': data}
 

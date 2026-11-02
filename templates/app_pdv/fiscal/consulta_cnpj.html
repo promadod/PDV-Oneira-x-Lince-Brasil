@@ -2,56 +2,133 @@
 {% block title %}Consulta CNPJ{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
-<h2 style="margin-bottom:8px;">Consulta CNPJ</h2>
-<p style="color:#aaa;margin-bottom:20px;">Consulta via ACBrLibConsultaCNPJ Pro. Página oculta — não aparece no menu.</p>
 
-<form method="post" class="card" style="max-width:640px;margin-bottom:20px;" data-submit-lock-msg="Consultando…">
+<div class="fiscal-page-head">
+    <div>
+        <h2>Consulta CNPJ</h2>
+        <p class="fiscal-page-sub">ACBrLibConsultaCNPJ Pro · rota oculta, fora do menu</p>
+    </div>
+</div>
+
+<form method="post" class="cnpj-search" data-submit-lock-msg="Consultando…">
     {% csrf_token %}
-    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:end;">
+    <div class="cnpj-search-grid">
         <div>
             <label for="id_cnpj">CNPJ</label>
-            <input id="id_cnpj" name="cnpj" value="{{ cnpj }}" maxlength="18" class="form-control" placeholder="00.000.000/0000-00" required>
+            <input id="id_cnpj" name="cnpj" value="{{ cnpj }}" maxlength="18" placeholder="00.000.000/0000-00" required>
         </div>
         <div>
             <label for="id_provedor">Provedor</label>
-            <select id="id_provedor" name="provedor" class="form-control">
+            <select id="id_provedor" name="provedor">
                 {% for valor, nome in provedores %}
                 <option value="{{ valor }}"{% if provedor == valor %} selected{% endif %}>{{ nome }}</option>
                 {% endfor %}
             </select>
         </div>
+        <button type="submit" class="fiscal-btn fiscal-btn--accent cnpj-search-btn">
+            <i class="fas fa-search"></i> Consultar
+        </button>
     </div>
-    <button type="submit" class="btn btn-success" style="margin-top:16px;">Consultar</button>
 </form>
 
 {% if resultado %}
-<div class="card">
-    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
-        <h3 style="color:#15a0a5;margin:0;">Resultado</h3>
-        <span style="color:#aaa;font-size:0.9em;">
-            CNPJ {{ resultado.cnpj }} · {{ resultado.provedor_nome }}
-        </span>
+<article class="cnpj-ficha">
+    <header class="cnpj-hero">
+        <div class="cnpj-hero-mark" aria-hidden="true"><i class="fas fa-building"></i></div>
+        <div class="cnpj-hero-main">
+            <p class="cnpj-kicker">Cadastro nacional de pessoa jurídica</p>
+            <h3 class="cnpj-razao">{{ resultado.razao }}</h3>
+            {% if resultado.fantasia %}
+            <p class="cnpj-fantasia">{{ resultado.fantasia }}</p>
+            {% endif %}
+            <div class="cnpj-pills">
+                <span class="cnpj-cnpj">{{ resultado.cnpj_fmt }}</span>
+                <span class="fiscal-status-pill {% if resultado.situacao_ok %}fiscal-status-pill--autorizado{% else %}fiscal-status-pill--cancelado{% endif %}">{{ resultado.situacao }}</span>
+                {% if resultado.tipo %}<span class="cnpj-chip">{{ resultado.tipo }}</span>{% endif %}
+                {% if resultado.provedor_nome %}<span class="cnpj-chip cnpj-chip--muted">{{ resultado.provedor_nome }}</span>{% endif %}
+            </div>
+        </div>
+    </header>
+
+    <section class="cnpj-kpis" aria-label="Indicadores">
+        <div class="cnpj-kpi">
+            <span class="cnpj-kpi-label">Abertura</span>
+            <strong>{{ resultado.abertura|default:"—" }}</strong>
+        </div>
+        <div class="cnpj-kpi">
+            <span class="cnpj-kpi-label">Capital social</span>
+            <strong>{{ resultado.capital|default:"—" }}</strong>
+        </div>
+        <div class="cnpj-kpi">
+            <span class="cnpj-kpi-label">Natureza jurídica</span>
+            <strong>{{ resultado.natureza|default:"—" }}</strong>
+        </div>
+        <div class="cnpj-kpi">
+            <span class="cnpj-kpi-label">Inscrição estadual</span>
+            <strong>{{ resultado.ie|default:"—" }}</strong>
+        </div>
+    </section>
+
+    <div class="cnpj-body">
+        {% if resultado.tem_endereco or resultado.tem_contato %}
+        <section class="cnpj-panel">
+            <h4><i class="fas fa-location-dot"></i> Endereço e contato</h4>
+            {% if resultado.logradouro %}<p class="cnpj-line">{{ resultado.logradouro }}</p>{% endif %}
+            {% if resultado.bairro or resultado.cidade_uf %}
+            <p class="cnpj-line">{{ resultado.bairro }}{% if resultado.bairro and resultado.cidade_uf %} · {% endif %}{{ resultado.cidade_uf }}</p>
+            {% endif %}
+            {% if resultado.cep %}<p class="cnpj-meta">CEP {{ resultado.cep }}</p>{% endif %}
+            {% if resultado.tem_contato %}
+            <div class="cnpj-contact">
+                {% if resultado.telefone %}<span><i class="fas fa-phone"></i> {{ resultado.telefone }}</span>{% endif %}
+                {% if resultado.email %}<span><i class="fas fa-envelope"></i> {{ resultado.email }}</span>{% endif %}
+            </div>
+            {% endif %}
+        </section>
+        {% endif %}
+
+        <section class="cnpj-panel">
+            <h4><i class="fas fa-diagram-project"></i> Atividades econômicas</h4>
+            {% if resultado.cnae_principal %}
+            <div class="cnae-main">
+                {% if resultado.cnae_principal.codigo %}<span class="cnae-code">{{ resultado.cnae_principal.codigo }}</span>{% endif %}
+                <p>{{ resultado.cnae_principal.descricao|default:"—" }}</p>
+            </div>
+            {% endif %}
+            {% if resultado.cnaes_secundarios %}
+            <p class="cnpj-kpi-label" style="margin:14px 0 8px;">CNAEs secundários</p>
+            <ul class="cnae-list">
+                {% for cnae in resultado.cnaes_secundarios %}
+                <li>
+                    {% if cnae.codigo %}<span class="cnae-code">{{ cnae.codigo }}</span>{% endif %}
+                    <span>{{ cnae.descricao }}</span>
+                </li>
+                {% endfor %}
+            </ul>
+            {% endif %}
+        </section>
     </div>
-    {% if resultado.linhas %}
-    <table style="width:100%;border-collapse:collapse;color:#fff;">
-        <tbody>
-            {% for chave, rotulo, valor in resultado.linhas %}
-            <tr style="border-bottom:1px solid #333;">
-                <th style="padding:8px 12px 8px 0;text-align:left;color:#aaa;font-weight:600;width:38%;vertical-align:top;">{{ rotulo }}</th>
-                <td style="padding:8px 0;word-break:break-word;">{{ valor|default:"—" }}</td>
-            </tr>
+
+    {% if resultado.extras %}
+    <section class="cnpj-panel cnpj-panel--full">
+        <h4>Outros dados</h4>
+        <dl class="cnpj-dl">
+            {% for chave, rotulo, valor in resultado.extras %}
+            <div>
+                <dt>{{ rotulo }}</dt>
+                <dd>{{ valor }}</dd>
+            </div>
             {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p style="color:#aaa;margin:0;">A Lib não devolveu campos estruturados.</p>
+        </dl>
+    </section>
     {% endif %}
+
     {% if resultado.texto %}
-    <details style="margin-top:16px;">
-        <summary style="cursor:pointer;color:#03dac6;">Resposta bruta da ACBr</summary>
-        <pre style="margin:12px 0 0;white-space:pre-wrap;word-break:break-word;color:#ddd;font-size:0.85em;">{{ resultado.texto }}</pre>
+    <details class="cnpj-raw">
+        <summary>Resposta bruta da ACBr</summary>
+        <pre>{{ resultado.texto }}</pre>
     </details>
     {% endif %}
-</div>
+</article>
 {% endif %}
 {% endblock %}

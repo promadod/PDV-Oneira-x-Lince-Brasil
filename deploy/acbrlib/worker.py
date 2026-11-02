@@ -426,6 +426,7 @@ def api_status():
 
 
 @app.post('/consultar-cnpj')
+@app.post('/consultar-cnpj/')
 def api_consultar_cnpj():
     """Consulta em subprocesso para não carregar a SO CNPJ junto da NFe."""
     body = request.get_json(silent=True) or {}

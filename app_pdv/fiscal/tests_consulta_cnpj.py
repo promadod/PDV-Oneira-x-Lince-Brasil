@@ -1,6 +1,6 @@
 from django.test import SimpleTestCase
 
-from app_pdv.fiscal.acbr_cnpj import parse_resposta, rotulos_dados
+from app_pdv.fiscal.acbr_cnpj import fmt_capital, fmt_cnpj, fmt_data, montar_ficha, parse_resposta, rotulos_dados, split_cnaes
 from app_pdv.fiscal.danfe_nfce_pdf import _eh_frase_homolog, _descricao_item, montar_danfe_nfce_pdf
 from xml.etree import ElementTree as ET
 
@@ -24,6 +24,39 @@ class ConsultaCnpjParseTests(SimpleTestCase):
     def test_parse_json_consulta(self):
         dados = parse_resposta('{"Consulta": {"Situacao": "ATIVA", "CEP": "26200-000"}}')
         self.assertEqual(dados['Situacao'], 'ATIVA')
+
+    def test_formatos_ficha(self):
+        self.assertEqual(fmt_cnpj('03007331000141'), '03.007.331/0001-41')
+        self.assertEqual(fmt_data('1999-02-12T00:00:00.000Z'), '12/02/1999')
+        self.assertEqual(fmt_capital('2250558200'), 'R$ 2.250.558.200,00')
+        cnaes = split_cnaes('4619200 Representantes comerciais 4652400 Comercio atacadista')
+        self.assertEqual(cnaes[0]['codigo'], '4619200')
+        self.assertEqual(cnaes[1]['codigo'], '4652400')
+
+    def test_montar_ficha_destaques(self):
+        ficha = montar_ficha({
+            'cnpj': '03007331000141',
+            'provedor_nome': 'BrasilAPI',
+            'dados': {
+                'RazaoSocial': 'MERCADO LIVRE BRASIL LTDA',
+                'Fantasia': 'MERCADO LIVRE',
+                'Situacao': 'ATIVA',
+                'EmpresaTipo': 'MATRIZ',
+                'Abertura': '1999-02-12T00:00:00.000Z',
+                'CapitalSocial': '2250558200',
+                'CNAE1': '7490104 Atividades de intermediacao',
+                'CNAE2': '4619200 Representantes\n4652400 Comercio atacadista',
+                'Cidade': 'OSASCO',
+                'UF': 'SP',
+                'CEP': '06020190',
+            },
+        })
+        self.assertEqual(ficha['cnpj_fmt'], '03.007.331/0001-41')
+        self.assertTrue(ficha['situacao_ok'])
+        self.assertEqual(ficha['abertura'], '12/02/1999')
+        self.assertEqual(ficha['cnae_principal']['codigo'], '7490104')
+        self.assertEqual(len(ficha['cnaes_secundarios']), 2)
+        self.assertEqual(ficha['cep'], '06020-190')
 
 
 class DanfeHomologTests(SimpleTestCase):

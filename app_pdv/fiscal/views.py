@@ -1151,7 +1151,7 @@ def fiscal_webhook_focus(request):
 @require_http_methods(['GET', 'POST'])
 def fiscal_consulta_cnpj(request):
     """Rota oculta /consultacnpj — sem item no menu fiscal."""
-    from .acbr_cnpj import PROVEDORES, consultar, rotulos_dados
+    from .acbr_cnpj import PROVEDORES, consultar, montar_ficha
 
     loja = check_loja(request)
     cnpj = request.POST.get('cnpj') or request.GET.get('cnpj') or ''
@@ -1162,8 +1162,8 @@ def fiscal_consulta_cnpj(request):
     resultado = None
     if request.method == 'POST':
         try:
-            resultado = consultar(cnpj, provedor)
-            resultado['linhas'] = rotulos_dados(resultado.get('dados') or {})
+            bruto = consultar(cnpj, provedor)
+            resultado = montar_ficha(bruto)
         except AcbrLibError as exc:
             messages.error(request, str(exc))
         except Exception as exc:
