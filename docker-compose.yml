@@ -54,6 +54,7 @@ services:
       LC_ALL: C.UTF-8
       OPENSSL_CONF: /opt/acbrlib/openssl-legacy.cnf
       ACBR_LIB_SO: /opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so
+      ACBR_LIB_CNPJ_SO: /opt/acbrlib/Linux/CONSOLE-MT/libacbrconsultacnpj64.so
       ACBR_LIB_SCHEMAS: /opt/acbrlib/Schemas/NFe
       ACBR_LIB_SERVICOS: /opt/acbrlib/ACBrNFeServicos.ini
     volumes:

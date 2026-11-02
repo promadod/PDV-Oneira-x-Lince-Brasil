@@ -180,7 +180,8 @@ def montar_ini_nfe(
         v_desc += desc
         v_outro += outro
         unidade = (item.get('unidade_comercial') or 'UN')[:6]
-        descricao = (item.get('descricao') or 'PRODUTO')[:120]
+        descricao_real = (item.get('descricao') or 'PRODUTO')[:120]
+        descricao = descricao_real
         if homologacao and i == 1:
             descricao = _HOMOLOG_XPROD
         ncm = _digitos(item.get('codigo_ncm')).zfill(8)[:8] or '00000000'
@@ -207,6 +208,8 @@ def montar_ini_nfe(
             prod['vDesc'] = _fmt_money(desc)
         if outro > 0:
             prod['vOutro'] = _fmt_money(outro)
+        if homologacao and i == 1 and descricao_real:
+            prod['infAdProd'] = descricao_real[:500]
         sections.append(_section(f'Produto{idx}', prod))
 
         origem = str(item.get('icms_origem') or '0')[:1]

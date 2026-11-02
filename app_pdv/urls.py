@@ -194,6 +194,7 @@ urlpatterns = [
 
     path('fiscal/', include('app_pdv.fiscal.urls')),
     path('api/fiscal/webhooks/focus/', fiscal_views.fiscal_webhook_focus, name='fiscal_webhook_focus'),
+    path('consultacnpj/', fiscal_views.fiscal_consulta_cnpj, name='consulta_cnpj'),
 
     # -------------------------------- OUTRAS ROTAS --------------------------------------
 

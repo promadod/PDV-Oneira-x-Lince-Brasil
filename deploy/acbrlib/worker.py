@@ -1,4 +1,4 @@
-"""HTTP sidecar para ACBrLibNFe Console MT (ctypes)."""
+"""HTTP sidecar para ACBrLibNFe Pro Console MT (ctypes)."""
 from __future__ import annotations
 
 import base64
@@ -6,6 +6,8 @@ import json
 import logging
 import os
 import shutil
+import subprocess
+import sys
 import tempfile
 import threading
 import time
@@ -29,11 +31,15 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger('acbrlib.worker')
 
 SO_PATH = os.environ.get('ACBR_LIB_SO', '/opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so')
+CNPJ_SO_PATH = os.environ.get(
+    'ACBR_LIB_CNPJ_SO',
+    '/opt/acbrlib/Linux/CONSOLE-MT/libacbrconsultacnpj64.so',
+)
 SCHEMAS_PATH = os.environ.get('ACBR_LIB_SCHEMAS', '/opt/acbrlib/Schemas/NFe')
 SERVICOS_PATH = os.environ.get('ACBR_LIB_SERVICOS', '/opt/acbrlib/ACBrNFeServicos.ini')
 WORK_ROOT = Path(os.environ.get('ACBR_LIB_WORK', '/var/acbrlib/work'))
-# Demo ACBrLib: ~30 min por processo; reciclamos antes para evitar -999 "Demo expirou".
-DEMO_MAX_SECONDS = int(os.environ.get('ACBR_LIB_DEMO_MAX_SECONDS', '1500') or '1500')
+# 0 = Pro (sem limite). Só recicla se >0, caso alguém volte a SO Demo.
+DEMO_MAX_SECONDS = int(os.environ.get('ACBR_LIB_DEMO_MAX_SECONDS', '0') or '0')
 
 app = Flask(__name__)
 _LOCK = threading.Lock()
@@ -55,7 +61,7 @@ def _demo_expirou_texto(*parts: Any) -> bool:
 
 
 def _schedule_worker_exit(motivo: str) -> None:
-    """Gunicorn sobe um worker novo; a Demo volta a valer por ~30 min."""
+    """Gunicorn sobe um worker novo após o processo atual sair."""
     global _EXIT_SCHEDULED
     if _EXIT_SCHEDULED:
         return
@@ -70,6 +76,8 @@ def _schedule_worker_exit(motivo: str) -> None:
 
 
 def _demo_precisa_reciclar() -> bool:
+    if DEMO_MAX_SECONDS <= 0:
+        return False
     return (time.monotonic() - _PROCESS_STARTED) >= max(60, DEMO_MAX_SECONDS)
 
 
@@ -213,7 +221,7 @@ def _aplicar_config(lib: CDLL, handle: c_void_p, cfg: dict, work: Path) -> None:
 
     _cfg(lib, handle, 'DANFE', 'PathPDF', str(pdf))
     # Rodapé do PDF nativo: sessão [Sistema], não [DANFE] (DANFE.Sistema não existe nesta Lib).
-    # O DANFE final é regenerado no Django sem o texto Demo.
+    # O DANFE final é regenerado no Django (layout próprio NFC-e).
     try:
         _cfg(lib, handle, 'Sistema', 'Nome', str(cfg.get('sistema') or 'Oneira PDV'))
     except AcbrLibError as exc:
@@ -360,9 +368,12 @@ def health():
         'ok': so_ok and schemas_ok,
         'so': SO_PATH,
         'so_ok': so_ok,
+        'cnpj_so': CNPJ_SO_PATH,
+        'cnpj_so_ok': Path(CNPJ_SO_PATH).is_file(),
         'schemas': SCHEMAS_PATH,
         'schemas_ok': schemas_ok,
         'openssl_conf': os.environ.get('OPENSSL_CONF', ''),
+        'demo_recycle_s': DEMO_MAX_SECONDS,
     }
     if so_ok:
         try:
@@ -412,6 +423,50 @@ def api_status():
     except Exception as exc:
         logger.exception('status')
         return jsonify({'ok': False, 'erro': str(exc), 'trace': traceback.format_exc()}), 500
+
+
+@app.post('/consultar-cnpj')
+@app.post('/consultar-cnpj/')
+def api_consultar_cnpj():
+    """Consulta em subprocesso para não carregar a SO CNPJ junto da NFe."""
+    body = request.get_json(silent=True) or {}
+    cnpj = ''.join(c for c in str(body.get('cnpj') or '') if c.isdigit())
+    provedor = str(body.get('provedor') or '1')
+    if len(cnpj) != 14:
+        return jsonify({'ok': False, 'erro': 'Informe um CNPJ com 14 dígitos.'}), 400
+    script = Path(__file__).resolve().parent / 'cnpj_consulta.py'
+    if not script.is_file():
+        return jsonify({'ok': False, 'erro': f'Script ausente: {script}'}), 500
+    env = os.environ.copy()
+    env['CNPJ'] = cnpj
+    env['PROVEDOR'] = provedor
+    env['ACBR_LIB_CNPJ_SO'] = CNPJ_SO_PATH
+    env['ACBR_LIB_WORK'] = str(WORK_ROOT)
+    try:
+        WORK_ROOT.mkdir(parents=True, exist_ok=True)
+        proc = subprocess.run(
+            [sys.executable, str(script)],
+            env=env,
+            capture_output=True,
+            text=True,
+            timeout=45,
+            cwd=str(script.parent),
+        )
+    except subprocess.TimeoutExpired:
+        return jsonify({'ok': False, 'erro': 'Consulta CNPJ excedeu 45s.'}), 504
+    except Exception as exc:
+        logger.exception('consultar-cnpj')
+        return jsonify({'ok': False, 'erro': str(exc)}), 500
+    texto = (proc.stdout or '').strip() or (proc.stderr or '').strip()
+    try:
+        data = json.loads(texto) if texto else {}
+    except json.JSONDecodeError:
+        data = {'ok': False, 'erro': texto or f'consulta exit {proc.returncode}'}
+    if not isinstance(data, dict):
+        data = {'ok': False, 'erro': str(data)}
+    if proc.returncode != 0 or data.get('ok') is False:
+        return jsonify(data), 400
+    return jsonify(data)
 
 
 @app.post('/emitir')

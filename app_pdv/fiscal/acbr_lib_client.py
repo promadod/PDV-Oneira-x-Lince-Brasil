@@ -28,6 +28,18 @@ def acbr_lib_habilitada() -> bool:
     return flag in ('1', 'true', 'yes', 'on')
 
 
+def _mensagem_http_worker(status_code: int, corpo: str) -> str:
+    texto = (corpo or '').strip()
+    html = texto[:32].lower().startswith('<!doctype') or '<html' in texto[:80].lower()
+    if html or status_code == 404:
+        return (
+            f'Worker ACBrLib HTTP {status_code}: rota de consulta CNPJ ausente. '
+            'Reconstrua o container acbr-lib '
+            '(docker compose up -d --build acbr-lib).'
+        )
+    return texto or f'Erro worker HTTP {status_code}'
+
+
 def worker_base_url() -> str:
     return _cfg('ACBR_LIB_WORKER_URL', 'http://acbr-lib:8091').rstrip('/')
 
@@ -66,9 +78,9 @@ class AcbrLibClient:
         try:
             resp = requests.post(url, json=body, timeout=self.timeout)
         except requests.RequestException as exc:
-            # Worker pode estar reiniciando após reciclagem da Demo.
+            # Worker pode estar reiniciando (gunicorn / recycle).
             if _retry_demo:
-                logger.warning('ACBrLib worker %s indisponível; retry após reciclagem: %s', path, exc)
+                logger.warning('ACBrLib worker %s indisponível; retry: %s', path, exc)
                 time.sleep(2.0)
                 return self._post(path, body, _retry_demo=False)
             logger.exception('ACBrLib worker %s', path)
@@ -80,7 +92,7 @@ class AcbrLibClient:
         if resp.status_code >= 400 or (isinstance(data, dict) and data.get('ok') is False):
             erro = (data.get('erro') if isinstance(data, dict) else None) or ''
             detalhe = (data.get('detalhe') if isinstance(data, dict) else None) or ''
-            # Demo expirou / reciclagem: aguarda novo worker e tenta 1x.
+            # Reciclagem do worker (Demo residual ou restart): aguarda e tenta 1x.
             if _retry_demo and (
                 resp.status_code == 503
                 or erro in ('demo_expired', 'demo_recycle')
@@ -99,7 +111,7 @@ class AcbrLibClient:
             elif erro and detalhe and detalhe not in erro:
                 msg = f'{erro}: {detalhe}'
             else:
-                msg = erro or detalhe or resp.text or f'Erro worker HTTP {resp.status_code}'
+                msg = erro or detalhe or _mensagem_http_worker(resp.status_code, resp.text)
             raise AcbrLibError(str(msg), status_code=resp.status_code, payload=data if isinstance(data, dict) else {})
         return data if isinstance(data, dict) else {'raw': data}
 
@@ -108,6 +120,9 @@ class AcbrLibClient:
 
     def emitir(self, config: dict, ini: str) -> dict:
         return self._post('emitir', {'config': config, 'ini': ini})
+
+    def consultar_cnpj(self, cnpj: str, provedor: int = 1) -> dict:
+        return self._post('consultar-cnpj', {'cnpj': cnpj, 'provedor': provedor})
 
 
 def config_worker_from_fiscal(cfg) -> dict:
