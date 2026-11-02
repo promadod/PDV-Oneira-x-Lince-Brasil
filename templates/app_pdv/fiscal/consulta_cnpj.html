@@ -1,0 +1,57 @@
+{% extends 'base.html' %}
+{% block title %}Consulta CNPJ{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2 style="margin-bottom:8px;">Consulta CNPJ</h2>
+<p style="color:#aaa;margin-bottom:20px;">Consulta via ACBrLibConsultaCNPJ Pro. Página oculta — não aparece no menu.</p>
+
+<form method="post" class="card" style="max-width:640px;margin-bottom:20px;" data-submit-lock-msg="Consultando…">
+    {% csrf_token %}
+    <div style="display:grid;grid-template-columns:2fr 1fr;gap:12px;align-items:end;">
+        <div>
+            <label for="id_cnpj">CNPJ</label>
+            <input id="id_cnpj" name="cnpj" value="{{ cnpj }}" maxlength="18" class="form-control" placeholder="00.000.000/0000-00" required>
+        </div>
+        <div>
+            <label for="id_provedor">Provedor</label>
+            <select id="id_provedor" name="provedor" class="form-control">
+                {% for valor, nome in provedores %}
+                <option value="{{ valor }}"{% if provedor == valor %} selected{% endif %}>{{ nome }}</option>
+                {% endfor %}
+            </select>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-success" style="margin-top:16px;">Consultar</button>
+</form>
+
+{% if resultado %}
+<div class="card">
+    <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+        <h3 style="color:#15a0a5;margin:0;">Resultado</h3>
+        <span style="color:#aaa;font-size:0.9em;">
+            CNPJ {{ resultado.cnpj }} · {{ resultado.provedor_nome }}
+        </span>
+    </div>
+    {% if resultado.linhas %}
+    <table style="width:100%;border-collapse:collapse;color:#fff;">
+        <tbody>
+            {% for chave, rotulo, valor in resultado.linhas %}
+            <tr style="border-bottom:1px solid #333;">
+                <th style="padding:8px 12px 8px 0;text-align:left;color:#aaa;font-weight:600;width:38%;vertical-align:top;">{{ rotulo }}</th>
+                <td style="padding:8px 0;word-break:break-word;">{{ valor|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p style="color:#aaa;margin:0;">A Lib não devolveu campos estruturados.</p>
+    {% endif %}
+    {% if resultado.texto %}
+    <details style="margin-top:16px;">
+        <summary style="cursor:pointer;color:#03dac6;">Resposta bruta da ACBr</summary>
+        <pre style="margin:12px 0 0;white-space:pre-wrap;word-break:break-word;color:#ddd;font-size:0.85em;">{{ resultado.texto }}</pre>
+    </details>
+    {% endif %}
+</div>
+{% endif %}
+{% endblock %}

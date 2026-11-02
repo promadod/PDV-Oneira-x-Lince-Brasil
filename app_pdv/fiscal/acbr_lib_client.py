@@ -66,9 +66,9 @@ class AcbrLibClient:
         try:
             resp = requests.post(url, json=body, timeout=self.timeout)
         except requests.RequestException as exc:
-            # Worker pode estar reiniciando após reciclagem da Demo.
+            # Worker pode estar reiniciando (gunicorn / recycle).
             if _retry_demo:
-                logger.warning('ACBrLib worker %s indisponível; retry após reciclagem: %s', path, exc)
+                logger.warning('ACBrLib worker %s indisponível; retry: %s', path, exc)
                 time.sleep(2.0)
                 return self._post(path, body, _retry_demo=False)
             logger.exception('ACBrLib worker %s', path)
@@ -80,7 +80,7 @@ class AcbrLibClient:
         if resp.status_code >= 400 or (isinstance(data, dict) and data.get('ok') is False):
             erro = (data.get('erro') if isinstance(data, dict) else None) or ''
             detalhe = (data.get('detalhe') if isinstance(data, dict) else None) or ''
-            # Demo expirou / reciclagem: aguarda novo worker e tenta 1x.
+            # Reciclagem do worker (Demo residual ou restart): aguarda e tenta 1x.
             if _retry_demo and (
                 resp.status_code == 503
                 or erro in ('demo_expired', 'demo_recycle')
@@ -108,6 +108,9 @@ class AcbrLibClient:
 
     def emitir(self, config: dict, ini: str) -> dict:
         return self._post('emitir', {'config': config, 'ini': ini})
+
+    def consultar_cnpj(self, cnpj: str, provedor: int = 1) -> dict:
+        return self._post('consultar-cnpj', {'cnpj': cnpj, 'provedor': provedor})
 
 
 def config_worker_from_fiscal(cfg) -> dict:

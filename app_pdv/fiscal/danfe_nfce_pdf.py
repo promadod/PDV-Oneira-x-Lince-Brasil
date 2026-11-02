@@ -14,7 +14,7 @@ from xml.etree import ElementTree as ET
 from reportlab.graphics import renderPDF
 from reportlab.graphics.barcode.qr import QrCodeWidget
 from reportlab.graphics.shapes import Drawing
-from reportlab.lib.colors import Color, black, white
+from reportlab.lib.colors import black, white
 from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
@@ -25,7 +25,7 @@ MARGIN = 8.0
 CONTENT_W = PAGE_W - 2 * MARGIN
 FONT = 'Helvetica'
 FONT_BOLD = 'Helvetica-Bold'
-GRAY = Color(0.85, 0.85, 0.85)
+_HOMOLOG_XPROD = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO'
 
 FORMAS_PAGAMENTO = {
     '01': 'Dinheiro',
@@ -207,18 +207,17 @@ def _bloco_itens(layout: _Layout, itens: list[dict]):
             layout.add(tam + 1.4, desenhar)
 
 
-def _bloco_homologacao(layout: _Layout):
-    altura = 26
+def _eh_frase_homolog(texto: str) -> bool:
+    t = (texto or '').upper()
+    t = t.replace('Ç', 'C').replace('Ã', 'A').replace('Õ', 'O')
+    return _HOMOLOG_XPROD in t or 'EMITIDA EM AMBIENTE DE HOMOLOGACAO' in t
 
-    def desenhar(c, y):
-        c.setFillColor(GRAY)
-        c.rect(MARGIN, y - altura, CONTENT_W, altura, stroke=0, fill=1)
-        c.setFillColor(black)
-        c.setFont(FONT_BOLD, 7)
-        c.drawCentredString(PAGE_W / 2, y - 11, 'EMITIDA EM AMBIENTE DE HOMOLOGAÇÃO')
-        c.drawCentredString(PAGE_W / 2, y - 20, 'SEM VALOR FISCAL')
-        c.setFillColor(black)
-    layout.add(altura + 4, desenhar)
+
+def _descricao_item(det, prod) -> str:
+    xprod = _txt(prod, 'xProd')
+    if _eh_frase_homolog(xprod):
+        return _txt(det, 'infAdProd')
+    return xprod
 
 
 def _bloco_qrcode(layout: _Layout, url: str):
@@ -269,9 +268,6 @@ def montar_danfe_nfce_pdf(xml_bytes: bytes) -> bytes:
     layout.texto('Nota Fiscal de Consumidor Eletronica', 7.5, True)
     layout.espaco(3)
 
-    tp_amb = _txt(ide, 'tpAmb')
-    if tp_amb == '2':
-        _bloco_homologacao(layout)
     tp_emis = _txt(ide, 'tpEmis')
     if tp_emis == '9':
         layout.texto('EMITIDA EM CONTINGÊNCIA', 7.5, True)
@@ -284,7 +280,7 @@ def montar_danfe_nfce_pdf(xml_bytes: bytes) -> bytes:
         prod = _find(det, 'prod')
         itens.append({
             'codigo': _txt(prod, 'cProd'),
-            'descricao': _txt(prod, 'xProd'),
+            'descricao': _descricao_item(det, prod),
             'qtd': _qtd(_txt(prod, 'qCom')),
             'un': _txt(prod, 'uCom'),
             'vunit': _money(_txt(prod, 'vUnCom')),
@@ -363,6 +359,7 @@ def montar_danfe_nfce_pdf(xml_bytes: bytes) -> bytes:
     altura = layout.altura + 6
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(PAGE_W, altura))
+    c.setPageCompression(0)
     c.setTitle(f'NFC-e {numero}')
     c.setFillColor(white)
     c.rect(0, 0, PAGE_W, altura, stroke=0, fill=1)

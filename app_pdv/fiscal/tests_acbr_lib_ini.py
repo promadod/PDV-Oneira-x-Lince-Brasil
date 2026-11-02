@@ -54,6 +54,7 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertIn('[pag001]', ini)
         self.assertIn('vNF=100.00', ini)
         self.assertIn('Fone=21994495071', ini)
+        self.assertIn('infAdProd=GAS', ini)
 
     def test_retorno_autorizado(self):
         interno = retorno_lib_para_interno({

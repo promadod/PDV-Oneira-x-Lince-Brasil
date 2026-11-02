@@ -42,3 +42,8 @@ Desktop.ini
 
 # Docker volumes locais (se montados na pasta)
 postgres_data/
+
+# Pacotes originais ACBr Pro/Demo (licença). O worker usa vendor/acbrlib extraído.
+acbrlibpro/*.7z
+acbrlibpro/_extract_nfe/
+downloads_acbrlib-demos/

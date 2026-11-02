@@ -1144,3 +1144,35 @@ def fiscal_webhook_focus(request):
 
     log = processar_webhook(payload, headers=headers, loja=loja)
     return JsonResponse({'status': 'ok', 'log_id': log.id, 'processado': log.processado})
+
+
+@login_required
+@requer_acesso_fiscal
+@require_http_methods(['GET', 'POST'])
+def fiscal_consulta_cnpj(request):
+    """Rota oculta /consultacnpj — sem item no menu fiscal."""
+    from .acbr_cnpj import PROVEDORES, consultar, rotulos_dados
+
+    loja = check_loja(request)
+    cnpj = request.POST.get('cnpj') or request.GET.get('cnpj') or ''
+    try:
+        provedor = int(request.POST.get('provedor') or request.GET.get('provedor') or 1)
+    except (TypeError, ValueError):
+        provedor = 1
+    resultado = None
+    if request.method == 'POST':
+        try:
+            resultado = consultar(cnpj, provedor)
+            resultado['linhas'] = rotulos_dados(resultado.get('dados') or {})
+        except AcbrLibError as exc:
+            messages.error(request, str(exc))
+        except Exception as exc:
+            logger.exception('consulta_cnpj')
+            messages.error(request, f'Falha na consulta CNPJ: {exc}')
+    return render(request, 'app_pdv/fiscal/consulta_cnpj.html', _ctx(
+        request, loja,
+        cnpj=cnpj,
+        provedor=provedor,
+        provedores=PROVEDORES,
+        resultado=resultado,
+    ))

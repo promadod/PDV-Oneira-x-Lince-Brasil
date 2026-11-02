@@ -1,4 +1,4 @@
-# Worker ACBrLib NFe (Console MT) — Debian, não Alpine.
+# Worker ACBrLib NFe Pro (Console MT) — Debian, não Alpine.
 FROM python:3.12-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -8,6 +8,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     LANG=C.UTF-8 \
     LC_ALL=C.UTF-8 \
     ACBR_LIB_SO=/opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so \
+    ACBR_LIB_CNPJ_SO=/opt/acbrlib/Linux/CONSOLE-MT/libacbrconsultacnpj64.so \
     ACBR_LIB_SCHEMAS=/opt/acbrlib/Schemas/NFe \
     ACBR_LIB_SERVICOS=/opt/acbrlib/ACBrNFeServicos.ini \
     OPENSSL_CONF=/opt/acbrlib/openssl-legacy.cnf \
@@ -32,9 +33,11 @@ RUN pip install --upgrade pip && pip install -r /opt/worker/requirements.txt
 
 COPY vendor/acbrlib /opt/acbrlib
 COPY deploy/acbrlib/worker.py /opt/worker/worker.py
+COPY deploy/acbrlib/cnpj_consulta.py /opt/worker/cnpj_consulta.py
 
 RUN mkdir -p /var/acbrlib/work /var/acbrlib/out \
-    && chmod +x /opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so || true
+    && chmod +x /opt/acbrlib/Linux/CONSOLE-MT/libacbrnfe64.so || true \
+    && chmod +x /opt/acbrlib/Linux/CONSOLE-MT/libacbrconsultacnpj64.so || true
 
 EXPOSE 8091
 
