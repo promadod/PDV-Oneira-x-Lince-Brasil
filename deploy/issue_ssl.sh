@@ -4,11 +4,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+# Só hostnames com A record neste servidor. www/apex Lince e www Oneira
+# sem DNS quebram o --expand do Let's Encrypt (HTTP-01).
 DOMAINS=(
   -d oneirasistemas.com.br
-  -d www.oneirasistemas.com.br
-  -d lincebrasilsistemas.com.br
-  -d www.lincebrasilsistemas.com.br
+  -d app.lincebrasilsistemas.com.br
 )
 EMAIL="${LETSENCRYPT_EMAIL:-admin@oneirasistemas.com.br}"
 
