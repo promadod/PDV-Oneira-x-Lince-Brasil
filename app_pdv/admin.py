@@ -14,8 +14,8 @@ from .fiscal.models import (
 )
 from .seguranca import descongelar_conta, liberar_ip
 
-admin.site.site_header = "Magno Distribuidora - Administração"
-admin.site.site_title = "Painel Administrativo"
+admin.site.site_header = "Lince brasil sistemas - Administração"
+admin.site.site_title = "Lince brasil sistemas"
 admin.site.index_title = "Gerenciamento do Sistema"
 
 # --- CONFIGURAÇÃO DE USUÁRIO E PERFIL (SAAS) ---
@@ -112,7 +112,7 @@ class LojaAdmin(admin.ModelAdmin):
     list_filter = ('ativo', 'fiscal_habilitado', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada')
     fieldsets = (
         (None, {
-            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta', 'fiscal_habilitado')
+            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta', 'fiscal_habilitado', 'assistente_habilitado')
         }),
         ('Entregas', {
             'fields': ('taxa_entrega_app', 'taxa_entrega_pdv', 'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon')
@@ -140,6 +140,19 @@ class LojaAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if change:
+            return
+        from .loja_usuario import SENHA_PADRAO_NOVA_LOJA
+        user = getattr(obj, '_usuario_padrao', None)
+        if user:
+            self.message_user(
+                request,
+                f'Usuário "{user.username}" criado para esta loja '
+                f'(senha padrão: {SENHA_PADRAO_NOVA_LOJA}). Oriente a troca no primeiro acesso.',
+            )
 
 
 @admin.register(FormaPagamentoLoja)

@@ -124,6 +124,11 @@ class Loja(models.Model):
         verbose_name='Módulo fiscal habilitado?',
         help_text='Ativa o menu Fiscal (NF-e/NFC-e/NFS-e via Focus NFe) para esta loja. SaaS: só lojas contratantes.',
     )
+    assistente_habilitado = models.BooleanField(
+        default=False,
+        verbose_name='Assistente da loja habilitado?',
+        help_text='Liga o chat/assistente por loja. Sem chave de API, o modo offline usa os guias do PDV.',
+    )
 
     # --- INTEGRAÇÃO MOVEON ---
     usa_moveon = models.BooleanField(
@@ -1998,6 +2003,7 @@ class LogAuditoria(models.Model):
         ('SENHA', 'Senha / usuário'),
         ('CONFIG', 'Configuração'),
         ('IMPORTACAO', 'Importação'),
+        ('ADMIN', 'Django Admin'),
         ('OUTRO', 'Outro'),
     ]
     usuario = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='logs_auditoria')
@@ -2213,6 +2219,13 @@ def blindagem_edicao_item(sender, instance, **kwargs):
 def criar_formas_pagamento_nova_loja(sender, instance, created, **kwargs):
     if created:
         criar_formas_pagamento_padrao(instance)
+
+
+@receiver(post_save, sender=Loja)
+def criar_usuario_padrao_nova_loja(sender, instance, created, **kwargs):
+    if created:
+        from .loja_usuario import criar_usuario_padrao_loja
+        instance._usuario_padrao = criar_usuario_padrao_loja(instance)
 
 
 @receiver(post_delete, sender=ItemVenda)
