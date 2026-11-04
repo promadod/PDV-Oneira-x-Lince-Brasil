@@ -36,6 +36,9 @@ class UsuarioPadraoLojaTests(TestCase):
         self.assertEqual(perfil.loja_id, loja.id)
         for campo, valor in PERMISSOES_USUARIO_PADRAO_LOJA.items():
             self.assertTrue(getattr(perfil, campo), msg=campo)
+        self.assertTrue(perfil.usuario_padrao_loja)
+        self.assertTrue(perfil.perm_fiscal_config)
+        self.assertIn('avulsa', perfil.perm_fiscal_telas or [])
         loja.refresh_from_db()
         self.assertEqual(loja.gerente_id, user.id)
 

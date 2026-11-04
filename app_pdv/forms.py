@@ -416,11 +416,19 @@ class MotoForm(forms.ModelForm):
         }
 
 class PermissoesUsuarioForm(forms.ModelForm):
+    perm_fiscal_telas_escolha = forms.MultipleChoiceField(
+        required=False,
+        widget=forms.CheckboxSelectMultiple,
+        label='Telas do módulo fiscal',
+        help_text='Integração API e Config não entram aqui — use a permissão específica abaixo.',
+    )
+
     class Meta:
         model = PerfilUsuario
         fields = [
             'perm_dashboard', 'perm_pdv', 'perm_caixa', 'perm_torre',
             'perm_estoque', 'perm_relatorios', 'perm_usuarios', 'perm_fiscal',
+            'perm_fiscal_config',
         ]
         widgets = {
             'perm_dashboard': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
@@ -431,4 +439,21 @@ class PermissoesUsuarioForm(forms.ModelForm):
             'perm_relatorios': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'perm_usuarios': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
             'perm_fiscal': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
+            'perm_fiscal_config': forms.CheckboxInput(attrs={'class': 'form-check-input'}),
         }
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        from app_pdv.fiscal.access import TELAS_FISCAIS
+        self.fields['perm_fiscal_telas_escolha'].choices = TELAS_FISCAIS
+        atuais = list(getattr(self.instance, 'perm_fiscal_telas', None) or [])
+        if self.instance.pk and not atuais and getattr(self.instance, 'perm_fiscal', False):
+            atuais = [k for k, _ in TELAS_FISCAIS]
+        self.fields['perm_fiscal_telas_escolha'].initial = atuais
+
+    def save(self, commit=True):
+        obj = super().save(commit=False)
+        obj.perm_fiscal_telas = list(self.cleaned_data.get('perm_fiscal_telas_escolha') or [])
+        if commit:
+            obj.save()
+        return obj

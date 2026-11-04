@@ -13,7 +13,12 @@ from django.views.decorators.http import require_http_methods, require_POST
 from app_pdv.models import ItemVenda, Produto, Venda
 from app_pdv.views import check_loja, loja_usa_taxa_servico
 
-from .access import requer_acesso_fiscal
+from .access import (
+    TELAS_FISCAIS,
+    requer_acesso_fiscal,
+    telas_fiscais_do_usuario,
+    usuario_pode_config_fiscal,
+)
 from .acbr_client import AcbrApiError, acbr_configurada, client_from_settings
 from .acbr_lib_client import AcbrLibError, acbr_lib_habilitada
 from .focus_client import FocusNFeError
@@ -23,6 +28,10 @@ from .forms import (
     ContabilidadePeriodoForm,
     ContingenciaForm,
     EmitirAvulsaForm,
+    dados_edicao_avulsa,
+    parse_itens_avulsa,
+    parse_pagamentos_avulsa,
+    total_itens_avulsa,
     EmitirDocumentoForm,
     EmitirLoteForm,
     EmitirNFeForm,
@@ -65,7 +74,13 @@ logger = logging.getLogger(__name__)
 
 def _ctx(request, loja, **extra):
     cfg = get_or_create_config(loja)
-    base = {'loja': loja, 'fiscal_config': cfg}
+    base = {
+        'loja': loja,
+        'fiscal_config': cfg,
+        'fiscal_telas': telas_fiscais_do_usuario(request.user, loja),
+        'fiscal_pode_config': usuario_pode_config_fiscal(request.user, loja),
+        'fiscal_telas_catalogo': TELAS_FISCAIS,
+    }
     base.update(extra)
     return base
 
@@ -77,22 +92,28 @@ def fiscal_hub(request):
     cfg = get_or_create_config(loja)
     docs = DocumentoFiscal.objects.filter(loja=loja)
     pilares = [
-        {'titulo': 'Integração API fiscal', 'desc': 'Token, ambiente, teste de conexão e gatilhos', 'url': 'fiscal_focus', 'icone': 'fa-plug'},
-        {'titulo': '1. Configurações', 'desc': 'Empresa, CRT, endereço e certificado digital', 'url': 'fiscal_config', 'icone': 'fa-building'},
-        {'titulo': '2. Matriz tributária', 'desc': 'NCM, CFOP, CSOSN/CST e alíquotas', 'url': 'fiscal_matriz', 'icone': 'fa-table'},
-        {'titulo': '3. Documentos', 'desc': 'NF-e / NFC-e / NFS-e emitidos', 'url': 'fiscal_documentos', 'icone': 'fa-file-invoice'},
-        {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da SEFAZ/API', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt'},
-        {'titulo': '5. NFC-e', 'desc': 'Cupom fiscal eletrônico do consumidor', 'url': 'fiscal_emitir', 'icone': 'fa-receipt'},
-        {'titulo': 'Emissão em lote', 'desc': 'Vendas PDV ou lote avulso por produto', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group'},
-        {'titulo': 'Emissão avulsa', 'desc': 'NFC-e por produto (sem venda PDV)', 'url': 'fiscal_emitir_avulsa', 'icone': 'fa-box-open'},
-        {'titulo': 'NF-e completa', 'desc': 'Modelo 55 com destinatário', 'url': 'fiscal_emitir_nfe', 'icone': 'fa-file-invoice'},
-        {'titulo': 'Contabilidade', 'desc': 'ZIP XML/PDF, e-mail e WhatsApp', 'url': 'fiscal_contabilidade', 'icone': 'fa-balance-scale'},
-        {'titulo': 'Relatórios fiscais', 'desc': 'Compras, documentos, vendas, SPED/Sintegra', 'url': 'fiscal_relatorios', 'icone': 'fa-chart-bar'},
-        {'titulo': '6. Cancelamento / CC-e / Inutilização', 'desc': 'Ciclo de vida legal das notas', 'url': 'fiscal_inutilizacao', 'icone': 'fa-ban'},
-        {'titulo': '7. Contingência', 'desc': 'Operação offline / SVC', 'url': 'fiscal_contingencia', 'icone': 'fa-wifi'},
-        {'titulo': '8. Arquivos', 'desc': 'XML, DANFE/DANFCE e envio', 'url': 'fiscal_arquivos', 'icone': 'fa-folder-open'},
-        {'titulo': '9. Reforma tributária', 'desc': 'Campos IBS/CBS / cClassTrib', 'url': 'fiscal_reforma', 'icone': 'fa-balance-scale'},
-        {'titulo': '10. Manifestação / Entradas', 'desc': 'NF-e recebidas e ciência', 'url': 'fiscal_manifestacao', 'icone': 'fa-inbox'},
+        {'titulo': 'Integração API fiscal', 'desc': 'Token, ambiente, teste de conexão e gatilhos', 'url': 'fiscal_focus', 'icone': 'fa-plug', 'tela': 'config'},
+        {'titulo': '1. Configurações', 'desc': 'Empresa, CRT, endereço e certificado digital', 'url': 'fiscal_config', 'icone': 'fa-building', 'tela': 'config'},
+        {'titulo': '2. Matriz tributária', 'desc': 'NCM, CFOP, CSOSN/CST e alíquotas', 'url': 'fiscal_matriz', 'icone': 'fa-table', 'tela': 'matriz'},
+        {'titulo': '3. Documentos', 'desc': 'NF-e / NFC-e / NFS-e emitidos', 'url': 'fiscal_documentos', 'icone': 'fa-file-invoice', 'tela': 'documentos'},
+        {'titulo': '4. Webhooks', 'desc': 'Callbacks assíncronos da SEFAZ/API', 'url': 'fiscal_webhooks', 'icone': 'fa-bolt', 'tela': 'webhooks'},
+        {'titulo': '5. NFC-e', 'desc': 'Cupom fiscal eletrônico do consumidor', 'url': 'fiscal_emitir', 'icone': 'fa-receipt', 'tela': 'nfce'},
+        {'titulo': 'Emissão em lote', 'desc': 'Vendas PDV ou lote avulso por produto', 'url': 'fiscal_emitir_lote', 'icone': 'fa-layer-group', 'tela': 'lote'},
+        {'titulo': 'Emissão avulsa', 'desc': 'NFC-e por produto (sem venda PDV)', 'url': 'fiscal_emitir_avulsa', 'icone': 'fa-box-open', 'tela': 'avulsa'},
+        {'titulo': 'NF-e completa', 'desc': 'Modelo 55 com destinatário', 'url': 'fiscal_emitir_nfe', 'icone': 'fa-file-invoice', 'tela': 'nfe'},
+        {'titulo': 'Contabilidade', 'desc': 'ZIP XML/PDF, e-mail e WhatsApp', 'url': 'fiscal_contabilidade', 'icone': 'fa-balance-scale', 'tela': 'contabilidade'},
+        {'titulo': 'Relatórios fiscais', 'desc': 'Compras, documentos, vendas, SPED/Sintegra', 'url': 'fiscal_relatorios', 'icone': 'fa-chart-bar', 'tela': 'relatorios'},
+        {'titulo': '6. Cancelamento / CC-e / Inutilização', 'desc': 'Ciclo de vida legal das notas', 'url': 'fiscal_inutilizacao', 'icone': 'fa-ban', 'tela': 'inutilizacao'},
+        {'titulo': '7. Contingência', 'desc': 'Operação offline / SVC', 'url': 'fiscal_contingencia', 'icone': 'fa-wifi', 'tela': 'contingencia'},
+        {'titulo': '8. Arquivos', 'desc': 'XML, DANFE/DANFCE e envio', 'url': 'fiscal_arquivos', 'icone': 'fa-folder-open', 'tela': 'arquivos'},
+        {'titulo': '9. Reforma tributária', 'desc': 'Campos IBS/CBS / cClassTrib', 'url': 'fiscal_reforma', 'icone': 'fa-balance-scale', 'tela': 'reforma'},
+        {'titulo': '10. Manifestação / Entradas', 'desc': 'NF-e recebidas e ciência', 'url': 'fiscal_manifestacao', 'icone': 'fa-inbox', 'tela': 'manifestacao'},
+    ]
+    telas_ok = telas_fiscais_do_usuario(request.user, loja)
+    pode_config = usuario_pode_config_fiscal(request.user, loja)
+    pilares = [
+        p for p in pilares
+        if (p['tela'] == 'config' and pode_config) or (p['tela'] != 'config' and p['tela'] in telas_ok)
     ]
     return render(request, 'app_pdv/fiscal/hub.html', _ctx(
         request, loja,
@@ -363,7 +384,43 @@ def fiscal_matriz_excluir(request, pk):
 def fiscal_produtos(request):
     loja = check_loja(request)
     produtos = Produto.objects.filter(loja=loja).select_related('dados_fiscais').order_by('nome_venda')
-    return render(request, 'app_pdv/fiscal/produtos.html', _ctx(request, loja, produtos=produtos))
+    origens = [p for p in produtos if getattr(p, 'dados_fiscais', None) and (p.dados_fiscais.ncm or p.dados_fiscais.cfop_venda)]
+    return render(
+        request, 'app_pdv/fiscal/produtos.html',
+        _ctx(request, loja, produtos=produtos, origens_fiscais=origens),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+@require_POST
+def fiscal_produtos_replicar(request):
+    loja = check_loja(request)
+    origem_id = str(request.POST.get('origem_id') or '').strip()
+    destinos_ids = [v for v in request.POST.getlist('destino_ids') if str(v).isdigit()]
+    if not origem_id.isdigit():
+        messages.error(request, 'Selecione o produto de origem dos parâmetros fiscais.')
+        return redirect('fiscal_produtos')
+    origem_prod = get_object_or_404(Produto, pk=int(origem_id), loja=loja)
+    origem = getattr(origem_prod, 'dados_fiscais', None)
+    if not origem:
+        messages.error(request, 'O produto de origem ainda não tem cadastro fiscal.')
+        return redirect('fiscal_produtos')
+    destinos_ids = [int(i) for i in destinos_ids if int(i) != origem_prod.id]
+    if not destinos_ids:
+        messages.error(request, 'Marque ao menos um produto de destino (além da origem).')
+        return redirect('fiscal_produtos')
+    destinos = []
+    for prod in Produto.objects.filter(pk__in=destinos_ids, loja=loja):
+        dados, _ = ProdutoDadosFiscais.objects.get_or_create(produto=prod)
+        destinos.append(dados)
+    from .produto_fiscal import replicar_dados_fiscais
+    copiados = replicar_dados_fiscais(origem, destinos)
+    messages.success(
+        request,
+        f'Parâmetros fiscais de "{origem_prod.nome_venda}" replicados para {copiados} produto(s).',
+    )
+    return redirect('fiscal_produtos')
 
 
 @login_required
@@ -386,60 +443,118 @@ def fiscal_produto_editar(request, produto_id):
     )
 
 
+def _produtos_avulsa_json(loja):
+    qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda')
+    return [
+        {'id': p.id, 'nome': p.nome_venda, 'preco': str(p.preco_venda or '0')}
+        for p in qs
+    ]
+
+
+def _emitir_avulsa_ctx(request, loja, form, *, itens_inicial=None, pagamentos_inicial=None, doc_origem=None):
+    from .forms import FORMA_PAGAMENTO_FISCAL
+    return _ctx(
+        request, loja,
+        form=form,
+        produtos_json=json.dumps(_produtos_avulsa_json(loja)),
+        formas_pagamento_json=json.dumps(list(FORMA_PAGAMENTO_FISCAL)),
+        itens_inicial_json=json.dumps(itens_inicial or []),
+        pagamentos_inicial_json=json.dumps(pagamentos_inicial or []),
+        doc_origem=doc_origem,
+    )
+
+
+def _processar_emissao_avulsa(request, loja, form, *, doc_origem=None):
+    if not form.is_valid():
+        logging.getLogger('app_pdv.fiscal').info(
+            'fiscal_emitir_avulsa form_invalid loja=%s erros=%s',
+            loja.id, form.errors.as_json(),
+        )
+        messages.error(request, 'Corrija os campos do formulário antes de emitir.')
+        return None
+    try:
+        itens = parse_itens_avulsa(request.POST, loja)
+        total = total_itens_avulsa(itens)
+        pagamentos = parse_pagamentos_avulsa(request.POST, total)
+    except Exception as exc:
+        messages.error(request, str(exc))
+        return None
+    primeiro = itens[0]
+    logging.getLogger('app_pdv.fiscal').info(
+        'fiscal_emitir_avulsa enviando loja=%s itens=%s', loja.id, len(itens),
+    )
+    try:
+        doc = emitir_documento(
+            loja, request.user,
+            tipo='nfce',
+            avulso={
+                'produto': primeiro['produto'],
+                'quantidade': primeiro['quantidade'],
+                'preco_unitario': primeiro['preco_unitario'],
+                'forma_pagamento': pagamentos[0]['forma_pagamento'] if pagamentos else '99',
+                'interestadual': form.cleaned_data.get('operacao_interestadual', False),
+                'valor_desconto': primeiro.get('valor_desconto') or 0,
+                'valor_acrescimo': primeiro.get('valor_acrescimo') or 0,
+                'cpf_destinatario': form.cleaned_data.get('cpf_destinatario') or '',
+                'cnpj_destinatario': form.cleaned_data.get('cnpj_destinatario') or '',
+                'nome_destinatario': form.cleaned_data.get('nome_destinatario') or '',
+                'itens': itens,
+                'pagamentos': pagamentos,
+            },
+        )
+        logging.getLogger('app_pdv.fiscal').info(
+            'fiscal_emitir_avulsa ok loja=%s ref=%s status=%s',
+            loja.id, doc.ref, doc.status,
+        )
+        if doc_origem:
+            from .models import DocumentoFiscalEvento
+            DocumentoFiscalEvento.objects.create(
+                documento=doc,
+                tipo='reemissao',
+                descricao=f'Reemissão editada do documento #{doc_origem.id} (ref {doc_origem.ref})',
+                payload={'documento_origem_id': doc_origem.id, 'ref_origem': doc_origem.ref},
+            )
+        messages.success(request, f'NFC-e avulsa enviada — ref {doc.ref} ({doc.status}).')
+        return doc
+    except FocusNFeError as exc:
+        logging.getLogger('app_pdv.fiscal').warning(
+            'fiscal_emitir_avulsa falhou loja=%s erro=%s', loja.id, exc,
+        )
+        messages.error(request, str(exc))
+        return None
+
+
 @login_required
 @requer_acesso_fiscal
 def fiscal_emitir_avulsa(request):
     loja = check_loja(request)
     initial = {}
     pid = request.GET.get('produto')
+    itens_inicial = []
     if pid and str(pid).isdigit():
         initial['produto_id'] = str(pid)
+        itens_inicial = [{'produto_id': str(pid)}]
     form = EmitirAvulsaForm(request.POST or None, loja=loja, initial=initial)
     if request.method == 'POST':
-        if form.is_valid():
-            produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
-            preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
-            logging.getLogger('app_pdv.fiscal').info(
-                'fiscal_emitir_avulsa enviando loja=%s produto=%s', loja.id, produto.id,
-            )
-            try:
-                doc = emitir_documento(
-                    loja, request.user,
-                    tipo='nfce',
-                    avulso={
-                        'produto': produto,
-                        'quantidade': float(form.cleaned_data['quantidade']),
-                        'preco_unitario': float(preco),
-                        'forma_pagamento': form.cleaned_data['forma_pagamento'],
-                        'interestadual': form.cleaned_data.get('operacao_interestadual', False),
-                        'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
-                        'valor_acrescimo': float(form.cleaned_data.get('valor_acrescimo') or 0),
-                        'cpf_destinatario': form.cleaned_data.get('cpf_destinatario') or '',
-                        'cnpj_destinatario': form.cleaned_data.get('cnpj_destinatario') or '',
-                        'nome_destinatario': form.cleaned_data.get('nome_destinatario') or '',
-                    },
-                )
-                logging.getLogger('app_pdv.fiscal').info(
-                    'fiscal_emitir_avulsa ok loja=%s ref=%s status=%s',
-                    loja.id, doc.ref, doc.status,
-                )
-                messages.success(request, f'NFC-e avulsa enviada — ref {doc.ref} ({doc.status}).')
-                return redirect('fiscal_documento_detalhe', pk=doc.id)
-            except FocusNFeError as exc:
-                logging.getLogger('app_pdv.fiscal').warning(
-                    'fiscal_emitir_avulsa falhou loja=%s produto=%s erro=%s',
-                    loja.id, produto.id, exc,
-                )
-                messages.error(request, str(exc))
-        else:
-            logging.getLogger('app_pdv.fiscal').info(
-                'fiscal_emitir_avulsa form_invalid loja=%s erros=%s',
-                loja.id, form.errors.as_json(),
-            )
-            messages.error(request, 'Corrija os campos do formulário antes de emitir.')
+        doc = _processar_emissao_avulsa(request, loja, form)
+        if doc:
+            return redirect('fiscal_documento_detalhe', pk=doc.id)
+        try:
+            itens_inicial = [
+                {
+                    'produto_id': str(i['produto'].id),
+                    'quantidade': i['quantidade'],
+                    'preco_unitario': i['preco_unitario'],
+                    'valor_desconto': i.get('valor_desconto') or 0,
+                    'valor_acrescimo': i.get('valor_acrescimo') or 0,
+                }
+                for i in parse_itens_avulsa(request.POST, loja)
+            ]
+        except Exception:
+            pass
     return render(
         request, 'app_pdv/fiscal/emitir_avulsa.html',
-        _ctx(request, loja, form=form),
+        _emitir_avulsa_ctx(request, loja, form, itens_inicial=itens_inicial),
     )
 
 
@@ -482,6 +597,38 @@ def fiscal_documentos(request):
             filtro_data_final=data_final,
             doc_stats=stats,
             doc_limite=500,
+        ),
+    )
+
+
+@login_required
+@requer_acesso_fiscal
+def fiscal_documento_editar(request, pk):
+    loja = check_loja(request)
+    doc = get_object_or_404(DocumentoFiscal, pk=pk, loja=loja)
+    if doc.status not in ('erro', 'denegado'):
+        messages.error(request, 'Só documentos com erro ou denegados podem ser editados e reemitidos.')
+        return redirect('fiscal_documento_detalhe', pk=pk)
+    dados = dados_edicao_avulsa(doc)
+    initial = {
+        'cpf_destinatario': dados['cpf_destinatario'],
+        'cnpj_destinatario': dados['cnpj_destinatario'],
+        'nome_destinatario': dados['nome_destinatario'],
+        'operacao_interestadual': dados['interestadual'],
+        'produto_id': dados['itens'][0]['produto_id'] if dados['itens'] else '',
+    }
+    form = EmitirAvulsaForm(request.POST or None, loja=loja, initial=initial)
+    if request.method == 'POST':
+        novo = _processar_emissao_avulsa(request, loja, form, doc_origem=doc)
+        if novo:
+            return redirect('fiscal_documento_detalhe', pk=novo.id)
+    return render(
+        request, 'app_pdv/fiscal/emitir_avulsa.html',
+        _emitir_avulsa_ctx(
+            request, loja, form,
+            itens_inicial=dados['itens'],
+            pagamentos_inicial=dados['pagamentos'],
+            doc_origem=doc,
         ),
     )
 

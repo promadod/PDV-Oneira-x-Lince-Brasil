@@ -243,6 +243,33 @@ def _aplicar_grupo_combustivel_focus(item: dict, dados, *, cfop: str, uf_consumo
         item['combustivel_percentual_gas_natural_importado'] = _dec(dados.pct_gn_importado)
 
 
+CAMPOS_DADOS_FISCAIS_REPLICAR = (
+    'tipo', 'ncm', 'cest', 'origem', 'unidade_tributavel',
+    'codigo_servico', 'descricao_servico', 'nbs', 'codigo_class_trib', 'cst_ibs_cbs',
+    'cfop_venda', 'cfop_interestadual', 'codigo_beneficio_fiscal',
+    'csosn', 'cst_icms', 'cst_pis', 'cst_cofins',
+    'aliquota_icms', 'aliquota_pis', 'aliquota_cofins',
+    'codigo_anp', 'descricao_anp', 'icms_aliquota_ad_rem',
+    'pct_glp', 'pct_gn_nacional', 'pct_gn_importado',
+)
+
+
+def replicar_dados_fiscais(origem: ProdutoDadosFiscais, destinos):
+    """Copia os parâmetros fiscais de um produto para outros da mesma loja."""
+    copiados = 0
+    loja_id = origem.produto.loja_id
+    for destino in destinos:
+        if destino.pk == origem.pk:
+            continue
+        if destino.produto.loja_id != loja_id:
+            continue
+        for campo in CAMPOS_DADOS_FISCAIS_REPLICAR:
+            setattr(destino, campo, getattr(origem, campo))
+        destino.save()
+        copiados += 1
+    return copiados
+
+
 def montar_item_focus_json(
     loja,
     produto,
@@ -256,6 +283,8 @@ def montar_item_focus_json(
     perfil_tributacao: str = 'produto',
     peso_liquido_kg: float | None = None,
     forcar_monofasico_combustivel: bool = False,
+    valor_desconto: float = 0,
+    valor_acrescimo: float = 0,
 ) -> dict:
     try:
         dados = produto.dados_fiscais
@@ -281,6 +310,12 @@ def montar_item_focus_json(
         'icms_origem': trib['origem'],
         'icms_situacao_tributaria': trib['icms_situacao_tributaria'],
     }
+    desc_item = round(max(float(valor_desconto or 0), 0), 2)
+    acre_item = round(max(float(valor_acrescimo or 0), 0), 2)
+    if desc_item > 0:
+        item['valor_desconto'] = desc_item
+    if acre_item > 0:
+        item['valor_outras_despesas'] = acre_item
     if trib['codigo_beneficio_fiscal']:
         item['codigo_beneficio_fiscal'] = trib['codigo_beneficio_fiscal']
     if trib['aliquota_icms']:

@@ -33,6 +33,7 @@ class PerfilUsuarioInline(admin.StackedInline):
             'fields': (
                 'perm_dashboard', 'perm_pdv', 'perm_caixa', 'perm_torre',
                 'perm_estoque', 'perm_relatorios', 'perm_usuarios', 'perm_fiscal',
+                'perm_fiscal_config', 'perm_fiscal_telas', 'usuario_padrao_loja',
             ),
         }),
         ('Segurança', {

@@ -113,6 +113,38 @@ def _aplicar_destinatario_nfce(payload: dict, *, cpf: str = '', cnpj: str = '', 
         payload['indicador_inscricao_estadual_destinatario'] = '9'
 
 
+def _linhas_avulso(produto, quantidade, preco_unitario, valor_desconto, valor_acrescimo, itens):
+    if itens:
+        return list(itens)
+    return [{
+        'produto': produto,
+        'quantidade': quantidade,
+        'preco_unitario': preco_unitario,
+        'valor_desconto': valor_desconto,
+        'valor_acrescimo': valor_acrescimo,
+    }]
+
+
+def _formas_pagamento_avulso(pagamentos, forma_pagamento, total):
+    linhas = []
+    for pag in pagamentos or []:
+        valor = round(max(float(pag.get('valor_pagamento') or pag.get('valor') or 0), 0), 2)
+        if valor <= 0:
+            continue
+        linhas.append({
+            'forma_pagamento': str(pag.get('forma_pagamento') or '99').zfill(2)[:2],
+            'valor_pagamento': valor,
+        })
+    if not linhas:
+        linhas = [{'forma_pagamento': str(forma_pagamento or '99').zfill(2)[:2], 'valor_pagamento': total}]
+    soma = round(sum(p['valor_pagamento'] for p in linhas), 2)
+    if abs(soma - total) > 0.05:
+        raise ValueError(
+            f'A soma das formas de pagamento (R$ {soma:.2f}) deve igualar o total da nota (R$ {total:.2f}).',
+        )
+    return linhas
+
+
 def montar_payload_nfce_avulso(
     cfg: FiscalConfig,
     loja,
@@ -127,23 +159,51 @@ def montar_payload_nfce_avulso(
     cpf_destinatario: str = '',
     cnpj_destinatario: str = '',
     nome_destinatario: str = '',
+    itens=None,
+    pagamentos=None,
 ) -> dict:
-    """NFC-e avulsa — um produto (padrão NetFiscal / balcão sem venda PDV)."""
+    """NFC-e avulsa — um ou mais produtos cadastrados, com pagamento único ou dividido."""
     cnpj = _digits(cfg.cnpj or loja.cnpj)
     if len(cnpj) != 14:
         raise ValueError('CNPJ do emitente inválido ou não configurado.')
     tz = timezone.get_current_timezone()
     data_emissao = timezone.localtime(timezone.now(), tz).isoformat(timespec='seconds')
-    item = montar_item_focus_json(
-        loja, produto,
-        quantidade=quantidade,
-        preco_unitario=preco_unitario,
-        numero_item=1,
-        interestadual=interestadual,
-    )
-    bruto = round(float(quantidade) * float(preco_unitario), 2)
-    desconto = round(max(float(valor_desconto or 0), 0), 2)
-    acrescimo = round(max(float(valor_acrescimo or 0), 0), 2)
+    linhas = _linhas_avulso(produto, quantidade, preco_unitario, valor_desconto, valor_acrescimo, itens)
+    if not linhas:
+        raise ValueError('Informe ao menos um produto para a NFC-e avulsa.')
+    items = []
+    bruto = 0.0
+    desconto = 0.0
+    acrescimo = 0.0
+    for idx, linha in enumerate(linhas, start=1):
+        prod = linha.get('produto') or produto
+        qtd = float(linha.get('quantidade') or 0)
+        vu = float(linha.get('preco_unitario') or 0)
+        if qtd <= 0 or vu <= 0:
+            raise ValueError('Cada produto precisa de quantidade e preço maiores que zero.')
+        vd = round(max(float(linha.get('valor_desconto') or 0), 0), 2)
+        va = round(max(float(linha.get('valor_acrescimo') or 0), 0), 2)
+        items.append(
+            montar_item_focus_json(
+                loja, prod,
+                quantidade=qtd,
+                preco_unitario=vu,
+                numero_item=idx,
+                interestadual=interestadual,
+                valor_desconto=vd,
+                valor_acrescimo=va,
+            )
+        )
+        bruto = round(bruto + round(qtd * vu, 2), 2)
+        desconto = round(desconto + vd, 2)
+        acrescimo = round(acrescimo + va, 2)
+    if not itens:
+        desconto = round(max(float(valor_desconto or 0), 0), 2)
+        acrescimo = round(max(float(valor_acrescimo or 0), 0), 2)
+        if desconto > 0:
+            items[0]['valor_desconto'] = desconto
+        if acrescimo > 0:
+            items[0]['valor_outras_despesas'] = acrescimo
     total = round(max(bruto - desconto + acrescimo, 0.01), 2)
     payload = {
         'cnpj_emitente': cnpj,
@@ -153,8 +213,8 @@ def montar_payload_nfce_avulso(
         'modalidade_frete': '9',
         'local_destino': '2' if interestadual else '1',
         'indicador_inscricao_estadual_destinatario': '9',
-        'items': [item],
-        'formas_pagamento': [{'forma_pagamento': forma_pagamento, 'valor_pagamento': total}],
+        'items': items,
+        'formas_pagamento': _formas_pagamento_avulso(pagamentos, forma_pagamento, total),
     }
     if desconto > 0:
         payload['valor_desconto'] = desconto
@@ -432,6 +492,8 @@ def montar_payload_emissao(cfg: FiscalConfig, loja, *, tipo: str, venda=None, av
             cpf_destinatario=avulso.get('cpf_destinatario', ''),
             cnpj_destinatario=avulso.get('cnpj_destinatario', ''),
             nome_destinatario=avulso.get('nome_destinatario', ''),
+            itens=avulso.get('itens'),
+            pagamentos=avulso.get('pagamentos'),
         )
     if tipo == 'nfce':
         return montar_payload_nfce(cfg, loja, venda)

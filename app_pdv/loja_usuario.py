@@ -15,6 +15,8 @@ PERMISSOES_USUARIO_PADRAO_LOJA = {
     'perm_relatorios': True,
     'perm_usuarios': True,
     'perm_fiscal': True,
+    'perm_fiscal_config': True,
+    'usuario_padrao_loja': True,
 }
 
 
@@ -53,10 +55,13 @@ def criar_usuario_padrao_loja(loja):
         is_superuser=False,
         is_active=True,
     )
+    from .fiscal.access import TELAS_FISCAIS_KEYS
+
     perfil, _ = PerfilUsuario.objects.get_or_create(user=user)
     perfil.loja = loja
     for campo, valor in PERMISSOES_USUARIO_PADRAO_LOJA.items():
         setattr(perfil, campo, valor)
+    perfil.perm_fiscal_telas = list(TELAS_FISCAIS_KEYS)
     perfil.save()
     if not loja.gerente_id:
         type(loja).objects.filter(pk=loja.pk).update(gerente=user)

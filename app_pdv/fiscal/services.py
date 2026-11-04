@@ -218,6 +218,20 @@ def _montar_payload_para_reemissao(cfg: FiscalConfig, loja, doc: DocumentoFiscal
     if snap.get('emissao_avulsa') and doc.produto_avulso_id:
         fp = (payload_orig.get('formas_pagamento') or [{}])[0]
         try:
+            from app_pdv.models import Produto
+
+            itens_recon = []
+            for linha in snap.get('itens') or []:
+                prod = Produto.objects.filter(pk=int(linha.get('produto_id') or 0), loja=loja).first()
+                if not prod:
+                    continue
+                itens_recon.append({
+                    'produto': prod,
+                    'quantidade': float(linha.get('quantidade') or 1),
+                    'preco_unitario': float(linha.get('preco_unitario') or 0),
+                    'valor_desconto': float(linha.get('valor_desconto') or 0),
+                    'valor_acrescimo': float(linha.get('valor_acrescimo') or 0),
+                })
             return montar_payload_nfce_avulso(
                 cfg, loja, doc.produto_avulso,
                 quantidade=float(snap.get('quantidade') or 1),
@@ -229,6 +243,8 @@ def _montar_payload_para_reemissao(cfg: FiscalConfig, loja, doc: DocumentoFiscal
                 cpf_destinatario=payload_orig.get('cpf_destinatario') or '',
                 cnpj_destinatario=payload_orig.get('cnpj_destinatario') or '',
                 nome_destinatario=payload_orig.get('nome_destinatario') or '',
+                itens=itens_recon or None,
+                pagamentos=payload_orig.get('formas_pagamento') or snap.get('pagamentos') or None,
             )
         except ValueError as exc:
             raise FocusNFeError(str(exc)) from exc
@@ -495,19 +511,42 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe
         snapshot = {'emissao_nfe_form': True, 'produto_id': getattr(produto_avulso, 'id', None)}
         tipo = 'nfe'
     elif avulso:
-        produto_avulso = avulso['produto']
+        itens_av = avulso.get('itens') or []
+        produto_avulso = avulso.get('produto') or (itens_av[0]['produto'] if itens_av else None)
+        if not produto_avulso:
+            raise FocusNFeError('Informe ao menos um produto para a emissão avulsa.')
         if produto_avulso.loja_id != loja.id:
             raise FocusNFeError('Produto não pertence à loja atual.')
-        bruto = float(avulso['quantidade']) * float(avulso['preco_unitario'])
-        desconto = float(avulso.get('valor_desconto') or 0)
-        acrescimo = float(avulso.get('valor_acrescimo') or 0)
+        if itens_av:
+            bruto = 0.0
+            desconto = 0.0
+            acrescimo = 0.0
+            for linha in itens_av:
+                bruto += float(linha['quantidade']) * float(linha['preco_unitario'])
+                desconto += float(linha.get('valor_desconto') or 0)
+                acrescimo += float(linha.get('valor_acrescimo') or 0)
+        else:
+            bruto = float(avulso['quantidade']) * float(avulso['preco_unitario'])
+            desconto = float(avulso.get('valor_desconto') or 0)
+            acrescimo = float(avulso.get('valor_acrescimo') or 0)
         valor = Decimal(str(round(max(bruto - desconto + acrescimo, 0.01), 2)))
         ref = _nova_ref(loja, tipo, f'av{produto_avulso.id}')
         snapshot = {
             'emissao_avulsa': True,
             'produto_id': produto_avulso.id,
-            'quantidade': str(avulso['quantidade']),
-            'preco_unitario': str(avulso['preco_unitario']),
+            'quantidade': str(avulso.get('quantidade') or (itens_av[0]['quantidade'] if itens_av else 1)),
+            'preco_unitario': str(avulso.get('preco_unitario') or (itens_av[0]['preco_unitario'] if itens_av else 0)),
+            'itens': [
+                {
+                    'produto_id': linha['produto'].id,
+                    'quantidade': str(linha['quantidade']),
+                    'preco_unitario': str(linha['preco_unitario']),
+                    'valor_desconto': str(linha.get('valor_desconto') or 0),
+                    'valor_acrescimo': str(linha.get('valor_acrescimo') or 0),
+                }
+                for linha in itens_av
+            ],
+            'pagamentos': avulso.get('pagamentos') or [],
         }
     elif venda:
         snapshot = montar_snapshot_itens(loja, venda)

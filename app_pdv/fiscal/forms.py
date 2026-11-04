@@ -88,11 +88,12 @@ FORMA_PAGAMENTO_FISCAL = [
 
 
 class EmitirAvulsaForm(forms.Form):
-    produto_id = forms.ChoiceField(label='Produto', choices=[])
+    produto_id = forms.ChoiceField(label='Produto', choices=[], required=False)
     quantidade = forms.DecimalField(
         min_value=Decimal('0.001'),
         initial=Decimal('1'),
         decimal_places=3,
+        required=False,
         widget=forms.NumberInput(attrs={'class': 'form-control', 'step': '0.001'}),
     )
     preco_unitario = forms.DecimalField(
@@ -106,6 +107,7 @@ class EmitirAvulsaForm(forms.Form):
     forma_pagamento = forms.ChoiceField(
         choices=FORMA_PAGAMENTO_FISCAL,
         initial='99',
+        required=False,
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
     operacao_interestadual = forms.BooleanField(
@@ -706,3 +708,121 @@ class CancelarDocumentoForm(forms.Form):
         min_length=15, max_length=255,
         widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
     )
+
+
+def _dec_post(valor, default='0'):
+    raw = str(valor if valor not in (None, '') else default).strip().replace(',', '.')
+    try:
+        return Decimal(raw)
+    except Exception:
+        return Decimal(default)
+
+
+def parse_itens_avulsa(post, loja):
+    """Lê linhas item_* do POST. Se não houver lista, usa o produto único do formulário legado."""
+    from app_pdv.models import Produto
+
+    ids = [v for v in post.getlist('item_produto_id') if str(v).strip()]
+    qtds = post.getlist('item_quantidade')
+    precos = post.getlist('item_preco')
+    descontos = post.getlist('item_desconto')
+    acrescimos = post.getlist('item_acrescimo')
+    if not ids:
+        pid = str(post.get('produto_id') or '').strip()
+        if pid:
+            ids = [pid]
+            qtds = [post.get('quantidade') or '1']
+            precos = [post.get('preco_unitario') or '']
+            descontos = [post.get('valor_desconto') or '0']
+            acrescimos = [post.get('valor_acrescimo') or '0']
+    itens = []
+    for i, pid in enumerate(ids):
+        if not str(pid).isdigit():
+            continue
+        produto = Produto.objects.filter(pk=int(pid), loja=loja, ativo=True).first()
+        if not produto:
+            raise forms.ValidationError(f'Produto inválido na linha {i + 1}.')
+        qtd = _dec_post(qtds[i] if i < len(qtds) else '1', '1')
+        if qtd <= 0:
+            raise forms.ValidationError(f'Quantidade inválida na linha {i + 1}.')
+        preco_raw = precos[i] if i < len(precos) else ''
+        preco = _dec_post(preco_raw, '0') if str(preco_raw).strip() else (produto.preco_venda or Decimal('0'))
+        if preco <= 0:
+            raise forms.ValidationError(f'Preço inválido na linha {i + 1}.')
+        itens.append({
+            'produto': produto,
+            'quantidade': float(qtd),
+            'preco_unitario': float(preco),
+            'valor_desconto': float(_dec_post(descontos[i] if i < len(descontos) else '0')),
+            'valor_acrescimo': float(_dec_post(acrescimos[i] if i < len(acrescimos) else '0')),
+        })
+    if not itens:
+        raise forms.ValidationError('Adicione ao menos um produto à nota.')
+    return itens
+
+
+def parse_pagamentos_avulsa(post, total):
+    formas = [v for v in post.getlist('pag_forma') if str(v).strip()]
+    valores = post.getlist('pag_valor')
+    if not formas:
+        forma = str(post.get('forma_pagamento') or '99').strip() or '99'
+        return [{'forma_pagamento': forma, 'valor_pagamento': round(float(total), 2)}]
+    pagamentos = []
+    for i, forma in enumerate(formas):
+        valor = float(_dec_post(valores[i] if i < len(valores) else '0'))
+        if valor <= 0:
+            continue
+        pagamentos.append({
+            'forma_pagamento': str(forma).zfill(2)[:2],
+            'valor_pagamento': round(valor, 2),
+        })
+    if not pagamentos:
+        raise forms.ValidationError('Informe ao menos uma forma de pagamento com valor.')
+    return pagamentos
+
+
+def total_itens_avulsa(itens):
+    bruto = sum(i['quantidade'] * i['preco_unitario'] for i in itens)
+    desc = sum(i.get('valor_desconto') or 0 for i in itens)
+    acre = sum(i.get('valor_acrescimo') or 0 for i in itens)
+    return round(max(bruto - desc + acre, 0.01), 2)
+
+
+def dados_edicao_avulsa(doc):
+    """Monta itens/pagamentos/destinatário a partir do documento com erro."""
+    payload = doc.payload_envio if isinstance(doc.payload_envio, dict) else {}
+    snap = doc.snapshot_tributario or {}
+    itens = []
+    for linha in snap.get('itens') or []:
+        itens.append({
+            'produto_id': str(linha.get('produto_id') or ''),
+            'quantidade': str(linha.get('quantidade') or '1'),
+            'preco_unitario': str(linha.get('preco_unitario') or ''),
+            'valor_desconto': str(linha.get('valor_desconto') or '0'),
+            'valor_acrescimo': str(linha.get('valor_acrescimo') or '0'),
+        })
+    if not itens:
+        item = (payload.get('items') or [{}])[0]
+        itens.append({
+            'produto_id': str(item.get('codigo_produto') or snap.get('produto_id') or doc.produto_avulso_id or ''),
+            'quantidade': str(item.get('quantidade_comercial') or snap.get('quantidade') or '1'),
+            'preco_unitario': str(item.get('valor_unitario_comercial') or snap.get('preco_unitario') or ''),
+            'valor_desconto': str(item.get('valor_desconto') or payload.get('valor_desconto') or '0'),
+            'valor_acrescimo': str(item.get('valor_outras_despesas') or payload.get('valor_outras_despesas') or '0'),
+        })
+    pagamentos = []
+    for pag in payload.get('formas_pagamento') or snap.get('pagamentos') or []:
+        pagamentos.append({
+            'forma_pagamento': str(pag.get('forma_pagamento') or '99'),
+            'valor_pagamento': str(pag.get('valor_pagamento') or pag.get('valor') or ''),
+        })
+    if not pagamentos:
+        pagamentos.append({'forma_pagamento': '99', 'valor_pagamento': str(doc.valor_total or '')})
+    return {
+        'itens': itens,
+        'pagamentos': pagamentos,
+        'interestadual': payload.get('local_destino') == '2',
+        'cpf_destinatario': payload.get('cpf_destinatario') or '',
+        'cnpj_destinatario': payload.get('cnpj_destinatario') or '',
+        'nome_destinatario': payload.get('nome_destinatario') or '',
+    }
