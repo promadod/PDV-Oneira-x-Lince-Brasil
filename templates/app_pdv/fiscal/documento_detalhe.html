@@ -18,6 +18,7 @@
         {% if doc.url_pdf or doc.caminho_pdf %}<a class="fiscal-btn" href="{% url 'fiscal_documento_arquivo' doc.id 'pdf' %}" target="_blank">DANFE/PDF</a>{% endif %}
         <a href="{% url 'fiscal_documentos' %}" class="fiscal-btn">Voltar</a>
         {% if doc.status == 'erro' or doc.status == 'denegado' %}
+        <a href="{% url 'fiscal_documento_editar' doc.id %}" class="fiscal-btn fiscal-btn--primary">Editar e reemitir</a>
         <form method="post" action="{% url 'fiscal_documento_reemitir' doc.id %}" data-submit-lock-msg="Reemitindo…">
             {% csrf_token %}
             <button type="submit" class="fiscal-btn fiscal-btn--warn">Reemitir</button>

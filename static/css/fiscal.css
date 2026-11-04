@@ -717,3 +717,42 @@
         grid-template-columns: 1fr;
     }
 }
+
+.avulsa-row {
+    display: grid;
+    grid-template-columns: 2fr 0.8fr 0.9fr 0.8fr 0.8fr auto;
+    gap: 8px;
+    align-items: end;
+    margin-bottom: 10px;
+}
+
+.avulsa-row--pag {
+    grid-template-columns: 2fr 1fr auto;
+}
+
+.avulsa-row label {
+    display: block;
+    font-size: 0.8em;
+    color: #aaa;
+    margin-bottom: 4px;
+}
+
+.fiscal-replicate-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: end;
+    margin-bottom: 14px;
+}
+
+.fiscal-replicate-bar > div {
+    min-width: 220px;
+    flex: 1;
+}
+
+@media (max-width: 800px) {
+    .avulsa-row,
+    .avulsa-row--pag {
+        grid-template-columns: 1fr 1fr;
+    }
+}

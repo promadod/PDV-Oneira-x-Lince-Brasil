@@ -442,6 +442,22 @@ class PerfilUsuario(models.Model):
         verbose_name="Acessar Módulo Fiscal",
         help_text="NF-e, NFC-e, NFS-e, matriz tributária e webhooks. Exige módulo fiscal ativo na loja.",
     )
+    perm_fiscal_config = models.BooleanField(
+        default=False,
+        verbose_name="Alterar Integração API e Config fiscal",
+        help_text="Libera os botões Integração API e Config. Também vale para o usuário padrão da loja e para root.",
+    )
+    perm_fiscal_telas = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Telas do módulo fiscal",
+        help_text="Lista de chaves das telas operacionais liberadas (Hub, Produtos, Avulsa, etc.).",
+    )
+    usuario_padrao_loja = models.BooleanField(
+        default=False,
+        verbose_name="Usuário padrão da loja",
+        help_text="Criado automaticamente ao cadastrar a loja. Tem Integração API, Config e todas as telas fiscais.",
+    )
     conta_congelada = models.BooleanField(
         default=False,
         verbose_name="Conta congelada",

@@ -134,6 +134,7 @@
                         <div class="fiscal-link-actions">
                             <a href="{% url 'fiscal_documento_detalhe' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">Abrir</a>
                             {% if d.status == 'erro' or d.status == 'denegado' %}
+                            <a href="{% url 'fiscal_documento_editar' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm" title="Corrigir o campo e reemitir">Editar</a>
                             <form method="post" action="{% url 'fiscal_documento_reemitir' d.id %}" data-submit-lock-msg="Reemitindo…">
                                 {% csrf_token %}
                                 <button type="submit" class="fiscal-btn fiscal-btn--warn fiscal-btn--sm" title="Enviar novamente com os mesmos dados">Reemitir</button>
