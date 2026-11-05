@@ -33,6 +33,51 @@ def _num(value, default=0):
         return float(default)
 
 
+def _transp(cfg, payload: dict, *, tipo: str) -> dict:
+    if tipo == 'nfe':
+        from .focus_payload import aplicar_transportador_combustivel
+        aplicar_transportador_combustivel(cfg, payload)
+    transp = {'modFrete': int(payload.get('modalidade_frete') or 9)}
+    tr = payload.get('transportador') or {}
+    transporta = {}
+    cnpj_t = ''.join(c for c in str(tr.get('cnpj') or '') if c.isdigit())
+    if len(cnpj_t) == 14:
+        transporta['CNPJ'] = cnpj_t
+    nome = (tr.get('nome') or tr.get('xNome') or '').strip()
+    if nome:
+        transporta['xNome'] = nome[:60]
+    ie = ''.join(c for c in str(tr.get('inscricao_estadual') or tr.get('IE') or '') if c.isdigit())
+    if ie:
+        transporta['IE'] = ie
+    ender = (tr.get('endereco') or tr.get('xEnder') or '').strip()
+    if ender:
+        transporta['xEnder'] = ender[:60]
+    mun = (tr.get('municipio') or tr.get('xMun') or '').strip()
+    if mun:
+        transporta['xMun'] = mun[:60]
+    uf = (tr.get('uf') or tr.get('UF') or '').strip().upper()[:2]
+    if uf:
+        transporta['UF'] = uf
+    if transporta:
+        transp['transporta'] = transporta
+    vols = []
+    for vol in payload.get('volumes') or []:
+        v = {}
+        if vol.get('quantidade'):
+            v['qVol'] = int(vol['quantidade'])
+        if vol.get('especie'):
+            v['esp'] = str(vol['especie'])[:60]
+        if vol.get('peso_liquido'):
+            v['pesoL'] = round(float(vol['peso_liquido']), 3)
+        if vol.get('peso_bruto'):
+            v['pesoB'] = round(float(vol['peso_bruto']), 3)
+        if v:
+            vols.append(v)
+    if vols:
+        transp['vol'] = vols
+    return transp
+
+
 def _icms(item: dict) -> dict:
     origem = int(str(item.get('icms_origem') or '0')[:1] or '0')
     cst = ''.join(c for c in str(item.get('icms_situacao_tributaria') or '102') if c.isdigit())[:3]
@@ -193,7 +238,7 @@ def pedido_emissao(cfg: FiscalConfig, payload: dict, *, tipo: str, ref: str, num
         },
         'det': dets,
         'total': {'ICMSTot': _icmstot(itens, v_prod, v_desc, v_outro, v_nf)},
-        'transp': {'modFrete': int(payload.get('modalidade_frete') or 9)},
+        'transp': _transp(cfg, payload, tipo=tipo),
         'pag': {'detPag': pagamentos},
     }
     inf['emit'] = {k: v for k, v in inf['emit'].items() if v not in (None, '')}

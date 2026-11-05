@@ -611,18 +611,32 @@ def fiscal_documentos(request):
 
 
 def _nfe_dados_do_form(form, loja):
-    produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
-    preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
+    itens = list(form.cleaned_data.get('itens') or [])
+    if not itens:
+        produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
+        preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
+        itens = [{
+            'produto': produto,
+            'quantidade': float(form.cleaned_data['quantidade'] or 1),
+            'preco_unitario': float(preco),
+            'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
+            'valor_acrescimo': float(form.cleaned_data.get('valor_acrescimo') or 0),
+        }]
+    produto = itens[0]['produto']
+    pagamentos = list(form.cleaned_data.get('pagamentos') or [])
+    forma = form.cleaned_data.get('forma_pagamento') or (pagamentos[0]['forma_pagamento'] if pagamentos else '99')
     return {
         'produto': produto,
-        'quantidade': float(form.cleaned_data['quantidade']),
-        'preco_unitario': float(preco),
+        'quantidade': float(itens[0]['quantidade']),
+        'preco_unitario': float(itens[0]['preco_unitario']),
+        'itens': itens,
+        'pagamentos': pagamentos,
         'natureza_operacao': form.cleaned_data['natureza_operacao'],
         'cfop': form.cleaned_data['cfop'],
         'finalidade_emissao': form.cleaned_data['finalidade_emissao'],
         'presenca_comprador': form.cleaned_data['presenca_comprador'],
         'modalidade_frete': form.cleaned_data['modalidade_frete'],
-        'forma_pagamento': form.cleaned_data['forma_pagamento'],
+        'forma_pagamento': forma,
         'indicador_ie_destinatario': form.cleaned_data.get('indicador_ie_destinatario') or '9',
         'inscricao_estadual_destinatario': form.cleaned_data.get('inscricao_estadual_destinatario') or '',
         'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
@@ -709,16 +723,22 @@ def _editar_nfe(request, loja, doc):
     from app_pdv.models import Cliente
 
     initial = dados_edicao_nfe(doc)
+    itens_inicial = initial.pop('itens_inicial', [])
+    pagamentos_inicial = initial.pop('pagamentos_inicial', [])
     form = EmitirNFeForm(request.POST or None, loja=loja, initial=initial)
     if request.method == 'POST':
         novo = _processar_emissao_nfe(request, loja, form, doc_origem=doc)
         if novo:
             return redirect('fiscal_documento_detalhe', pk=novo.id)
+        itens_inicial, pagamentos_inicial = _nfe_listas_do_post(request, loja)
     clientes = Cliente.objects.filter(loja=loja).order_by('nome')[:800]
     return render(
         request,
         'app_pdv/fiscal/emitir_nfe.html',
-        _ctx(request, loja, form=form, clientes=clientes, doc_origem=doc, fiscal_nav_ativa='nfe'),
+        _emitir_nfe_ctx(
+            request, loja, form, clientes=clientes, doc_origem=doc,
+            itens_inicial=itens_inicial, pagamentos_inicial=pagamentos_inicial,
+        ),
     )
 
 
@@ -1247,22 +1267,70 @@ def fiscal_natureza_criar(request):
     })
 
 
+def _nfe_listas_do_post(request, loja):
+    itens_inicial = []
+    pagamentos_inicial = []
+    try:
+        itens_inicial = [
+            {
+                'produto_id': str(i['produto'].id),
+                'quantidade': i['quantidade'],
+                'preco_unitario': i['preco_unitario'],
+                'valor_desconto': i.get('valor_desconto') or 0,
+                'valor_acrescimo': i.get('valor_acrescimo') or 0,
+            }
+            for i in parse_itens_avulsa(request.POST, loja)
+        ]
+    except Exception:
+        pass
+    formas = request.POST.getlist('pag_forma')
+    valores = request.POST.getlist('pag_valor')
+    for i, forma in enumerate(formas):
+        if not str(forma).strip():
+            continue
+        pagamentos_inicial.append({
+            'forma_pagamento': str(forma).zfill(2)[:2],
+            'valor_pagamento': valores[i] if i < len(valores) else '',
+        })
+    return itens_inicial, pagamentos_inicial
+
+
+def _emitir_nfe_ctx(request, loja, form, *, clientes, doc_origem=None, itens_inicial=None, pagamentos_inicial=None):
+    from .forms import FORMA_PAGAMENTO_FISCAL
+    return _ctx(
+        request, loja,
+        form=form,
+        clientes=clientes,
+        doc_origem=doc_origem,
+        fiscal_nav_ativa='nfe',
+        produtos_json=json.dumps(_produtos_avulsa_json(loja)),
+        formas_pagamento_json=json.dumps(list(FORMA_PAGAMENTO_FISCAL)),
+        itens_inicial_json=json.dumps(itens_inicial or []),
+        pagamentos_inicial_json=json.dumps(pagamentos_inicial or []),
+    )
+
+
 @login_required
 @requer_acesso_fiscal
 def fiscal_emitir_nfe(request):
     loja = check_loja(request)
     form = EmitirNFeForm(request.POST or None, loja=loja)
+    itens_inicial, pagamentos_inicial = [], []
     if request.method == 'POST':
         doc = _processar_emissao_nfe(request, loja, form)
         if doc:
             return redirect('fiscal_documento_detalhe', pk=doc.id)
+        itens_inicial, pagamentos_inicial = _nfe_listas_do_post(request, loja)
     from app_pdv.models import Cliente
 
     clientes = Cliente.objects.filter(loja=loja).order_by('nome')[:800]
     return render(
         request,
         'app_pdv/fiscal/emitir_nfe.html',
-        _ctx(request, loja, form=form, clientes=clientes),
+        _emitir_nfe_ctx(
+            request, loja, form, clientes=clientes,
+            itens_inicial=itens_inicial, pagamentos_inicial=pagamentos_inicial,
+        ),
     )
 
 

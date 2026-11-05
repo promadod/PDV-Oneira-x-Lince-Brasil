@@ -502,13 +502,37 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe
 
     produto_avulso = None
     if nfe_dados:
-        produto_avulso = nfe_dados.get('produto')
-        bruto = float(nfe_dados['quantidade']) * float(nfe_dados['preco_unitario'])
-        desconto = float(nfe_dados.get('valor_desconto') or 0)
-        acrescimo = float(nfe_dados.get('valor_acrescimo') or 0)
+        itens_nfe = nfe_dados.get('itens') or []
+        produto_avulso = nfe_dados.get('produto') or (itens_nfe[0]['produto'] if itens_nfe else None)
+        if itens_nfe:
+            bruto = 0.0
+            desconto = 0.0
+            acrescimo = 0.0
+            for linha in itens_nfe:
+                bruto += float(linha['quantidade']) * float(linha['preco_unitario'])
+                desconto += float(linha.get('valor_desconto') or 0)
+                acrescimo += float(linha.get('valor_acrescimo') or 0)
+        else:
+            bruto = float(nfe_dados['quantidade']) * float(nfe_dados['preco_unitario'])
+            desconto = float(nfe_dados.get('valor_desconto') or 0)
+            acrescimo = float(nfe_dados.get('valor_acrescimo') or 0)
         valor = Decimal(str(round(max(bruto - desconto + acrescimo, 0.01), 2)))
         ref = _nova_ref(loja, 'nfe', f'nfe{produto_avulso.id if produto_avulso else "x"}')
-        snapshot = {'emissao_nfe_form': True, 'produto_id': getattr(produto_avulso, 'id', None)}
+        snapshot = {
+            'emissao_nfe_form': True,
+            'produto_id': getattr(produto_avulso, 'id', None),
+            'itens': [
+                {
+                    'produto_id': linha['produto'].id,
+                    'quantidade': str(linha['quantidade']),
+                    'preco_unitario': str(linha['preco_unitario']),
+                    'valor_desconto': str(linha.get('valor_desconto') or 0),
+                    'valor_acrescimo': str(linha.get('valor_acrescimo') or 0),
+                }
+                for linha in itens_nfe
+            ],
+            'pagamentos': nfe_dados.get('pagamentos') or [],
+        }
         tipo = 'nfe'
     elif avulso:
         itens_av = avulso.get('itens') or []

@@ -138,22 +138,47 @@ def _resolver_cst_monofasico_combustivel(cfop: str, dados) -> str:
     return '61'
 
 
+_RE_PESO_KG = re.compile(r'(\d+(?:[.,]\d+)?)\s*kg', re.I)
+_RE_BOTIJAO_P = re.compile(r'(?:^|[^A-Za-z0-9])P\s*(0?8|10|13|20|45|90)(?:\b|[^0-9])', re.I)
+
+
+def _peso_kg_do_rotulo(texto: str) -> float:
+    """Extrai kg de 'GLP 13 kg', 'P13', 'P 45' etc. (botijão de GLP)."""
+    t = (texto or '').strip()
+    if not t:
+        return 0.0
+    m = _RE_PESO_KG.search(t)
+    if m:
+        return float(m.group(1).replace(',', '.'))
+    m = _RE_BOTIJAO_P.search(t)
+    if m:
+        return float(m.group(1))
+    return 0.0
+
+
 def _quantidade_kg_monofasico(
     produto,
     *,
     quantidade: float,
     unidade: str,
     peso_liquido_nfe: float | None = None,
+    codigo_anp: str = '',
 ) -> float:
     if peso_liquido_nfe and peso_liquido_nfe > 0:
         return float(peso_liquido_nfe)
-    nome = (getattr(produto, 'nome_venda', None) or getattr(produto, 'nome', '') or '')
-    m = re.search(r'(\d+(?:[.,]\d+)?)\s*kg', nome, re.I)
-    if m:
-        kg_un = float(m.group(1).replace(',', '.'))
-        return round(kg_un * float(quantidade), 4)
-    if (unidade or '').lower() == 'kg':
-        return float(quantidade)
+    qtd = float(quantidade or 0)
+    for attr in ('nome_venda', 'nome', 'codigo', 'codigo_barras'):
+        kg_un = _peso_kg_do_rotulo(str(getattr(produto, attr, None) or ''))
+        if kg_un > 0:
+            return round(kg_un * qtd, 4)
+    if (unidade or '').lower() in ('kg', 'kgs'):
+        return qtd
+    from .nfe_catalog import ANP_GLP_ORIGEM
+
+    anp = (codigo_anp or '').strip()
+    un = (unidade or '').strip().lower()
+    if anp in ANP_GLP_ORIGEM and un in ('un', 'und', 'unid', 'un.', ''):
+        return round(13.0 * qtd, 4)
     return 0.0
 
 
@@ -255,6 +280,7 @@ def _aplicar_unidade_tributavel_anp(
         quantidade=float(quantidade),
         unidade=item.get('unidade_comercial') or 'UN',
         peso_liquido_nfe=peso_liquido_kg,
+        codigo_anp=str(anp or ''),
     )
     if q_kg <= 0:
         return
@@ -405,6 +431,7 @@ def montar_item_focus_json(
                 quantidade=qtd,
                 unidade=trib['unidade'],
                 peso_liquido_nfe=peso_liquido_kg,
+                codigo_anp=anp,
             )
             _aplicar_icms_monofasico_combustivel(item, cst=cst_mono, dados=dados, qtd_kg=qtd_kg)
     else:

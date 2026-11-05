@@ -100,3 +100,68 @@ class MonofasicoCombustivelTest(SimpleTestCase):
         self.assertEqual(origens[0]['uf_origem'], '33')
         self.assertEqual(origens[0]['percentual_originario_uf'], 100.0)
         self.assertEqual(origens[1]['percentual_originario_uf'], 100.0)
+
+    def _dados_glp(self):
+        dados = MagicMock()
+        dados.ncm = '27111910'
+        dados.cfop_venda = '5656'
+        dados.csosn = '102'
+        dados.cst_icms = ''
+        dados.cst_pis = '49'
+        dados.cst_cofins = '49'
+        dados.aliquota_icms = 0
+        dados.aliquota_pis = 0
+        dados.aliquota_cofins = 0
+        dados.origem = '0'
+        dados.unidade_tributavel = 'UN'
+        dados.codigo_beneficio_fiscal = ''
+        dados.codigo_class_trib = ''
+        dados.cst_ibs_cbs = ''
+        dados.codigo_anp = '210203001'
+        dados.descricao_anp = 'GLP'
+        dados.icms_aliquota_ad_rem = Decimal('1.2196')
+        dados.pct_glp = Decimal('100')
+        dados.pct_gn_nacional = 0
+        dados.pct_gn_importado = 0
+        return dados
+
+    @patch('app_pdv.fiscal.produto_fiscal.resolver_regra', return_value=None)
+    def test_p13_infere_peso_sem_kg_na_descricao(self, _regra):
+        loja = MagicMock(pk=1)
+        produto = MagicMock()
+        produto.pk = 3718
+        produto.nome_venda = 'P13'
+        produto.nome = 'P13'
+        produto.codigo = ''
+        produto.codigo_barras = ''
+        produto.dados_fiscais = self._dados_glp()
+        item = montar_item_focus_json(
+            loja, produto,
+            quantidade=1,
+            preco_unitario=85.0,
+            cfop_override='5656',
+            uf_consumo='RJ',
+        )
+        self.assertEqual(item['icms_situacao_tributaria'], '61')
+        self.assertEqual(item['icms_base_calculo_mono_retido'], 13.0)
+        self.assertEqual(item['quantidade_tributavel'], 13.0)
+
+    @patch('app_pdv.fiscal.produto_fiscal.resolver_regra', return_value=None)
+    def test_gas_do_povo_anp_glp_assume_13kg_por_unidade(self, _regra):
+        loja = MagicMock(pk=1)
+        produto = MagicMock()
+        produto.pk = 3721
+        produto.nome_venda = 'GÁS DO POVO'
+        produto.nome = 'GÁS DO POVO'
+        produto.codigo = ''
+        produto.codigo_barras = ''
+        produto.dados_fiscais = self._dados_glp()
+        item = montar_item_focus_json(
+            loja, produto,
+            quantidade=1,
+            preco_unitario=100.0,
+            cfop_override='5656',
+            uf_consumo='RJ',
+        )
+        self.assertEqual(item['icms_base_calculo_mono_retido'], 13.0)
+        self.assertEqual(item['quantidade_tributavel'], 13.0)

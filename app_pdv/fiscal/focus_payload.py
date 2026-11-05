@@ -365,7 +365,7 @@ def reenriquecer_payload_nfe_reemissao(loja, payload: dict) -> dict:
             if bruto > 0:
                 v_unit = round(bruto / qtd, 2)
         trib = 'cst_61_combustivel' if cfop_exige_grupo_combustivel(cfop) else 'produto'
-        pl_item = peso_l or _peso_liquido_de_payload(p, item)
+        pl_item = (peso_l or _peso_liquido_de_payload(p, item)) if len(items) == 1 else None
         p['items'][idx] = montar_item_focus_json(
             loja,
             produto,
@@ -388,6 +388,12 @@ def reenriquecer_payload_nfe_reemissao(loja, payload: dict) -> dict:
             'cfop': cfop0,
             'indicador_ie_destinatario': p.get('indicador_inscricao_estadual_destinatario') or '9',
         })
+    try:
+        cfg = loja.fiscal_config
+    except Exception:
+        cfg = None
+    if cfg is not None and isinstance(getattr(cfg, 'cnpj', None), str):
+        aplicar_transportador_combustivel(cfg, p)
     return p
 
 
@@ -410,31 +416,114 @@ def _aplicar_volumes_transporte(payload: dict, dados: dict) -> None:
         payload['volumes'] = [vol]
 
 
+def _payload_tem_combustivel(payload: dict) -> bool:
+    from .nfe_catalog import cfop_exige_grupo_combustivel
+
+    return any(cfop_exige_grupo_combustivel(it.get('cfop')) for it in (payload.get('items') or []))
+
+
+def aplicar_transportador_combustivel(cfg: FiscalConfig, payload: dict) -> dict:
+    """SEFAZ 362: venda de combustível exige o grupo transporta no XML da NF-e."""
+    if not _payload_tem_combustivel(payload):
+        return payload
+    tr = payload.get('transportador') or {}
+    if not (tr.get('cnpj') or tr.get('nome') or tr.get('xNome')):
+        ender = ' '.join(
+            p for p in [
+                (getattr(cfg, 'logradouro', '') or '').strip(),
+                (getattr(cfg, 'numero', '') or '').strip(),
+            ] if p
+        )
+        payload['transportador'] = {
+            'cnpj': _digits(getattr(cfg, 'cnpj', '')),
+            'nome': (getattr(cfg, 'razao_social', '') or getattr(cfg, 'nome_fantasia', '') or '')[:60],
+            'inscricao_estadual': (getattr(cfg, 'inscricao_estadual', '') or '').strip(),
+            'endereco': ender[:60],
+            'municipio': (getattr(cfg, 'municipio', '') or '')[:60],
+            'uf': (getattr(cfg, 'uf', '') or '')[:2].upper(),
+        }
+    vols = payload.get('volumes') or []
+    tem_vol = vols and (vols[0].get('quantidade') or vols[0].get('peso_liquido'))
+    if not tem_vol:
+        q_kg = 0.0
+        q_vol = 0.0
+        for it in payload.get('items') or []:
+            q_kg += float(it.get('icms_base_calculo_mono_retido') or it.get('quantidade_tributavel') or 0)
+            q_vol += float(it.get('quantidade_comercial') or 1)
+        vol: dict = {
+            'quantidade': max(int(round(q_vol)) or 1, 1),
+            'especie': 'BOTIJAO',
+        }
+        if q_kg > 0:
+            vol['peso_liquido'] = round(q_kg, 3)
+            vol['peso_bruto'] = round(q_kg * 2.077, 3)
+        payload['volumes'] = [vol]
+    return payload
+
+
 def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
-    """NF-e modelo 55 — destinatário + item (formulário dedicado)."""
+    """NF-e modelo 55 — destinatário + um ou mais itens (formulário dedicado)."""
     cnpj_emit = _digits(cfg.cnpj or loja.cnpj)
     if len(cnpj_emit) != 14:
         raise ValueError('CNPJ do emitente inválido ou não configurado.')
-    produto = dados['produto']
-    qtd = float(dados['quantidade'])
-    v_unit = float(dados['preco_unitario'])
+    linhas = list(dados.get('itens') or [])
+    if not linhas:
+        linhas = [{
+            'produto': dados['produto'],
+            'quantidade': dados['quantidade'],
+            'preco_unitario': dados['preco_unitario'],
+            'valor_desconto': dados.get('valor_desconto') or 0,
+            'valor_acrescimo': dados.get('valor_acrescimo') or 0,
+        }]
     perfil_trib = dados.get('tributacao') or dados.get('tributacao_nfe') or 'produto'
-    item = montar_item_focus_json(
-        loja, produto,
-        quantidade=qtd,
-        preco_unitario=v_unit,
-        numero_item=1,
-        interestadual=False,
-        cfop_override=dados.get('cfop'),
-        uf_consumo=(dados.get('uf') or '')[:2],
-        perfil_tributacao=perfil_trib,
-        peso_liquido_kg=float(dados.get('peso_liquido') or 0) or None,
-        forcar_monofasico_combustivel=True,
-    )
-    bruto = round(qtd * v_unit, 2)
-    desconto = round(max(float(dados.get('valor_desconto') or 0), 0), 2)
-    acrescimo = round(max(float(dados.get('valor_acrescimo') or 0), 0), 2)
+    peso_form = float(dados.get('peso_liquido') or 0) or None
+    items = []
+    bruto = 0.0
+    desconto = 0.0
+    acrescimo = 0.0
+    for idx, linha in enumerate(linhas, start=1):
+        prod = linha.get('produto') or dados.get('produto')
+        qtd = float(linha.get('quantidade') or 0)
+        v_unit = float(linha.get('preco_unitario') or 0)
+        if qtd <= 0 or v_unit <= 0:
+            raise ValueError('Cada produto da NF-e precisa de quantidade e preço maiores que zero.')
+        vd = round(max(float(linha.get('valor_desconto') or 0), 0), 2)
+        va = round(max(float(linha.get('valor_acrescimo') or 0), 0), 2)
+        items.append(
+            montar_item_focus_json(
+                loja, prod,
+                quantidade=qtd,
+                preco_unitario=v_unit,
+                numero_item=idx,
+                interestadual=False,
+                cfop_override=dados.get('cfop'),
+                uf_consumo=(dados.get('uf') or '')[:2],
+                perfil_tributacao=perfil_trib,
+                peso_liquido_kg=peso_form if len(linhas) == 1 else None,
+                forcar_monofasico_combustivel=True,
+                valor_desconto=vd,
+                valor_acrescimo=va,
+            )
+        )
+        bruto = round(bruto + round(qtd * v_unit, 2), 2)
+        desconto = round(desconto + vd, 2)
+        acrescimo = round(acrescimo + va, 2)
     total = round(max(bruto - desconto + acrescimo, 0.01), 2)
+    pags = list(dados.get('pagamentos') or [])
+    if pags:
+        formas = [
+            {
+                'forma_pagamento': str(p.get('forma_pagamento') or '99').zfill(2)[:2],
+                'valor_pagamento': round(float(p.get('valor_pagamento') or 0), 2),
+            }
+            for p in pags
+            if float(p.get('valor_pagamento') or 0) > 0
+        ]
+    else:
+        formas = [{
+            'forma_pagamento': dados.get('forma_pagamento') or '99',
+            'valor_pagamento': total,
+        }]
     tz = timezone.get_current_timezone()
     data_emissao = timezone.localtime(timezone.now(), tz).isoformat(timespec='seconds')
     cnpj_dest = _digits(dados.get('cnpj_destinatario') or '')
@@ -449,11 +538,8 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         'presenca_comprador': dados.get('presenca_comprador') or '1',
         'modalidade_frete': dados.get('modalidade_frete') or '9',
         'local_destino': '1',
-        'items': [item],
-        'formas_pagamento': [{
-            'forma_pagamento': dados.get('forma_pagamento') or '99',
-            'valor_pagamento': total,
-        }],
+        'items': items,
+        'formas_pagamento': formas,
     }
     if desconto > 0:
         payload['valor_desconto'] = desconto
@@ -475,6 +561,7 @@ def montar_payload_nfe_form(cfg: FiscalConfig, loja, dados: dict) -> dict:
         raise ValueError('Informe CPF ou CNPJ do destinatário para NF-e.')
     _aplicar_endereco_destinatario_nfe(payload, dados)
     _aplicar_volumes_transporte(payload, dados)
+    aplicar_transportador_combustivel(cfg, payload)
     return payload
 
 

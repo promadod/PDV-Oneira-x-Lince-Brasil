@@ -106,6 +106,11 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertIn('adRemICMSRet=1.2196', ini)
         self.assertIn('vICMSMonoRet=15.85', ini)
         self.assertNotIn('[origComb', ini)
+        self.assertIn('[Transportador]', ini)
+        self.assertIn('CNPJCPF=12345678000199', ini)
+        self.assertIn('xNome=LOJA TESTE', ini)
+        self.assertIn('[Volume001]', ini)
+        self.assertIn('pesoL=13.000', ini)
 
     def test_montar_ini_nfe_origcomb_quando_gn(self):
         payload = {

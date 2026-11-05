@@ -4,12 +4,12 @@
 {% include 'app_pdv/fiscal/_nav.html' %}
 
 <h2>{% if doc_origem %}Editar nota com erro e reemitir{% else %}Emissão avulsa (NFC-e){% endif %}</h2>
-<p style="color:#aaa;max-width:820px;">
+<p style="color:#aaa;max-width:1280px;">
     {% if doc_origem %}
     Corrija o campo rejeitado pela SEFAZ e envie novamente. Documento original: <strong>#{{ doc_origem.id }}</strong>
     {% if doc_origem.mensagem_sefaz %} — {{ doc_origem.mensagem_sefaz }}{% endif %}
     {% else %}
-    Emite cupom fiscal com <strong>um ou mais produtos</strong> cadastrados e pagamento único ou dividido.
+    Adicione produtos e formas de pagamento ao card da direita. A soma dos pagamentos deve igualar o total da nota.
     {% endif %}
 </p>
 
@@ -21,37 +21,68 @@
 </div>
 {% endif %}
 
-<form method="post" class="card" style="max-width:860px;padding:20px;" data-submit-lock-msg="{% if doc_origem %}Reemitindo NFC-e…{% else %}Emitindo NFC-e avulsa…{% endif %}">
+<form method="post" data-submit-lock-msg="{% if doc_origem %}Reemitindo NFC-e…{% else %}Emitindo NFC-e avulsa…{% endif %}">
     {% csrf_token %}
+    <div class="avulsa-layout">
+        <div class="card avulsa-composer">
+            <h4 style="margin:0 0 10px;color:#15a0a5;">Adicionar produto</h4>
+            <div class="avulsa-row">
+                <div><label>Produto</label><select id="comp-prod" class="form-control"></select></div>
+                <div><label>Qtd</label><input id="comp-qtd" type="number" step="0.001" min="0.001" class="form-control" value="1"></div>
+                <div><label>Preço (R$)</label><input id="comp-preco" type="number" step="0.01" min="0" class="form-control"></div>
+                <div><label>Desc. (R$)</label><input id="comp-desc" type="number" step="0.01" min="0" class="form-control" value="0"></div>
+                <div><label>Acrésc. (R$)</label><input id="comp-acre" type="number" step="0.01" min="0" class="form-control" value="0"></div>
+                <button type="button" class="fiscal-btn fiscal-btn--accent fiscal-btn--sm avulsa-btn-add" id="btn-add-item" title="Adicionar produto">+</button>
+            </div>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <h4 style="margin:0;color:#15a0a5;">Produtos</h4>
-        <button type="button" class="fiscal-btn fiscal-btn--accent fiscal-btn--sm" id="btn-add-item" title="Adicionar produto">+</button>
-    </div>
-    <div id="itens-avulsa"></div>
+            <h4 style="margin:18px 0 10px;color:#15a0a5;">Adicionar forma de pagamento</h4>
+            <p style="color:#888;font-size:0.85em;margin:0 0 10px;">A soma dos valores deve igualar o total da nota.</p>
+            <div class="avulsa-row avulsa-row--pag">
+                <div><label>Forma</label><select id="comp-pag-forma" class="form-control"></select></div>
+                <div><label>Valor (R$)</label><input id="comp-pag-valor" type="number" step="0.01" min="0" class="form-control"></div>
+                <button type="button" class="fiscal-btn fiscal-btn--accent fiscal-btn--sm avulsa-btn-add" id="btn-add-pag" title="Adicionar pagamento">+</button>
+            </div>
 
-    <div style="display:flex;justify-content:space-between;align-items:center;margin:18px 0 10px;">
-        <h4 style="margin:0;color:#15a0a5;">Formas de pagamento</h4>
-        <button type="button" class="fiscal-btn fiscal-btn--accent fiscal-btn--sm" id="btn-add-pag" title="Adicionar forma de pagamento">+</button>
-    </div>
-    <p style="color:#888;font-size:0.85em;margin:0 0 10px;">A soma dos valores deve igualar o total da nota. Use + para pagamento dividido.</p>
-    <div id="pags-avulsa"></div>
-    <p id="totais-avulsa" style="color:#03dac6;font-weight:600;margin:8px 0 16px;"></p>
-
-    <div class="card" style="padding:14px;margin-bottom:14px;background:#1a1a1a;">
-        <h4 style="margin:0 0 10px;color:#15a0a5;">Consumidor (opcional)</h4>
-        <div style="margin-bottom:10px;"><label>{{ form.nome_destinatario.label }}</label>{{ form.nome_destinatario }}</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-            <div><label>{{ form.cpf_destinatario.label }}</label>{{ form.cpf_destinatario }}</div>
-            <div><label>{{ form.cnpj_destinatario.label }}</label>{{ form.cnpj_destinatario }}</div>
+            <div class="card" style="padding:14px;margin:18px 0 14px;background:#1a1a1a;">
+                <h4 style="margin:0 0 10px;color:#15a0a5;">Consumidor (opcional)</h4>
+                <div style="margin-bottom:10px;"><label>{{ form.nome_destinatario.label }}</label>{{ form.nome_destinatario }}</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                    <div><label>{{ form.cpf_destinatario.label }}</label>{{ form.cpf_destinatario }}</div>
+                    <div><label>{{ form.cnpj_destinatario.label }}</label>{{ form.cnpj_destinatario }}</div>
+                </div>
+            </div>
+            <div class="fiscal-check-row" style="margin-bottom:16px;">
+                {{ form.operacao_interestadual }}
+                <label for="{{ form.operacao_interestadual.id_for_label }}">{{ form.operacao_interestadual.label }}</label>
+            </div>
+            <button type="submit" class="btn btn-success">{% if doc_origem %}Salvar e reemitir{% else %}Emitir NFC-e{% endif %}</button>
+            {% if doc_origem %}<a href="{% url 'fiscal_documento_detalhe' doc_origem.id %}" class="fiscal-btn" style="margin-left:8px;">Cancelar</a>{% endif %}
         </div>
+
+        <aside class="card avulsa-pedido">
+            <header class="avulsa-pedido-head">
+                <div>
+                    <span class="avulsa-pedido-kicker">NFC-e · resumo</span>
+                    <h4>Itens da nota</h4>
+                </div>
+                <span class="avulsa-pedido-count" id="count-itens">0</span>
+            </header>
+            <div class="avulsa-pedido-body">
+                <section class="avulsa-pedido-sec">
+                    <h5>Produtos</h5>
+                    <div id="lista-itens"></div>
+                    <p id="empty-itens" class="avulsa-empty">Nenhum produto adicionado.</p>
+                </section>
+                <section class="avulsa-pedido-sec">
+                    <h5>Pagamentos</h5>
+                    <div id="lista-pags"></div>
+                    <p id="empty-pags" class="avulsa-empty">Nenhum pagamento adicionado.</p>
+                </section>
+            </div>
+            <p id="totais-avulsa" class="avulsa-totais">Total: R$ 0,00</p>
+            <div id="hidden-avulsa"></div>
+        </aside>
     </div>
-    <div class="fiscal-check-row" style="margin-bottom:16px;">
-        {{ form.operacao_interestadual }}
-        <label for="{{ form.operacao_interestadual.id_for_label }}">{{ form.operacao_interestadual.label }}</label>
-    </div>
-    <button type="submit" class="btn btn-success">{% if doc_origem %}Salvar e reemitir{% else %}Emitir NFC-e{% endif %}</button>
-    {% if doc_origem %}<a href="{% url 'fiscal_documento_detalhe' doc_origem.id %}" class="fiscal-btn" style="margin-left:8px;">Cancelar</a>{% endif %}
 </form>
 
 <script>
@@ -60,105 +91,172 @@
     const formas = {{ formas_pagamento_json|safe }};
     const itensInicial = {{ itens_inicial_json|safe }};
     const pagsInicial = {{ pagamentos_inicial_json|safe }};
-    const boxItens = document.getElementById('itens-avulsa');
-    const boxPags = document.getElementById('pags-avulsa');
+    const itens = [];
+    const pags = [];
+    const listaItens = document.getElementById('lista-itens');
+    const listaPags = document.getElementById('lista-pags');
+    const emptyItens = document.getElementById('empty-itens');
+    const emptyPags = document.getElementById('empty-pags');
+    const hiddenBox = document.getElementById('hidden-avulsa');
     const totaisEl = document.getElementById('totais-avulsa');
+    const selProd = document.getElementById('comp-prod');
+    const inpQtd = document.getElementById('comp-qtd');
+    const inpPreco = document.getElementById('comp-preco');
+    const inpDesc = document.getElementById('comp-desc');
+    const inpAcre = document.getElementById('comp-acre');
+    const selPag = document.getElementById('comp-pag-forma');
+    const inpPagValor = document.getElementById('comp-pag-valor');
 
-    function optProdutos(selected) {
-        let html = '<option value="">— Selecione —</option>';
-        produtos.forEach(function (p) {
-            const sel = String(p.id) === String(selected) ? ' selected' : '';
-            html += '<option value="' + p.id + '" data-preco="' + p.preco + '"' + sel + '>' + p.nome + ' (#' + p.id + ')</option>';
-        });
-        return html;
+    function nomeProduto(id) {
+        const p = produtos.find(function (x) { return String(x.id) === String(id); });
+        return p ? (p.nome + ' (#' + p.id + ')') : ('Produto #' + id);
     }
-    function optFormas(selected) {
-        let html = '';
-        formas.forEach(function (f) {
-            const sel = String(f[0]) === String(selected) ? ' selected' : '';
-            html += '<option value="' + f[0] + '"' + sel + '>' + f[1] + '</option>';
-        });
-        return html;
+    function nomeForma(cod) {
+        const f = formas.find(function (x) { return String(x[0]) === String(cod); });
+        return f ? f[1] : cod;
     }
-    function precoDoProduto(select) {
-        const opt = select.options[select.selectedIndex];
-        return opt && opt.dataset.preco ? opt.dataset.preco : '';
-    }
-    function addItem(dados) {
-        dados = dados || {};
-        const wrap = document.createElement('div');
-        wrap.className = 'avulsa-row';
-        wrap.innerHTML =
-            '<div><label>Produto</label><select name="item_produto_id" class="form-control js-prod">' + optProdutos(dados.produto_id || '') + '</select></div>' +
-            '<div><label>Qtd</label><input name="item_quantidade" type="number" step="0.001" min="0.001" class="form-control js-qtd" value="' + (dados.quantidade || '1') + '"></div>' +
-            '<div><label>Preço (R$)</label><input name="item_preco" type="number" step="0.01" min="0" class="form-control js-preco" value="' + (dados.preco_unitario || '') + '"></div>' +
-            '<div><label>Desc. (R$)</label><input name="item_desconto" type="number" step="0.01" min="0" class="form-control js-desc" value="' + (dados.valor_desconto || '0') + '"></div>' +
-            '<div><label>Acrésc. (R$)</label><input name="item_acrescimo" type="number" step="0.01" min="0" class="form-control js-acre" value="' + (dados.valor_acrescimo || '0') + '"></div>' +
-            '<button type="button" class="fiscal-btn fiscal-btn--sm js-del-item" title="Remover">×</button>';
-        boxItens.appendChild(wrap);
-        const sel = wrap.querySelector('.js-prod');
-        const preco = wrap.querySelector('.js-preco');
-        if (!preco.value) preco.value = precoDoProduto(sel);
-        sel.addEventListener('change', function () {
-            if (!preco.dataset.manual) preco.value = precoDoProduto(sel);
-            atualizarTotais();
-        });
-        preco.addEventListener('input', function () { preco.dataset.manual = '1'; atualizarTotais(); });
-        wrap.querySelectorAll('input').forEach(function (el) { el.addEventListener('input', atualizarTotais); });
-        wrap.querySelector('.js-del-item').addEventListener('click', function () {
-            if (boxItens.children.length <= 1) return;
-            wrap.remove();
-            atualizarTotais();
-        });
-        atualizarTotais();
-    }
-    function addPag(dados) {
-        dados = dados || {};
-        const wrap = document.createElement('div');
-        wrap.className = 'avulsa-row avulsa-row--pag';
-        wrap.innerHTML =
-            '<div><label>Forma</label><select name="pag_forma" class="form-control">' + optFormas(dados.forma_pagamento || '01') + '</select></div>' +
-            '<div><label>Valor (R$)</label><input name="pag_valor" type="number" step="0.01" min="0" class="form-control js-pag-valor" value="' + (dados.valor_pagamento || '') + '"></div>' +
-            '<button type="button" class="fiscal-btn fiscal-btn--sm js-del-pag" title="Remover">×</button>';
-        boxPags.appendChild(wrap);
-        wrap.querySelector('.js-pag-valor').addEventListener('input', atualizarTotais);
-        wrap.querySelector('.js-del-pag').addEventListener('click', function () {
-            if (boxPags.children.length <= 1) return;
-            wrap.remove();
-            atualizarTotais();
-        });
-        atualizarTotais();
+    function precoDoProduto(id) {
+        const p = produtos.find(function (x) { return String(x.id) === String(id); });
+        return p ? p.preco : '';
     }
     function num(el) { return parseFloat(String(el && el.value || '0').replace(',', '.')) || 0; }
-    function atualizarTotais() {
-        let total = 0;
-        boxItens.querySelectorAll('.avulsa-row').forEach(function (row) {
-            const q = num(row.querySelector('.js-qtd'));
-            const p = num(row.querySelector('.js-preco'));
-            const d = num(row.querySelector('.js-desc'));
-            const a = num(row.querySelector('.js-acre'));
-            total += q * p - d + a;
-        });
-        total = Math.max(Math.round(total * 100) / 100, 0);
-        let pago = 0;
-        boxPags.querySelectorAll('.js-pag-valor').forEach(function (el) { pago += num(el); });
-        pago = Math.round(pago * 100) / 100;
-        if (boxPags.children.length === 1) {
-            const unico = boxPags.querySelector('.js-pag-valor');
-            if (unico && !unico.dataset.manual) unico.value = total.toFixed(2);
-            pago = total;
-        }
-        const ok = Math.abs(pago - total) < 0.05;
-        totaisEl.textContent = 'Total da nota: R$ ' + total.toFixed(2) + ' · Pagamentos: R$ ' + pago.toFixed(2) + (ok ? '' : ' (a soma deve igualar o total)');
-        totaisEl.style.color = ok ? '#03dac6' : '#cf6679';
+    function money(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+    function totalNota() {
+        return itens.reduce(function (s, i) {
+            return s + (parseFloat(i.quantidade) || 0) * (parseFloat(i.preco_unitario) || 0)
+                - (parseFloat(i.valor_desconto) || 0) + (parseFloat(i.valor_acrescimo) || 0);
+        }, 0);
     }
-    document.getElementById('btn-add-item').addEventListener('click', function () { addItem(); });
-    document.getElementById('btn-add-pag').addEventListener('click', function () { addPag(); });
-    boxPags.addEventListener('input', function (ev) {
-        if (ev.target.classList.contains('js-pag-valor')) ev.target.dataset.manual = '1';
+    function totalPago() {
+        return pags.reduce(function (s, p) { return s + (parseFloat(p.valor_pagamento) || 0); }, 0);
+    }
+    function syncHidden() {
+        let html = '';
+        itens.forEach(function (i) {
+            html += '<input type="hidden" name="item_produto_id" value="' + i.produto_id + '">';
+            html += '<input type="hidden" name="item_quantidade" value="' + i.quantidade + '">';
+            html += '<input type="hidden" name="item_preco" value="' + i.preco_unitario + '">';
+            html += '<input type="hidden" name="item_desconto" value="' + (i.valor_desconto || 0) + '">';
+            html += '<input type="hidden" name="item_acrescimo" value="' + (i.valor_acrescimo || 0) + '">';
+        });
+        pags.forEach(function (p) {
+            html += '<input type="hidden" name="pag_forma" value="' + p.forma_pagamento + '">';
+            html += '<input type="hidden" name="pag_valor" value="' + p.valor_pagamento + '">';
+        });
+        hiddenBox.innerHTML = html;
+    }
+    function render() {
+        listaItens.innerHTML = '';
+        itens.forEach(function (i, idx) {
+            const linha = (parseFloat(i.quantidade) || 0) * (parseFloat(i.preco_unitario) || 0)
+                - (parseFloat(i.valor_desconto) || 0) + (parseFloat(i.valor_acrescimo) || 0);
+            const el = document.createElement('div');
+            el.className = 'avulsa-pedido-item';
+            el.innerHTML =
+                '<div><strong>' + nomeProduto(i.produto_id) + '</strong>' +
+                '<span>' + i.quantidade + ' × R$ ' + money(i.preco_unitario) + '</span></div>' +
+                '<div class="avulsa-pedido-valor">R$ ' + money(linha) +
+                ' <button type="button" class="fiscal-btn fiscal-btn--sm js-del-item" data-idx="' + idx + '" title="Remover">×</button></div>';
+            listaItens.appendChild(el);
+        });
+        listaPags.innerHTML = '';
+        pags.forEach(function (p, idx) {
+            const el = document.createElement('div');
+            el.className = 'avulsa-pedido-item';
+            el.innerHTML =
+                '<div><strong>' + nomeForma(p.forma_pagamento) + '</strong></div>' +
+                '<div class="avulsa-pedido-valor">R$ ' + money(p.valor_pagamento) +
+                ' <button type="button" class="fiscal-btn fiscal-btn--sm js-del-pag" data-idx="' + idx + '" title="Remover">×</button></div>';
+            listaPags.appendChild(el);
+        });
+        emptyItens.style.display = itens.length ? 'none' : '';
+        emptyPags.style.display = pags.length ? 'none' : '';
+        const countEl = document.getElementById('count-itens');
+        if (countEl) countEl.textContent = String(itens.length);
+        const total = Math.max(Math.round(totalNota() * 100) / 100, 0);
+        const pago = Math.round(totalPago() * 100) / 100;
+        const ok = itens.length && pags.length && Math.abs(pago - total) < 0.05;
+        totaisEl.textContent = 'Total: R$ ' + money(total) + ' · Pagamentos: R$ ' + money(pago)
+            + (itens.length && pags.length && !ok ? ' (a soma deve igualar o total)' : '');
+        totaisEl.style.color = (!itens.length || !pags.length) ? '#888' : (ok ? '#03dac6' : '#cf6679');
+        if (!inpPagValor.dataset.manual) inpPagValor.value = money(Math.max(total - pago, 0));
+        syncHidden();
+    }
+    function fillSelects() {
+        let html = '<option value="">— Selecione —</option>';
+        produtos.forEach(function (p) {
+            html += '<option value="' + p.id + '">' + p.nome + ' (#' + p.id + ')</option>';
+        });
+        selProd.innerHTML = html;
+        html = '';
+        formas.forEach(function (f) {
+            html += '<option value="' + f[0] + '">' + f[1] + '</option>';
+        });
+        selPag.innerHTML = html;
+        selPag.value = '01';
+    }
+    selProd.addEventListener('change', function () {
+        if (!inpPreco.dataset.manual) inpPreco.value = precoDoProduto(selProd.value);
     });
-    if (itensInicial.length) itensInicial.forEach(addItem); else addItem();
-    if (pagsInicial.length) pagsInicial.forEach(addPag); else addPag();
+    inpPreco.addEventListener('input', function () { inpPreco.dataset.manual = '1'; });
+    inpPagValor.addEventListener('input', function () { inpPagValor.dataset.manual = '1'; });
+    document.getElementById('btn-add-item').addEventListener('click', function () {
+        if (!selProd.value) { alert('Selecione um produto.'); return; }
+        const qtd = num(inpQtd) || 1;
+        const preco = num(inpPreco);
+        if (preco <= 0) { alert('Informe o preço do produto.'); return; }
+        itens.push({
+            produto_id: selProd.value,
+            quantidade: qtd,
+            preco_unitario: preco,
+            valor_desconto: num(inpDesc),
+            valor_acrescimo: num(inpAcre),
+        });
+        inpQtd.value = '1';
+        inpDesc.value = '0';
+        inpAcre.value = '0';
+        inpPreco.value = '';
+        delete inpPreco.dataset.manual;
+        selProd.value = '';
+        render();
+    });
+    document.getElementById('btn-add-pag').addEventListener('click', function () {
+        const valor = num(inpPagValor);
+        if (valor <= 0) { alert('Informe o valor do pagamento.'); return; }
+        pags.push({ forma_pagamento: selPag.value || '01', valor_pagamento: valor });
+        delete inpPagValor.dataset.manual;
+        render();
+    });
+    listaItens.addEventListener('click', function (ev) {
+        const btn = ev.target.closest('.js-del-item');
+        if (!btn) return;
+        itens.splice(parseInt(btn.dataset.idx, 10), 1);
+        render();
+    });
+    listaPags.addEventListener('click', function (ev) {
+        const btn = ev.target.closest('.js-del-pag');
+        if (!btn) return;
+        pags.splice(parseInt(btn.dataset.idx, 10), 1);
+        render();
+    });
+    fillSelects();
+    (itensInicial || []).forEach(function (i) {
+        if (!i.produto_id) return;
+        itens.push({
+            produto_id: i.produto_id,
+            quantidade: i.quantidade || 1,
+            preco_unitario: i.preco_unitario || precoDoProduto(i.produto_id) || 0,
+            valor_desconto: i.valor_desconto || 0,
+            valor_acrescimo: i.valor_acrescimo || 0,
+        });
+    });
+    (pagsInicial || []).forEach(function (p) {
+        pags.push({
+            forma_pagamento: p.forma_pagamento || '01',
+            valor_pagamento: p.valor_pagamento || 0,
+        });
+    });
+    render();
 })();
 </script>
 {% endblock %}

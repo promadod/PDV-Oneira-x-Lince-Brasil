@@ -55,6 +55,200 @@
 }
 .pdv-status-dot.aberto { background: #66bb6a; color: #66bb6a; }
 .pdv-status-dot.fechado { background: #cf6679; color: #cf6679; }
+
+/* Painéis PDV = mesmo visual da NFC-e avulsa (vence .pdv-page .card / .pdv-compact) */
+.pdv-page .card.pdv-card-futuro {
+    padding: 0 !important;
+    margin: 0 !important;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background:
+        radial-gradient(120% 80% at 100% 0%, rgba(3, 218, 198, 0.14) 0%, transparent 55%),
+        linear-gradient(165deg, rgba(21, 160, 165, 0.18) 0%, rgba(16, 16, 24, 0.96) 38%, #101018 100%) !important;
+    border: 1px solid rgba(3, 218, 198, 0.38) !important;
+    border-radius: 10px;
+    box-shadow:
+        0 0 0 1px rgba(21, 160, 165, 0.1),
+        0 12px 40px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(3, 218, 198, 0.22);
+}
+.pdv-page .card.pdv-card-futuro::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 4%, #03dac6 35%, #15a0a5 65%, transparent 96%);
+    pointer-events: none;
+    z-index: 2;
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px 20px 12px;
+    border-bottom: 1px solid rgba(3, 218, 198, 0.18);
+    flex-shrink: 0;
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-kicker {
+    display: block;
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #03dac6;
+    margin-bottom: 4px;
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-head h4,
+.pdv-compact .pdv-card-futuro .avulsa-pedido-head h4 {
+    margin: 0 !important;
+    color: #f4f7f7 !important;
+    font-size: 1.15rem !important;
+    letter-spacing: 0 !important;
+    font-weight: 700;
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-count {
+    flex-shrink: 0;
+    min-width: 42px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    text-align: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #041314 !important;
+    background: linear-gradient(180deg, #5ff5e5 0%, #03dac6 100%);
+    box-shadow: 0 0 16px rgba(3, 218, 198, 0.45);
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    padding: 14px 18px 14px;
+    min-height: 0;
+    overflow-y: auto;
+    background: transparent !important;
+    border: none !important;
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-sec h5 {
+    margin: 0 0 8px;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(3, 218, 198, 0.85);
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-body label {
+    color: #8aa0a6;
+    margin-bottom: 4px;
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-body input,
+.pdv-page .pdv-card-futuro .avulsa-pedido-body select {
+    margin-bottom: 0;
+    background: rgba(0, 0, 0, 0.35);
+    border-color: rgba(3, 218, 198, 0.22);
+}
+.pdv-page .pdv-card-futuro .avulsa-pedido-body input:focus,
+.pdv-page .pdv-card-futuro .avulsa-pedido-body select:focus {
+    border-color: #03dac6;
+}
+.pdv-page .card-cupom .avulsa-empty {
+    color: #7a8890;
+    font-size: 0.88em;
+    margin: 0;
+    padding: 18px 14px;
+    text-align: center;
+    border: 1px dashed rgba(3, 218, 198, 0.28);
+    border-radius: 10px;
+    background: rgba(3, 218, 198, 0.04);
+}
+.pdv-page .card-cupom .avulsa-pedido-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 11px 12px;
+    font-size: 0.92em;
+    background: rgba(3, 218, 198, 0.06);
+    border: 1px solid rgba(3, 218, 198, 0.2);
+    border-radius: 10px;
+    box-shadow: inset 0 0 12px rgba(3, 218, 198, 0.04);
+}
+.pdv-page .card-cupom .avulsa-pedido-item:last-child { margin-bottom: 0; }
+.pdv-page .card-cupom .avulsa-pedido-item strong {
+    display: block;
+    color: #f2f2f2;
+    font-weight: 600;
+}
+.pdv-page .card-cupom .avulsa-pedido-item span {
+    display: block;
+    color: #8aa0a6;
+    font-size: 0.84em;
+    margin-top: 2px;
+}
+.pdv-page .card-cupom .avulsa-pedido-valor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    color: #5ff5e5;
+    font-weight: 700;
+}
+.pdv-page .card-cupom .fiscal-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 28px !important;
+    min-width: 28px;
+    height: 28px;
+    padding: 0 !important;
+    margin: 0 !important;
+    border-radius: 8px;
+    font-size: 0.95rem;
+    font-weight: 600;
+    cursor: pointer;
+    border: 1px solid #52526a;
+    background: #3a3a50 !important;
+    color: #f0f0f8 !important;
+    line-height: 1;
+}
+.pdv-page .card-cupom .fiscal-btn:hover {
+    background: #454560 !important;
+    border-color: #03dac6;
+    color: #03dac6 !important;
+}
+.pdv-page .pdv-card-futuro .avulsa-totais {
+    font-weight: 700;
+    margin: 0 !important;
+    padding: 14px 22px;
+    color: #fff !important;
+    letter-spacing: 0.02em;
+    background: linear-gradient(90deg, rgba(13, 79, 110, 0.85) 0%, rgba(21, 160, 165, 0.72) 100%) !important;
+    border-top: 1px solid rgba(3, 218, 198, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+    flex-shrink: 0;
+}
+.pdv-page .pdv-card-futuro .pdv-card-acao {
+    padding: 0 !important;
+}
+.pdv-page .pdv-card-futuro .pdv-card-acao .btn-pdv-acao {
+    width: 100%;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    background: transparent !important;
+    color: #fff !important;
+    font-weight: 800;
+    letter-spacing: 0.06em;
+    padding: 14px 22px;
+    box-shadow: none;
+}
+.pdv-page .pdv-card-futuro .pdv-card-acao .btn-pdv-acao:hover {
+    background: transparent !important;
+    filter: brightness(1.08);
+    color: #fff !important;
+}
 .pdv-footer-proto .pdv-footer-checkout {
     display: flex; align-items: center; gap: 20px; flex-shrink: 0;
 }
@@ -259,73 +453,97 @@
 <div class="pdv-page pdv-compact">
     <div class="pdv-container">
         <div class="painel-esquerdo">
-            <div class="card">
-                <h3>Dados da Venda</h3>
-                <label for="cliente_input">Cliente</label>
-                <div class="pdv-cliente-row">
-                    <input type="text" id="cliente_input" list="lista_clientes" placeholder="Nome ou WhatsApp..." onchange="buscarClienteID()" autocomplete="off">
-                    <button type="button" id="btn-novo-cliente" class="btn btn-novo-cliente" title="Cadastrar cliente"><i class="fas fa-plus"></i></button>
-                </div>
-
-                {% if fidelidade_ativa %}
-                <div id="painel_fidelidade" style="display:none; margin-top:12px; padding:10px; background:rgba(21,160,165,0.12); border-radius:8px; border:1px solid rgba(21,160,165,0.35);">
-                    <div id="fidelidade_info" style="font-size:0.9em; color:#ccc; margin-bottom:8px;"></div>
-                    <div id="wrap_usar_fidelidade" class="check-container" style="display:none;">
-                        <input type="checkbox" id="check_usar_fidelidade">
-                        <label for="check_usar_fidelidade" style="color:#03dac6;font-weight:bold;">Usar promoção de fidelidade</label>
+            <div class="card pdv-card-futuro">
+                <header class="avulsa-pedido-head">
+                    <div>
+                        <span class="avulsa-pedido-kicker">PDV · venda</span>
+                        <h4>Dados da venda</h4>
                     </div>
-                </div>
-                {% endif %}
+                </header>
+                <div class="avulsa-pedido-body">
+                    <label for="cliente_input">Cliente</label>
+                    <div class="pdv-cliente-row">
+                        <input type="text" id="cliente_input" list="lista_clientes" placeholder="Nome ou WhatsApp..." onchange="buscarClienteID()" autocomplete="off">
+                        <button type="button" id="btn-novo-cliente" class="btn btn-novo-cliente" title="Cadastrar cliente"><i class="fas fa-plus"></i></button>
+                    </div>
 
-                <label for="tipo_venda">Tipo</label>
-                <select id="tipo_venda">
-                    <option value="FINALIZADO">Venda Direta</option>
-                    <option value="RETIRADO_NA_LOJA">Retirada na loja</option>
-                    <option value="ORCAMENTO">Orçamento</option>
-                </select>
+                    {% if fidelidade_ativa %}
+                    <div id="painel_fidelidade" style="display:none; margin-top:4px; padding:10px; background:rgba(21,160,165,0.12); border-radius:8px; border:1px solid rgba(21,160,165,0.35);">
+                        <div id="fidelidade_info" style="font-size:0.9em; color:#ccc; margin-bottom:8px;"></div>
+                        <div id="wrap_usar_fidelidade" class="check-container" style="display:none;">
+                            <input type="checkbox" id="check_usar_fidelidade">
+                            <label for="check_usar_fidelidade" style="color:#03dac6;font-weight:bold;">Usar promoção de fidelidade</label>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <label for="tipo_venda">Tipo</label>
+                    <select id="tipo_venda">
+                        <option value="FINALIZADO">Venda Direta</option>
+                        <option value="RETIRADO_NA_LOJA">Retirada na loja</option>
+                        <option value="ORCAMENTO">Orçamento</option>
+                    </select>
+                </div>
             </div>
 
-            <div class="card card-produto">
-                <h3>Adicionar Produto</h3>
-                <label for="produto_input">Produto</label>
-                <input type="text" id="produto_input" list="lista_produtos"
-                       placeholder="Nome, código de barras ou ID interno..."
-                       onchange="buscarProdutoDetalhes()" autocomplete="off">
-                <div class="pdv-row-3">
-                    <div class="pdv-field">
-                        <label class="pdv-label-inline">
-                            <span>Quantidade <span id="label_unidade" class="pdv-unidade-tag"></span></span>
-                            <span id="container-balanca" class="pdv-balanca-wrap" style="display: none;">
-                                <button type="button" id="btn-conectar-balanca" class="btn btn-balanca-mini">
-                                    <i class="fas fa-balance-scale"></i> Balança
-                                </button>
-                                <span id="status-balanca" class="pdv-balanca-status">Off</span>
-                            </span>
-                        </label>
-                        <input type="number" id="qtd_input" value="1" min="0.001" step="0.001">
+            <div class="card card-produto pdv-card-futuro">
+                <header class="avulsa-pedido-head">
+                    <div>
+                        <span class="avulsa-pedido-kicker">PDV · item</span>
+                        <h4>Adicionar produto</h4>
                     </div>
-                    <div class="pdv-field">
-                        <label for="preco_input">Preço Unit. (R$)</label>
-                        <input type="number" id="preco_input" step="0.01" placeholder="0.00">
-                    </div>
-                    <div class="pdv-field">
-                        <label for="total_item_input">Total do Item (R$)</label>
-                        <input type="number" id="total_item_input" step="0.01" class="pdv-input-destaque" placeholder="0.00">
+                </header>
+                <div class="avulsa-pedido-body">
+                    <label for="produto_input">Produto</label>
+                    <input type="text" id="produto_input" list="lista_produtos"
+                           placeholder="Nome, código de barras ou ID interno..."
+                           onchange="buscarProdutoDetalhes()" autocomplete="off">
+                    <div class="pdv-row-3">
+                        <div class="pdv-field">
+                            <label class="pdv-label-inline">
+                                <span>Quantidade <span id="label_unidade" class="pdv-unidade-tag"></span></span>
+                                <span id="container-balanca" class="pdv-balanca-wrap" style="display: none;">
+                                    <button type="button" id="btn-conectar-balanca" class="btn btn-balanca-mini">
+                                        <i class="fas fa-balance-scale"></i> Balança
+                                    </button>
+                                    <span id="status-balanca" class="pdv-balanca-status">Off</span>
+                                </span>
+                            </label>
+                            <input type="number" id="qtd_input" value="1" min="0.001" step="0.001">
+                        </div>
+                        <div class="pdv-field">
+                            <label for="preco_input">Preço Unit. (R$)</label>
+                            <input type="number" id="preco_input" step="0.01" placeholder="0.00">
+                        </div>
+                        <div class="pdv-field">
+                            <label for="total_item_input">Total do Item (R$)</label>
+                            <input type="number" id="total_item_input" step="0.01" class="pdv-input-destaque" placeholder="0.00">
+                        </div>
                     </div>
                 </div>
-                <button type="button" class="btn-pdv-acao" onclick="adicionarAoCarrinho()">ADICIONAR ITEM (Enter)</button>
+                <div class="avulsa-totais pdv-card-acao">
+                    <button type="button" class="btn-pdv-acao" onclick="adicionarAoCarrinho()">ADICIONAR ITEM (Enter)</button>
+                </div>
             </div>
         </div>
 
         <div class="painel-direito">
-            <div class="card card-cupom">
-                <h3>CUPOM FISCAL</h3>
-                <div class="cupom-body">
-                    <table class="cupom-table">
-                        <thead><tr><th>Produto</th><th>Qtd</th><th>Total</th><th></th></tr></thead>
-                        <tbody id="lista-itens"></tbody>
-                    </table>
+            <div class="card card-cupom avulsa-pedido pdv-card-futuro">
+                <header class="avulsa-pedido-head">
+                    <div>
+                        <span class="avulsa-pedido-kicker">PDV · cupom</span>
+                        <h4>Cupom fiscal</h4>
+                    </div>
+                    <span class="avulsa-pedido-count" id="cupom-count">0</span>
+                </header>
+                <div class="avulsa-pedido-body">
+                    <section class="avulsa-pedido-sec">
+                        <h5>Produtos</h5>
+                        <div id="lista-itens"></div>
+                        <p id="cupom-empty" class="avulsa-empty">Nenhum produto adicionado.</p>
+                    </section>
                 </div>
+                <p id="cupom-totais" class="avulsa-totais">Total: R$ 0,00</p>
             </div>
         </div>
     </div>
@@ -616,22 +834,33 @@
     }
 
     function renderizarTabela() {
-        const tbody = document.getElementById('lista-itens');
-        tbody.innerHTML = '';
+        const lista = document.getElementById('lista-itens');
+        const vazio = document.getElementById('cupom-empty');
+        const countEl = document.getElementById('cupom-count');
+        const totaisEl = document.getElementById('cupom-totais');
+        lista.innerHTML = '';
+        let subtotal = 0;
         carrinho.forEach((item, index) => {
             const totalItem = (parseFloat(item.preco) || 0) * (parseFloat(item.quantidade) || 0);
+            subtotal += totalItem;
             let qtdFormatada = '';
             if (item.unidade === 'UN') {
                 qtdFormatada = parseInt(item.quantidade) + ' UN';
             } else {
                 qtdFormatada = parseFloat(item.quantidade).toFixed(3).replace('.', ',') + ' ' + item.unidade;
             }
-            const tr = document.createElement('tr');
-            tr.innerHTML = `<td>${item.nome}</td><td style="text-align:center;">${qtdFormatada}</td>
-                <td style="text-align:right;">R$ ${totalItem.toFixed(2)}</td>
-                <td style="text-align:center;"><button type="button" onclick="removerItem(${index})" style="background:none;border:none;color:#cf6679;cursor:pointer;font-weight:bold;">×</button></td>`;
-            tbody.appendChild(tr);
+            const el = document.createElement('div');
+            el.className = 'avulsa-pedido-item';
+            el.innerHTML =
+                '<div><strong>' + item.nome + '</strong>' +
+                '<span>' + qtdFormatada + ' × R$ ' + (parseFloat(item.preco) || 0).toFixed(2) + '</span></div>' +
+                '<div class="avulsa-pedido-valor">R$ ' + totalItem.toFixed(2) +
+                ' <button type="button" class="fiscal-btn fiscal-btn--sm" onclick="removerItem(' + index + ')" title="Remover">×</button></div>';
+            lista.appendChild(el);
         });
+        if (vazio) vazio.style.display = carrinho.length ? 'none' : '';
+        if (countEl) countEl.textContent = String(carrinho.length);
+        if (totaisEl) totaisEl.textContent = 'Total: R$ ' + subtotal.toFixed(2);
         atualizarDisplayTotal();
     }
 

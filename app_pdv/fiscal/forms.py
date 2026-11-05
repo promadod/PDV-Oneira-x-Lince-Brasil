@@ -260,8 +260,10 @@ class EmitirNFeForm(forms.Form):
         initial='1',
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
-    produto_id = forms.ChoiceField(label='Produto', choices=[])
-    quantidade = forms.DecimalField(min_value=Decimal('0.001'), decimal_places=3, initial=Decimal('1'))
+    produto_id = forms.ChoiceField(label='Produto', choices=[], required=False)
+    quantidade = forms.DecimalField(
+        min_value=Decimal('0.001'), decimal_places=3, initial=Decimal('1'), required=False,
+    )
     preco_unitario = forms.DecimalField(min_value=Decimal('0.01'), decimal_places=2, required=False)
     valor_desconto = forms.DecimalField(min_value=Decimal('0'), initial=Decimal('0'), decimal_places=2, required=False)
     valor_acrescimo = forms.DecimalField(min_value=Decimal('0'), initial=Decimal('0'), decimal_places=2, required=False)
@@ -274,6 +276,7 @@ class EmitirNFeForm(forms.Form):
     forma_pagamento = forms.ChoiceField(
         choices=FORMA_PAGAMENTO_FISCAL,
         initial='99',
+        required=False,
         widget=forms.Select(attrs={'class': 'form-control'}),
     )
     cnpj_destinatario = forms.CharField(
@@ -497,39 +500,76 @@ class EmitirNFeForm(forms.Form):
         from .nfe_catalog import cfop_exige_grupo_combustivel
         from .produto_fiscal import _quantidade_kg_monofasico
 
-        if cfop_exige_grupo_combustivel(cfop):
-            pid = cleaned.get('produto_id')
-            if pid and loja:
-                from app_pdv.models import Produto
+        if loja:
+            try:
+                itens = parse_itens_avulsa(self.data, loja)
+            except forms.ValidationError:
+                raise
+            except Exception as exc:
+                raise forms.ValidationError(str(exc)) from exc
+        else:
+            itens = []
+        if not itens:
+            raise forms.ValidationError('Adicione ao menos um produto à NF-e.')
+        cleaned['itens'] = itens
+        primeiro = itens[0]
+        cleaned['produto_id'] = str(primeiro['produto'].id)
+        cleaned['quantidade'] = primeiro['quantidade']
+        cleaned['preco_unitario'] = primeiro['preco_unitario']
+        cleaned['valor_desconto'] = sum(i.get('valor_desconto') or 0 for i in itens)
+        cleaned['valor_acrescimo'] = sum(i.get('valor_acrescimo') or 0 for i in itens)
 
-                produto = Produto.objects.filter(pk=int(pid), loja=loja).first()
-                if produto:
-                    try:
-                        df = produto.dados_fiscais
-                    except Exception:
-                        df = None
-                    if not df or not (df.codigo_anp or '').strip():
-                        raise forms.ValidationError(
-                            'CFOP de combustível: cadastre código e descrição ANP no cadastro fiscal do produto.',
-                        )
-                    if not df.icms_aliquota_ad_rem or float(df.icms_aliquota_ad_rem) <= 0:
-                        raise forms.ValidationError(
-                            'CFOP de combustível: cadastre a alíquota ICMS ad rem (R$/kg) no produto — '
-                            'obrigatória para CST 61 (monofásico retido).',
-                        )
-                    un = (df.unidade_tributavel or 'UN').lower()
-                    peso_form = float(cleaned.get('peso_liquido') or 0)
-                    q_kg = _quantidade_kg_monofasico(
-                        produto,
-                        quantidade=float(cleaned.get('quantidade') or 1),
-                        unidade=un,
-                        peso_liquido_nfe=peso_form or None,
+        total_nota = total_itens_avulsa(itens)
+        try:
+            pagamentos = parse_pagamentos_avulsa(self.data, total_nota)
+        except forms.ValidationError:
+            raise
+        except Exception as exc:
+            raise forms.ValidationError(str(exc)) from exc
+        cleaned['pagamentos'] = pagamentos
+        if pagamentos:
+            cleaned['forma_pagamento'] = pagamentos[0]['forma_pagamento']
+
+        if cfop_exige_grupo_combustivel(cfop):
+            peso_form = float(cleaned.get('peso_liquido') or 0)
+            peso_total = 0.0
+            qtd_total = 0.0
+            for linha in itens:
+                produto = linha['produto']
+                try:
+                    df = produto.dados_fiscais
+                except Exception:
+                    df = None
+                if not df or not (df.codigo_anp or '').strip():
+                    raise forms.ValidationError(
+                        f'CFOP de combustível: cadastre código e descrição ANP no cadastro fiscal de {produto.nome_venda}.',
                     )
-                    if q_kg <= 0:
-                        raise forms.ValidationError(
-                            'Informe o peso líquido (kg) em Transportador/volumes ou cadastre o produto '
-                            'com “kg” na descrição (ex.: GLP 13 kg).',
-                        )
+                if not df.icms_aliquota_ad_rem or float(df.icms_aliquota_ad_rem) <= 0:
+                    raise forms.ValidationError(
+                        f'CFOP de combustível: cadastre a alíquota ICMS ad rem (R$/kg) em {produto.nome_venda} — '
+                        'obrigatória para CST 61 (monofásico retido).',
+                    )
+                un = (df.unidade_tributavel or 'UN').lower()
+                q_kg = _quantidade_kg_monofasico(
+                    produto,
+                    quantidade=float(linha.get('quantidade') or 1),
+                    unidade=un,
+                    peso_liquido_nfe=(peso_form or None) if len(itens) == 1 else None,
+                    codigo_anp=(df.codigo_anp or '').strip(),
+                )
+                if q_kg <= 0:
+                    raise forms.ValidationError(
+                        f'Informe o peso líquido (kg) em Transportador/volumes ou cadastre {produto.nome_venda} '
+                        'com “kg” ou P13/P20/P45 na descrição.',
+                    )
+                peso_total += q_kg
+                qtd_total += float(linha.get('quantidade') or 0)
+            if not peso_form and peso_total > 0:
+                cleaned['peso_liquido'] = peso_total
+            if not int(cleaned.get('quantidade_volumes') or 0):
+                cleaned['quantidade_volumes'] = max(1, int(round(qtd_total)) or 1)
+            if not float(cleaned.get('peso_bruto') or 0) and peso_total > 0:
+                cleaned['peso_bruto'] = round(peso_total * 2.077, 3)
             trib = cleaned.get('tributacao_nfe') or 'produto'
             if trib in ('produto', 'csosn_102'):
                 cleaned['tributacao_nfe'] = 'cst_61_combustivel'
@@ -819,6 +859,34 @@ def dados_edicao_nfe(doc) -> dict:
     trib = snap.get('tributacao') or 'produto'
     if str(item.get('icms_situacao_tributaria') or '') == '61' and trib == 'produto':
         trib = 'cst_61_combustivel'
+    itens_inicial = []
+    for it in payload.get('items') or []:
+        itens_inicial.append({
+            'produto_id': str(it.get('codigo_produto') or ''),
+            'quantidade': str(it.get('quantidade_comercial') or '1'),
+            'preco_unitario': str(it.get('valor_unitario_comercial') or ''),
+            'valor_desconto': str(it.get('valor_desconto') or '0'),
+            'valor_acrescimo': str(it.get('valor_outras_despesas') or '0'),
+        })
+    if not itens_inicial:
+        itens_inicial.append({
+            'produto_id': str(item.get('codigo_produto') or snap.get('produto_id') or doc.produto_avulso_id or ''),
+            'quantidade': str(item.get('quantidade_comercial') or '1'),
+            'preco_unitario': str(item.get('valor_unitario_comercial') or ''),
+            'valor_desconto': str(item.get('valor_desconto') or '0'),
+            'valor_acrescimo': str(item.get('valor_outras_despesas') or '0'),
+        })
+    pagamentos_inicial = []
+    for pag_it in payload.get('formas_pagamento') or []:
+        pagamentos_inicial.append({
+            'forma_pagamento': str(pag_it.get('forma_pagamento') or '99').zfill(2)[:2],
+            'valor_pagamento': str(pag_it.get('valor_pagamento') or ''),
+        })
+    if not pagamentos_inicial:
+        pagamentos_inicial.append({
+            'forma_pagamento': str(pag.get('forma_pagamento') or '99').zfill(2)[:2],
+            'valor_pagamento': str(pag.get('valor_pagamento') or doc.valor_total or ''),
+        })
     return {
         'natureza_cfop': cfop,
         'cfop': cfop,
@@ -832,6 +900,8 @@ def dados_edicao_nfe(doc) -> dict:
         'valor_desconto': item.get('valor_desconto') or payload.get('valor_desconto') or 0,
         'valor_acrescimo': item.get('valor_outras_despesas') or payload.get('valor_outras_despesas') or 0,
         'forma_pagamento': str(pag.get('forma_pagamento') or '99').zfill(2)[:2],
+        'itens_inicial': itens_inicial,
+        'pagamentos_inicial': pagamentos_inicial,
         'cnpj_destinatario': payload.get('cnpj_destinatario') or '',
         'cpf_destinatario': payload.get('cpf_destinatario') or '',
         'indicador_ie_destinatario': str(payload.get('indicador_inscricao_estadual_destinatario') or '9'),

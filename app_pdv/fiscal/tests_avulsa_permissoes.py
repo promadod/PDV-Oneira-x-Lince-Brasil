@@ -189,3 +189,37 @@ class PermissoesFiscaisTest(TestCase):
         self.client.login(username='op-fiscal', password='x')
         resp = self.client.get(reverse('fiscal_config'))
         self.assertEqual(resp.status_code, 302)
+
+    def test_avulsa_usa_composer_e_card_pedido(self):
+        self.client.login(username='op-fiscal', password='x')
+        resp = self.client.get(reverse('fiscal_emitir_avulsa'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'avulsa-layout')
+        self.assertContains(resp, 'Itens da nota')
+        self.assertContains(resp, 'id="btn-add-item"')
+        self.assertContains(resp, 'id="lista-itens"')
+        self.assertContains(resp, '2024-2026 Desenvolvido por Oneira Tecnologia')
+
+    def test_emitir_nfce_sem_atalhos_lote_avulsa_nfe(self):
+        self.perfil.perm_fiscal_telas = ['produtos', 'avulsa', 'nfce', 'nfe']
+        self.perfil.save(update_fields=['perm_fiscal_telas'])
+        self.client.login(username='op-fiscal', password='x')
+        resp = self.client.get(reverse('fiscal_emitir'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertNotContains(resp, 'NFC-e em lote')
+        self.assertNotContains(resp, 'NF-e (modelo 55)')
+        self.assertNotContains(resp, 'fiscal-link-actions')
+        self.assertContains(resp, '2024-2026 Desenvolvido por Oneira Tecnologia')
+
+    def test_nfe_form_varios_itens_e_pagamentos(self):
+        self.perfil.perm_fiscal_telas = ['produtos', 'avulsa', 'nfe']
+        self.perfil.save(update_fields=['perm_fiscal_telas'])
+        self.client.login(username='op-fiscal', password='x')
+        resp = self.client.get(reverse('fiscal_emitir_nfe'))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'nfe-add-item')
+        self.assertContains(resp, 'nfe-add-pag')
+        self.assertContains(resp, 'Produtos da nota')
+        self.assertContains(resp, 'Pagamentos da nota')
+        self.assertContains(resp, 'id="nfe-comp-prod"')
+        self.assertContains(resp, 'id="nfe-hidden-itens"')

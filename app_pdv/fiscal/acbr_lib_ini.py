@@ -116,6 +116,48 @@ def _section(name: str, pairs: dict) -> str:
     return '\n'.join(lines)
 
 
+def _secoes_transporte(payload: dict) -> list[str]:
+    tr = payload.get('transportador') or {}
+    transp = {'modFrete': str(int(payload.get('modalidade_frete') or 9))}
+    cnpj = _digitos(tr.get('cnpj') or tr.get('CNPJ') or tr.get('CNPJCPF'))
+    if cnpj:
+        transp['CNPJCPF'] = cnpj
+    nome = (tr.get('nome') or tr.get('xNome') or '')[:60]
+    if nome:
+        transp['xNome'] = nome
+    ie = _digitos(tr.get('inscricao_estadual') or tr.get('IE') or tr.get('ie'))
+    if ie:
+        transp['IE'] = ie
+    ender = (tr.get('endereco') or tr.get('xEnder') or '')[:60]
+    if ender:
+        transp['xEnder'] = ender
+    mun = (tr.get('municipio') or tr.get('xMun') or '')[:60]
+    if mun:
+        transp['xMun'] = mun
+    uf = (tr.get('uf') or tr.get('UF') or '')[:2].upper()
+    if uf:
+        transp['UF'] = uf
+    secoes = [_section('Transportador', transp)]
+    for i, vol in enumerate(payload.get('volumes') or [], start=1):
+        pairs = {}
+        q = vol.get('quantidade')
+        if q:
+            pairs['qVol'] = str(int(q))
+        if vol.get('especie'):
+            pairs['esp'] = str(vol['especie'])[:60]
+        if vol.get('marca'):
+            pairs['marca'] = str(vol['marca'])[:60]
+        if vol.get('numeracao'):
+            pairs['nVol'] = str(vol['numeracao'])[:60]
+        if vol.get('peso_liquido'):
+            pairs['pesoL'] = f'{float(vol["peso_liquido"]):.3f}'
+        if vol.get('peso_bruto'):
+            pairs['pesoB'] = f'{float(vol["peso_bruto"]):.3f}'
+        if pairs:
+            secoes.append(_section(f'Volume{i:03d}', pairs))
+    return secoes
+
+
 def montar_ini_nfe(
     cfg,
     payload: dict,
@@ -313,9 +355,10 @@ def montar_ini_nfe(
     if v_icms_mono_ret:
         total['vICMSMonoRet'] = _fmt_money(v_icms_mono_ret)
     sections.append(_section('Total', total))
-    sections.append(_section('Transportador', {
-        'modFrete': str(int(payload.get('modalidade_frete') or 9)),
-    }))
+    if tipo == 'nfe':
+        from .focus_payload import aplicar_transportador_combustivel
+        aplicar_transportador_combustivel(cfg, payload)
+    sections.extend(_secoes_transporte(payload))
 
     pagamentos = list(payload.get('formas_pagamento') or [])
     if not pagamentos:

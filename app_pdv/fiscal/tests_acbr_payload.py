@@ -95,3 +95,7 @@ class PagamentoAcbrTest(SimpleTestCase):
         self.assertEqual(icms['ICMS61']['vICMSMonoRet'], 15.85)
         self.assertEqual(pedido['infNFe']['total']['ICMSTot']['vICMSMonoRet'], 15.85)
         self.assertEqual(pedido['infNFe']['total']['ICMSTot']['qBCMonoRet'], 13.0)
+        transporta = pedido['infNFe']['transp']['transporta']
+        self.assertEqual(transporta['CNPJ'], '12636948000117')
+        self.assertEqual(transporta['xNome'], 'Loja')
+        self.assertEqual(pedido['infNFe']['transp']['vol'][0]['pesoL'], 13.0)
