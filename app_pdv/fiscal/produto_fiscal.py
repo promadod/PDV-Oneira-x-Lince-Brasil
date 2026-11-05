@@ -23,12 +23,18 @@ def resolver_regra(loja, ncm='', uf_destino='', operacao='venda'):
 
 def _unidade(produto) -> str:
     um = getattr(produto, 'unidade_medida', None) or 'UN'
-    um = str(um).upper()
-    if um == 'KG':
-        return 'kg'
-    if um == 'L':
-        return 'l'
-    return 'un'
+    return _norm_unidade(um)
+
+
+def _norm_unidade(value) -> str:
+    u = str(value or 'UN').strip().upper()[:6]
+    if u in ('UN', 'UND', 'UNID'):
+        return 'UN'
+    if u in ('KG', 'KGS', 'KILO'):
+        return 'KG'
+    if u in ('L', 'LT', 'LTR', 'LITRO'):
+        return 'L'
+    return u or 'UN'
 
 
 def _dec(value) -> float:
@@ -219,6 +225,47 @@ def _aplicar_origens_combustivel_focus(item: dict, dados, *, uf_consumo: str) ->
     item['origens_combustivel'] = origens
 
 
+def _aplicar_unidade_tributavel_anp(
+    item: dict,
+    produto,
+    dados,
+    *,
+    quantidade: float,
+    peso_liquido_kg: float | None,
+) -> None:
+    """SEFAZ 854: uTrib do grupo comb deve bater com a tabela ANP (GLP = KG)."""
+    from .nfe_catalog import unidade_tributavel_anp
+
+    anp = (
+        (dados.codigo_anp if dados else '')
+        or item.get('combustivel_codigo_anp')
+        or item.get('codigo_anp')
+        or ''
+    )
+    u_anp = unidade_tributavel_anp(anp)
+    item['unidade_comercial'] = _norm_unidade(item.get('unidade_comercial'))
+    item['unidade_tributavel'] = _norm_unidade(item.get('unidade_tributavel'))
+    if not u_anp:
+        return
+    item['unidade_tributavel'] = u_anp
+    if u_anp != 'KG':
+        return
+    q_kg = _quantidade_kg_monofasico(
+        produto,
+        quantidade=float(quantidade),
+        unidade=item.get('unidade_comercial') or 'UN',
+        peso_liquido_nfe=peso_liquido_kg,
+    )
+    if q_kg <= 0:
+        return
+    item['quantidade_tributavel'] = q_kg
+    v_bruto = Decimal(str(item.get('valor_bruto') or 0))
+    if v_bruto > 0:
+        item['valor_unitario_tributavel'] = float(
+            (v_bruto / Decimal(str(q_kg))).quantize(Decimal('0.0000000001'), rounding=ROUND_HALF_UP),
+        )
+
+
 def _aplicar_grupo_combustivel_focus(item: dict, dados, *, cfop: str, uf_consumo: str) -> None:
     from .nfe_catalog import cfop_exige_grupo_combustivel
 
@@ -365,4 +412,9 @@ def montar_item_focus_json(
     _aplicar_grupo_combustivel_focus(item, dados, cfop=item['cfop'], uf_consumo=uf_consumo)
     if monofasico:
         _aplicar_origens_combustivel_focus(item, dados, uf_consumo=uf_consumo)
+    _aplicar_unidade_tributavel_anp(
+        item, produto, dados,
+        quantidade=qtd,
+        peso_liquido_kg=peso_liquido_kg,
+    )
     return item

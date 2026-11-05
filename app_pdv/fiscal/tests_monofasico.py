@@ -52,6 +52,10 @@ class MonofasicoCombustivelTest(SimpleTestCase):
         self.assertEqual(item['icms_valor_mono_retido'], 15.85)
         self.assertIn('combustivel_codigo_anp', item)
         self.assertNotIn('origens_combustivel', item)
+        self.assertEqual(item['unidade_comercial'], 'UN')
+        self.assertEqual(item['unidade_tributavel'], 'KG')
+        self.assertEqual(item['quantidade_tributavel'], 13.0)
+        self.assertAlmostEqual(item['valor_unitario_tributavel'], 110.0 / 13.0, places=6)
 
     @patch('app_pdv.fiscal.produto_fiscal.resolver_regra', return_value=None)
     def test_origens_quando_pct_gn_informado_soma_100_por_grupo(self, _regra):

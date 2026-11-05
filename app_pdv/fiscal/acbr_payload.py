@@ -90,7 +90,7 @@ def _item_det(item: dict, *, homologacao: bool, primeiro: bool) -> dict:
     qtd = _num(item.get('quantidade_comercial'), 1) or 1
     v_unit = _num(item.get('valor_unitario_comercial'))
     v_prod = round(_num(item.get('valor_bruto'), qtd * v_unit), 2)
-    unidade = (item.get('unidade_comercial') or 'UN')[:6]
+    unidade = (item.get('unidade_comercial') or 'UN').upper()[:6]
     ncm = ''.join(c for c in str(item.get('codigo_ncm') or '') if c.isdigit()).zfill(8)[:8]
     descricao = (item.get('descricao') or 'PRODUTO')[:120]
     if homologacao and primeiro:
@@ -106,7 +106,7 @@ def _item_det(item: dict, *, homologacao: bool, primeiro: bool) -> dict:
         'vUnCom': v_unit,
         'vProd': v_prod,
         'cEANTrib': 'SEM GTIN',
-        'uTrib': (item.get('unidade_tributavel') or unidade)[:6],
+        'uTrib': (item.get('unidade_tributavel') or unidade).upper()[:6],
         'qTrib': _num(item.get('quantidade_tributavel'), qtd) or qtd,
         'vUnTrib': _num(item.get('valor_unitario_tributavel'), v_unit),
         'indTot': 1,

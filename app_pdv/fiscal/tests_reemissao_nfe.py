@@ -56,3 +56,5 @@ class ReemissaoNfeMonofasicoTest(SimpleTestCase):
         item = novo['items'][0]
         self.assertEqual(item['icms_situacao_tributaria'], '61')
         self.assertEqual(item['icms_base_calculo_mono_retido'], 13.0)
+        self.assertEqual(item['unidade_tributavel'], 'KG')
+        self.assertEqual(item['quantidade_tributavel'], 13.0)

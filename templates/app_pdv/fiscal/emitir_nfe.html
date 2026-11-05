@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Emitir NF-e{% endblock %}
+{% block title %}{% if doc_origem %}Editar e reemitir NF-e{% else %}Emitir NF-e{% endif %}{% endblock %}
 {% block content %}
 {% include 'app_pdv/fiscal/_nav.html' %}
 
@@ -66,8 +66,8 @@ label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
 
 <div class="nfe-page-header">
     <div>
-        <h2 style="margin:0;">Cadastrar NF-e (modelo 55)</h2>
-        <p style="color:#aaa;margin:8px 0 0;">Fiscal → NF-e — saída com destinatário, tributos e transporte.</p>
+        <h2 style="margin:0;">{% if doc_origem %}Editar NF-e (modelo 55){% else %}Cadastrar NF-e (modelo 55){% endif %}</h2>
+        <p style="color:#aaa;margin:8px 0 0;">{% if doc_origem %}Corrigir a nota #{{ doc_origem.id }} e reenviar à SEFAZ.{% else %}Fiscal → NF-e — saída com destinatário, tributos e transporte.{% endif %}</p>
     </div>
     <div class="nfe-badge-saida"><i class="fas fa-file-export"></i> NF-e Saída</div>
 </div>
@@ -211,7 +211,7 @@ label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
         <strong id="nfe_total_geral">R$ 0,00</strong>
     </div>
 
-    <button type="submit" class="btn btn-success">Emitir NF-e</button>
+    <button type="submit" class="btn btn-success">{% if doc_origem %}Salvar e reemitir NF-e{% else %}Emitir NF-e{% endif %}</button>
 </form>
 
 <script>

@@ -73,6 +73,14 @@ ANP_GLP_ORIGEM = frozenset({
     '210203001', '210203003', '210203004', '210203005',
 })
 
+# Unidade tributável exigida pela tabela ANP (SEFAZ 854 se uTrib divergir)
+ANP_UNIDADE_TRIBUTAVEL = {codigo: 'KG' for codigo in ANP_GLP_ORIGEM}
+
+
+def unidade_tributavel_anp(codigo_anp: str) -> str | None:
+    """uTrib oficial do código ANP. GLP (210203001…) exige KG, não UN."""
+    return ANP_UNIDADE_TRIBUTAVEL.get((codigo_anp or '').strip())
+
 # Sigla UF → código IBGE (tag cUFOrig em origComb — não usar sigla)
 UF_SIGLA_PARA_IBGE: dict[str, str] = {
     'AC': '12', 'AL': '27', 'AM': '13', 'AP': '16', 'BA': '29', 'CE': '23', 'DF': '53',

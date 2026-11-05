@@ -76,6 +76,10 @@ class AcbrLibIniTests(SimpleTestCase):
                 'combustivel_descricao_anp': 'GLP',
                 'combustivel_sigla_uf': 'RJ',
                 'combustivel_percentual_glp': 100,
+                'unidade_comercial': 'UN',
+                'unidade_tributavel': 'KG',
+                'quantidade_tributavel': 13.0,
+                'valor_unitario_tributavel': 85 / 13,
                 'icms_base_calculo_mono_retido': 13.0,
                 'icms_aliquota_retido': 1.2196,
                 'icms_valor_mono_retido': 15.85,
@@ -85,6 +89,8 @@ class AcbrLibIniTests(SimpleTestCase):
         ini = montar_ini_nfe(_Cfg(), payload, tipo='nfe', numero=2, serie=1)
         self.assertIn('mod=55', ini)
         self.assertIn('[Combustivel001]', ini)
+        self.assertIn('uTrib=KG', ini)
+        self.assertIn('qTrib=13', ini)
         self.assertIn('cProdANP=210203001', ini)
         self.assertIn('descANP=GLP', ini)
         self.assertIn('UFCons=RJ', ini)
