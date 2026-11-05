@@ -1,0 +1,172 @@
+{% extends 'base.html' %}
+{% block title %}Integração API fiscal{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<h2 style="margin-bottom:20px;">Integração fiscal (API / ACBrLib)</h2>
+
+<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:20px;">
+    <div class="card" style="padding:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Checklist integração</h3>
+        <ul style="list-style:none;padding:0;margin:0;">
+            {% for item in checklist %}
+            <li style="padding:6px 0;border-bottom:1px solid #333;">
+                {% if item.ok %}<span style="color:#03dac6;">✓</span>{% else %}<span style="color:#cf6679;">○</span>{% endif %}
+                {{ item.texto }}
+            </li>
+            {% endfor %}
+        </ul>
+        <p style="color:#888;font-size:0.85em;margin-top:12px;">
+            CSC NFC-e em <a href="{% url 'fiscal_config' %}" style="color:#03dac6;">Config. Fiscal</a>.
+            Certificado A1 no modo Lib fica neste formulário.
+        </p>
+    </div>
+    <div class="card" style="padding:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Endpoints Oneira</h3>
+        <p style="color:#ccc;font-size:0.9em;margin:0 0 8px;"><strong>Webhook (POST):</strong></p>
+        <code style="display:block;background:#222;padding:10px;border-radius:6px;word-break:break-all;">{{ webhook_sugerida }}</code>
+    </div>
+</div>
+
+<form method="post" action="{% url 'fiscal_focus_salvar' %}" enctype="multipart/form-data" data-submit-lock-msg="Salvando integração…">
+    {% csrf_token %}
+    <div class="card" style="margin-bottom:16px;padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Provedor de emissão</h3>
+        <p style="color:#aaa;font-size:0.9em;margin:0 0 14px;">{{ form.provedor_emissao.help_text }}</p>
+        <div class="provedor-seg" role="group" aria-label="Provedor de emissão" style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+            <button type="button" class="provedor-seg-btn" data-provedor="api" style="text-align:left;padding:14px 16px;border-radius:10px;border:1px solid #444;background:#1a1a1a;color:#eee;cursor:pointer;">
+                <strong style="display:block;font-size:1rem;margin-bottom:4px;">ACBr API</strong>
+                <span style="color:#999;font-size:0.85em;">OAuth HTTP — Client ID / Secret</span>
+            </button>
+            <button type="button" class="provedor-seg-btn" data-provedor="lib" style="text-align:left;padding:14px 16px;border-radius:10px;border:1px solid #444;background:#1a1a1a;color:#eee;cursor:pointer;">
+                <strong style="display:block;font-size:1rem;margin-bottom:4px;">ACBrLib Pro</strong>
+                <span style="color:#999;font-size:0.85em;">SEFAZ direto — certificado A1 (.pfx)</span>
+            </button>
+        </div>
+        <div style="position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden;" aria-hidden="true">
+            {{ form.provedor_emissao }}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+                <label>Ambiente</label>
+                {{ form.ambiente }}
+                <small style="color:#888;">{{ form.ambiente.help_text }}</small>
+            </div>
+        </div>
+    </div>
+    <style>
+        .provedor-seg-btn.is-active {
+            border-color: #15a0a5 !important;
+            background: rgba(21,160,165,0.18) !important;
+            box-shadow: inset 0 0 0 1px #15a0a5;
+        }
+        .provedor-seg-btn:hover { border-color: #15a0a5; }
+        @media (max-width: 700px) {
+            .provedor-seg { grid-template-columns: 1fr !important; }
+        }
+    </style>
+    <script>
+    (function () {
+        var select = document.getElementById('id_provedor_emissao');
+        var buttons = document.querySelectorAll('.provedor-seg-btn');
+        if (!select || !buttons.length) return;
+        function sync(value) {
+            select.value = value;
+            buttons.forEach(function (btn) {
+                btn.classList.toggle('is-active', btn.getAttribute('data-provedor') === value);
+            });
+        }
+        buttons.forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                sync(btn.getAttribute('data-provedor'));
+            });
+        });
+        sync(select.value || 'api');
+    })();
+    </script>
+
+    <div class="card" style="margin-bottom:16px;padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">ACBr API (OAuth)</h3>
+        <p style="color:#ccc;font-size:0.9em;margin-top:0;">
+            Usado quando o provedor é <strong>ACBr API</strong>.
+            Teste: token em <code>auth.acbr.api.br</code> + <code>GET /empresas</code>.
+        </p>
+        <ul style="color:#aaa;font-size:0.9em;margin:0 0 14px;padding-left:18px;">
+            <li>Credenciais globais: {% if acbr_configurada %}ok (Client ID {{ acbr_client_id }}){% else %}ausentes no .env{% endif %}</li>
+            <li>Ambiente ACBr (.env): {{ acbr_ambiente|default:"producao" }}</li>
+        </ul>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+                <label>{{ form.acbr_client_id.label }}</label>
+                {{ form.acbr_client_id }}
+                <small style="color:#888;">{{ form.acbr_client_id.help_text }}</small>
+            </div>
+            <div>
+                <label>{{ form.acbr_client_secret.label }}</label>
+                {{ form.acbr_client_secret }}
+                <small style="color:#888;">{{ form.acbr_client_secret.help_text }}</small>
+            </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_focus_testar' %}" data-submit-lock-msg="Testando conexão…">Testar ACBr API (loja)</button>
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_acbr_testar' %}" formnovalidate {% if not acbr_configurada %}disabled{% endif %} data-submit-lock-msg="Testando ACBr…">Testar ACBr API (.env)</button>
+        </div>
+    </div>
+
+    <div class="card" style="margin-bottom:16px;padding:20px;">
+        <h3 style="color:#15a0a5;margin-top:0;">ACBrLib Pro (SEFAZ direto)</h3>
+        <p style="color:#ccc;font-size:0.9em;margin-top:0;">
+            Usado quando o provedor é <strong>ACBrLib</strong>.
+            O Django chama o worker <code>acbr-lib:8091</code>, que carrega <code>libacbrnfe64.so</code>.
+        </p>
+        <ul style="color:#aaa;font-size:0.9em;margin:0 0 14px;padding-left:18px;">
+            <li>Worker: {% if acbr_lib_habilitada %}habilitado (ACBR_LIB_ENABLED){% else %}<span style="color:#cf6679;">desabilitado no .env</span>{% endif %}</li>
+            <li>PFX nesta loja: {% if acbr_lib_pfx_ok %}enviado{% else %}<span style="color:#cf6679;">ausente</span>{% endif %}</li>
+        </ul>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+                <label>{{ form.acbr_lib_pfx_arquivo.label }}</label>
+                {{ form.acbr_lib_pfx_arquivo }}
+                <small style="color:#888;">{{ form.acbr_lib_pfx_arquivo.help_text }}</small>
+            </div>
+            <div>
+                <label>{{ form.acbr_lib_pfx_senha.label }}</label>
+                {{ form.acbr_lib_pfx_senha }}
+                <small style="color:#888;">{{ form.acbr_lib_pfx_senha.help_text }}</small>
+            </div>
+        </div>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;margin-top:18px;align-items:center;">
+            <button type="submit" class="btn btn-success" formaction="{% url 'fiscal_acbr_lib_testar' %}" {% if not acbr_lib_habilitada %}disabled{% endif %} data-submit-lock-msg="Consultando SEFAZ…">Consultar status SEFAZ (Lib)</button>
+        </div>
+    </div>
+
+    <div style="display:flex;flex-wrap:wrap;gap:10px;margin-bottom:24px;align-items:center;">
+        <button type="submit" class="fiscal-nav-btn" style="cursor:pointer;border:none;">Salvar integração</button>
+        <span style="color:#888;font-size:0.85em;">Avulsa / NF-e / Documentos usam o provedor escolhido acima.</span>
+    </div>
+</form>
+
+{% if gatilhos %}
+<div class="card" style="padding:16px;">
+    <h3 style="color:#15a0a5;margin-top:0;">Gatilhos ativos</h3>
+    <table style="width:100%;border-collapse:collapse;font-size:0.9em;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:8px;">ID</th><th>Evento</th><th>URL</th><th>CNPJ</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for g in gatilhos %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">{{ g.id|default:"—" }}</td>
+                <td>{{ g.event|default:"—" }}</td>
+                <td style="word-break:break-all;">{{ g.url|default:"—" }}</td>
+                <td>{{ g.cnpj|default:"—" }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+{% endblock %}

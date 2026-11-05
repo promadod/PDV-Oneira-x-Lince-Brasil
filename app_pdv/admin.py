@@ -8,10 +8,14 @@ from .models import (
     CategoriaTransacao, Transacao, Receita, Despesa, Moto, Motoboy, Rede,
     FormaPagamentoLoja, LogFechamentoEstoqueDiario
 )
+from .fiscal.models import (
+    FiscalConfig, DocumentoFiscal, RegraTributaria, FiscalWebhookLog, NFeRecebida,
+    LoteEmissaoFiscal, LoteEmissaoFiscalItem,
+)
 from .seguranca import descongelar_conta, liberar_ip
 
-admin.site.site_header = "Magno Distribuidora - Administração"
-admin.site.site_title = "Painel Administrativo"
+admin.site.site_header = "Lince brasil sistemas - Administração"
+admin.site.site_title = "Lince brasil sistemas"
 admin.site.index_title = "Gerenciamento do Sistema"
 
 # --- CONFIGURAÇÃO DE USUÁRIO E PERFIL (SAAS) ---
@@ -28,7 +32,8 @@ class PerfilUsuarioInline(admin.StackedInline):
         ('Permissões', {
             'fields': (
                 'perm_dashboard', 'perm_pdv', 'perm_caixa', 'perm_torre',
-                'perm_estoque', 'perm_relatorios', 'perm_usuarios',
+                'perm_estoque', 'perm_relatorios', 'perm_usuarios', 'perm_fiscal',
+                'perm_fiscal_config', 'perm_fiscal_telas', 'usuario_padrao_loja',
             ),
         }),
         ('Segurança', {
@@ -104,11 +109,11 @@ class SaasAdmin(admin.ModelAdmin):
 
 @admin.register(Loja)
 class LojaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nome', 'gerente', 'ativo', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
-    list_filter = ('ativo', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias')
+    list_display = ('id', 'nome', 'gerente', 'ativo', 'fiscal_habilitado', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
+    list_filter = ('ativo', 'fiscal_habilitado', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada')
     fieldsets = (
         (None, {
-            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta')
+            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta', 'fiscal_habilitado', 'assistente_habilitado')
         }),
         ('Entregas', {
             'fields': ('taxa_entrega_app', 'taxa_entrega_pdv', 'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon')
@@ -116,6 +121,7 @@ class LojaAdmin(admin.ModelAdmin):
         ('PDV', {
             'fields': (
                 'nome_marca_pdv', 'impressao_automatica',
+                'conferencia_dinheiro_habilitada',
                 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel',
                 'balanca_ean_prefixo', 'balanca_plu_digitos', 'balanca_ean_variavel',
                 'cobra_taxa_servico', 'taxa_servico_pct',
@@ -135,6 +141,19 @@ class LojaAdmin(admin.ModelAdmin):
             'classes': ('collapse',),
         }),
     )
+
+    def save_model(self, request, obj, form, change):
+        super().save_model(request, obj, form, change)
+        if change:
+            return
+        from .loja_usuario import SENHA_PADRAO_NOVA_LOJA
+        user = getattr(obj, '_usuario_padrao', None)
+        if user:
+            self.message_user(
+                request,
+                f'Usuário "{user.username}" criado para esta loja '
+                f'(senha padrão: {SENHA_PADRAO_NOVA_LOJA}). Oriente a troca no primeiro acesso.',
+            )
 
 
 @admin.register(FormaPagamentoLoja)
@@ -414,3 +433,45 @@ class BloqueioIPLoginAdmin(admin.ModelAdmin):
         for reg in queryset:
             liberar_ip(reg.ip)
         self.message_user(request, f'{queryset.count()} IP(s) liberado(s).')
+@admin.register(FiscalConfig)
+class FiscalConfigAdmin(SaasAdmin):
+    list_display = ('loja', 'cnpj', 'ambiente', 'emite_nfce', 'emite_nfe', 'contingencia_ativa')
+    list_filter = ('ambiente', 'contingencia_ativa')
+
+
+@admin.register(DocumentoFiscal)
+class DocumentoFiscalAdmin(SaasAdmin):
+    list_display = ('ref', 'tipo', 'status', 'numero', 'valor_total', 'loja', 'criado_em')
+    list_filter = ('tipo', 'status')
+    search_fields = ('ref', 'chave_acesso', 'numero')
+
+
+@admin.register(RegraTributaria)
+class RegraTributariaAdmin(SaasAdmin):
+    list_display = ('nome', 'cfop', 'csosn', 'ncm', 'ativa', 'loja')
+
+
+@admin.register(FiscalWebhookLog)
+class FiscalWebhookLogAdmin(SaasAdmin):
+    list_display = ('criado_em', 'evento', 'ref', 'status_recebido', 'processado', 'loja')
+    readonly_fields = ('criado_em',)
+
+
+@admin.register(NFeRecebida)
+class NFeRecebidaAdmin(SaasAdmin):
+    list_display = ('chave_acesso', 'nome_emitente', 'valor_total', 'situacao', 'manifestacao', 'loja')
+
+
+@admin.register(LoteEmissaoFiscal)
+class LoteEmissaoFiscalAdmin(SaasAdmin):
+    list_display = (
+        'id', 'loja', 'tipo', 'status', 'total_autorizado', 'total_erro', 'total_solicitado', 'criado_em',
+    )
+    list_filter = ('tipo', 'status')
+    readonly_fields = ('criado_em', 'finalizado_em')
+
+
+@admin.register(LoteEmissaoFiscalItem)
+class LoteEmissaoFiscalItemAdmin(SaasAdmin):
+    list_display = ('lote', 'venda', 'status', 'documento', 'criado_em')
+    list_filter = ('status',)

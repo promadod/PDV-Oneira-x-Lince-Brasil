@@ -119,6 +119,16 @@ class Loja(models.Model):
         verbose_name='CNPJ',
         help_text='Exibido no rodapé do PDV. Ex: 00.000.000/0001-00',
     )
+    fiscal_habilitado = models.BooleanField(
+        default=False,
+        verbose_name='Módulo fiscal habilitado?',
+        help_text='Ativa o menu Fiscal (NF-e/NFC-e/NFS-e via Focus NFe) para esta loja. SaaS: só lojas contratantes.',
+    )
+    assistente_habilitado = models.BooleanField(
+        default=False,
+        verbose_name='Assistente da loja habilitado?',
+        help_text='Liga o chat/assistente por loja. Sem chave de API, o modo offline usa os guias do PDV.',
+    )
 
     # --- INTEGRAÇÃO MOVEON ---
     usa_moveon = models.BooleanField(
@@ -243,6 +253,13 @@ class Loja(models.Model):
         verbose_name="Gerenciar pagamento de mercadorias (CMV)?",
         help_text="Ativo: entradas consignadas ficam a pagar; baixas no relatório CMV "
                    "descontam o meio (Pix/Dinheiro etc.) no caixa do dia.",
+    )
+
+    conferencia_dinheiro_habilitada = models.BooleanField(
+        default=True,
+        verbose_name="Conferência de pagamento em dinheiro?",
+        help_text="Ativo: vendas em dinheiro exigem botão Receber no histórico (útil para delivery/app). "
+                   "Desligado: confirmação automática — ideal para lojas só com venda no balcão.",
     )
 
     # --- PLANO DE FIDELIDADE ---
@@ -420,6 +437,27 @@ class PerfilUsuario(models.Model):
     perm_estoque = models.BooleanField(default=False, verbose_name="Modificar Estoque/Produtos")
     perm_relatorios = models.BooleanField(default=False, verbose_name="Ver Relatórios")
     perm_usuarios = models.BooleanField(default=False, verbose_name="Gerenciar Usuários")
+    perm_fiscal = models.BooleanField(
+        default=False,
+        verbose_name="Acessar Módulo Fiscal",
+        help_text="NF-e, NFC-e, NFS-e, matriz tributária e webhooks. Exige módulo fiscal ativo na loja.",
+    )
+    perm_fiscal_config = models.BooleanField(
+        default=False,
+        verbose_name="Alterar Integração API e Config fiscal",
+        help_text="Libera os botões Integração API e Config. Também vale para o usuário padrão da loja e para root.",
+    )
+    perm_fiscal_telas = models.JSONField(
+        default=list,
+        blank=True,
+        verbose_name="Telas do módulo fiscal",
+        help_text="Lista de chaves das telas operacionais liberadas (Hub, Produtos, Avulsa, etc.).",
+    )
+    usuario_padrao_loja = models.BooleanField(
+        default=False,
+        verbose_name="Usuário padrão da loja",
+        help_text="Criado automaticamente ao cadastrar a loja. Tem Integração API, Config e todas as telas fiscais.",
+    )
     conta_congelada = models.BooleanField(
         default=False,
         verbose_name="Conta congelada",
@@ -1085,8 +1123,23 @@ def get_nome_meio_liquidacao(codigo):
     return dict(MEIO_LIQUIDACAO_VENDA_CHOICES).get(codigo, codigo)
 
 
+def loja_usa_conferencia_dinheiro(loja):
+    return bool(loja and getattr(loja, 'conferencia_dinheiro_habilitada', True))
+
+
+def calcular_troco_dinheiro(valor_parcela, valor_recebido):
+    """Se valor_recebido > valor_parcela, retorna (recebido, troco); senão (None, None)."""
+    if valor_recebido in (None, '', 0, '0', '0.00'):
+        return None, None
+    recebido = Decimal(str(valor_recebido))
+    parcela = Decimal(str(valor_parcela or 0))
+    if recebido <= parcela:
+        return None, None
+    return recebido, recebido - parcela
+
+
 def validar_liquidacoes_payload(total_venda, liquidacoes, exige_multiplo=False):
-    """Valida lista de parcelas [{meio_liquidacao, valor, troco_para?}]."""
+    """Valida lista de parcelas [{meio_liquidacao, valor, valor_recebido_dinheiro?}]."""
     if not liquidacoes:
         return 'Informe ao menos uma forma de pagamento.'
     if exige_multiplo and len(liquidacoes) < 2:
@@ -1117,28 +1170,56 @@ def validar_liquidacoes_payload(total_venda, liquidacoes, exige_multiplo=False):
     return None
 
 
+def normalizar_liquidacoes_troco_dinheiro(total_venda, liquidacoes):
+    """Venda 100% dinheiro: valor no card > total vira valor recebido + liquidação = total."""
+    if not liquidacoes or len(liquidacoes) != 1:
+        return liquidacoes
+    item = liquidacoes[0]
+    if item.get('meio_liquidacao') != 'DINHEIRO':
+        return liquidacoes
+    total_venda = Decimal(str(total_venda or 0))
+    valor = Decimal(str(item.get('valor', 0) or 0))
+    if valor <= total_venda + Decimal('0.01'):
+        return liquidacoes
+    recebido = item.get('valor_recebido_dinheiro')
+    if recebido in (None, '', 0, '0', '0.00'):
+        recebido = valor
+    else:
+        recebido = Decimal(str(recebido))
+    return [{
+        'meio_liquidacao': 'DINHEIRO',
+        'valor': total_venda,
+        'valor_recebido_dinheiro': recebido,
+    }]
+
+
 def persistir_liquidacoes_venda(venda, liquidacoes, caixa=None, usuario=None):
     """Substitui parcelas da venda e sincroniza campos-resumo em Venda."""
     venda.liquidacoes.all().delete()
     tem_dinheiro = False
+    usa_conferencia = loja_usa_conferencia_dinheiro(venda.loja)
 
     for item in liquidacoes:
         meio = item['meio_liquidacao']
         valor = Decimal(str(item['valor']))
-        troco = item.get('troco_para')
+        valor_recebido_decimal = None
         troco_decimal = None
-        if meio == 'DINHEIRO' and troco not in (None, '', 0, '0', '0.00'):
-            troco_decimal = Decimal(str(troco))
+        if meio == 'DINHEIRO':
             tem_dinheiro = True
-        elif meio == 'DINHEIRO':
-            tem_dinheiro = True
+            valor_recebido_decimal, troco_decimal = calcular_troco_dinheiro(
+                valor, item.get('valor_recebido_dinheiro'),
+            )
 
-        conferencia_ok = meio != 'DINHEIRO'
+        if meio == 'DINHEIRO' and usa_conferencia:
+            conferencia_ok = False
+        else:
+            conferencia_ok = True
         LiquidacaoVenda.objects.create(
             loja=venda.loja,
             venda=venda,
             valor=valor,
             meio_liquidacao=meio,
+            valor_recebido_dinheiro=valor_recebido_decimal,
             troco_para=troco_decimal,
             conferencia_ok=conferencia_ok,
             registrado_por=usuario,
@@ -1150,20 +1231,31 @@ def persistir_liquidacoes_venda(venda, liquidacoes, caixa=None, usuario=None):
     if dividido:
         venda.meio_liquidacao = 'MISTO'
         venda.troco_para = None
+        venda.valor_recebido_dinheiro = None
     else:
         unica = liquidacoes[0]
         venda.meio_liquidacao = unica['meio_liquidacao']
-        venda.troco_para = (
-            Decimal(str(unica['troco_para'])) if unica['meio_liquidacao'] == 'DINHEIRO' and unica.get('troco_para') else None
-        )
+        if unica['meio_liquidacao'] == 'DINHEIRO':
+            vr, troco = calcular_troco_dinheiro(
+                unica['valor'],
+                unica.get('valor_recebido_dinheiro'),
+            )
+            venda.valor_recebido_dinheiro = vr
+            venda.troco_para = troco
+        else:
+            venda.valor_recebido_dinheiro = None
+            venda.troco_para = None
 
-    if tem_dinheiro:
+    if tem_dinheiro and usa_conferencia:
         pendente = venda.liquidacoes.filter(meio_liquidacao='DINHEIRO', conferencia_ok=False).exists()
         venda.conferencia_ok = not pendente
     else:
         venda.conferencia_ok = True
 
-    venda.save(update_fields=['pagamento_dividido', 'meio_liquidacao', 'troco_para', 'conferencia_ok'])
+    venda.save(update_fields=[
+        'pagamento_dividido', 'meio_liquidacao', 'troco_para',
+        'valor_recebido_dinheiro', 'conferencia_ok',
+    ])
     return venda
 
 
@@ -1381,6 +1473,10 @@ class Venda(models.Model):
         verbose_name="Valor taxa de serviço (R$)",
     )
     troco_para = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valor_recebido_dinheiro = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        verbose_name='Valor recebido em dinheiro',
+    )
     conferencia_ok = models.BooleanField(default=False)
     quem_recebeu = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, blank=True, related_name="recebimentos_caixa")
     status_entrega = models.CharField(max_length=20, choices=STATUS_ENTREGA_CHOICES, default='PENDENTE')
@@ -1400,6 +1496,8 @@ class Venda(models.Model):
         return get_nome_forma_pagamento(self.loja, self.forma_pagamento)
 
     def exige_conferencia_pagamento(self):
+        if not loja_usa_conferencia_dinheiro(self.loja):
+            return False
         if self.liquidacoes.filter(meio_liquidacao='DINHEIRO', conferencia_ok=False).exists():
             return True
         if self.liquidacoes.exists():
@@ -1564,6 +1662,10 @@ class LiquidacaoVenda(models.Model):
         verbose_name="Meio de liquidação",
     )
     troco_para = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    valor_recebido_dinheiro = models.DecimalField(
+        max_digits=10, decimal_places=2, null=True, blank=True,
+        verbose_name='Valor recebido em dinheiro',
+    )
     conferencia_ok = models.BooleanField(default=False)
     data_liquidacao = models.DateTimeField(auto_now_add=True)
     registrado_por = models.ForeignKey(
@@ -1916,6 +2018,8 @@ class LogAuditoria(models.Model):
         ('ESTOQUE', 'Estoque'),
         ('SENHA', 'Senha / usuário'),
         ('CONFIG', 'Configuração'),
+        ('IMPORTACAO', 'Importação'),
+        ('ADMIN', 'Django Admin'),
         ('OUTRO', 'Outro'),
     ]
     usuario = models.ForeignKey(User, on_delete=models.SET_NULL, null=True, related_name='logs_auditoria')
@@ -1935,6 +2039,115 @@ class LogAuditoria(models.Model):
     def __str__(self):
         user = self.usuario.username if self.usuario else '—'
         return f"#{self.id} {user} — {self.get_acao_display()} — {self.criado_em:%d/%m/%Y %H:%M}"
+
+
+class ImportacaoProdutosLog(models.Model):
+    MODO_SOMAR = 'SOMAR'
+    MODO_SUBSTITUIR = 'SUBSTITUIR'
+    MODO_ESTOQUE_CHOICES = [
+        (MODO_SOMAR, 'Somar ao estoque existente'),
+        (MODO_SUBSTITUIR, 'Substituir estoque pelo da planilha'),
+    ]
+
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='importacoes_produtos')
+    usuario = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='importacoes_produtos',
+    )
+    nome_arquivo = models.CharField(max_length=255)
+    modo_estoque = models.CharField(max_length=12, choices=MODO_ESTOQUE_CHOICES, default='SOMAR')
+    criado_em = models.DateTimeField(auto_now_add=True)
+    produtos_criados = models.PositiveIntegerField(default=0)
+    produtos_atualizados = models.PositiveIntegerField(default=0)
+    linhas_processadas = models.PositiveIntegerField(default=0)
+    revertida_em = models.DateTimeField(null=True, blank=True)
+    revertida_por = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='importacoes_produtos_revertidas',
+    )
+
+    class Meta:
+        verbose_name = 'Importação de produtos'
+        verbose_name_plural = 'Importações de produtos'
+        ordering = ['-criado_em']
+
+    @property
+    def revertida(self):
+        return self.revertida_em is not None
+
+    def __str__(self):
+        status = 'revertida' if self.revertida else 'ativa'
+        return f"Importação #{self.id} — {self.nome_arquivo} ({status})"
+
+
+class ImportacaoProdutosItemSnapshot(models.Model):
+    importacao = models.ForeignKey(
+        ImportacaoProdutosLog, on_delete=models.CASCADE, related_name='itens_snapshot',
+    )
+    item_estoque = models.ForeignKey(
+        ItemEstoque, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='snapshots_importacao',
+    )
+    nome_item = models.CharField(max_length=150)
+    estoque_antes = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    estoque_depois = models.DecimalField(max_digits=10, decimal_places=3, default=0)
+    item_criado = models.BooleanField(default=False)
+
+    class Meta:
+        verbose_name = 'Snapshot item (importação)'
+        verbose_name_plural = 'Snapshots item (importação)'
+
+
+class ImportacaoProdutosProdutoSnapshot(models.Model):
+    importacao = models.ForeignKey(
+        ImportacaoProdutosLog, on_delete=models.CASCADE, related_name='produtos_snapshot',
+    )
+    produto = models.ForeignKey(
+        Produto, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='snapshots_importacao',
+    )
+    nome_venda = models.CharField(max_length=150)
+    linha_planilha = models.PositiveIntegerField(default=0)
+    produto_criado = models.BooleanField(default=False)
+    preco_compra_antes = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    preco_venda_antes = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    quantidade_baixa_antes = models.DecimalField(max_digits=10, decimal_places=3, null=True, blank=True)
+    codigo_barras_antes = models.CharField(max_length=50, blank=True, default='')
+    grupo_id_antes = models.PositiveIntegerField(null=True, blank=True)
+    ativo_antes = models.BooleanField(null=True, blank=True)
+
+    class Meta:
+        verbose_name = 'Snapshot produto (importação)'
+        verbose_name_plural = 'Snapshots produto (importação)'
+
+
+class IdempotenciaOperacao(models.Model):
+    """Reserva chave única por loja/endpoint para evitar processamento duplicado."""
+    loja = models.ForeignKey(Loja, on_delete=models.CASCADE, related_name='idempotencias')
+    usuario = models.ForeignKey(
+        User, on_delete=models.SET_NULL, null=True, blank=True,
+        related_name='idempotencias',
+    )
+    endpoint = models.CharField(max_length=80)
+    chave = models.CharField(max_length=64)
+    resposta = models.JSONField(default=dict, blank=True)
+    criado_em = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = 'Idempotência de operação'
+        verbose_name_plural = 'Idempotências de operação'
+        constraints = [
+            models.UniqueConstraint(
+                fields=['loja', 'endpoint', 'chave'],
+                name='idempotencia_unica_loja_endpoint_chave',
+            ),
+        ]
+        indexes = [
+            models.Index(fields=['criado_em'], name='app_pdv_idem_criado_idx'),
+        ]
+
+    def __str__(self):
+        return f'{self.endpoint}:{self.chave}'
 
 
 class Motoboy(models.Model):
@@ -2022,6 +2235,13 @@ def blindagem_edicao_item(sender, instance, **kwargs):
 def criar_formas_pagamento_nova_loja(sender, instance, created, **kwargs):
     if created:
         criar_formas_pagamento_padrao(instance)
+
+
+@receiver(post_save, sender=Loja)
+def criar_usuario_padrao_nova_loja(sender, instance, created, **kwargs):
+    if created:
+        from .loja_usuario import criar_usuario_padrao_loja
+        instance._usuario_padrao = criar_usuario_padrao_loja(instance)
 
 
 @receiver(post_delete, sender=ItemVenda)

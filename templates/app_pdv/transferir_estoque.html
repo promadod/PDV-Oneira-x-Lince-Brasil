@@ -10,7 +10,7 @@
         <p style="margin: 5px 0 0 0; color: #aaa;">Estoque atual nesta loja: <strong style="color: #03dac6;">{{ item.estoque_formatado }}</strong></p>
     </div>
 
-    <form method="POST">
+    <form method="POST" data-submit-lock-msg="Transferindo estoque…">
         {% csrf_token %}
         
         <div class="form-group" style="margin-bottom: 20px;">

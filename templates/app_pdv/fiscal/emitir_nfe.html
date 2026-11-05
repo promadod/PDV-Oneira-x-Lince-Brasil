@@ -1,0 +1,686 @@
+{% extends 'base.html' %}
+{% block title %}{% if doc_origem %}Editar e reemitir NF-e{% else %}Emitir NF-e{% endif %}{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<style>
+.pdv-cliente-row { display: flex; gap: 8px; align-items: stretch; }
+.pdv-cliente-row input { flex: 1; min-width: 0; }
+.btn-novo-cliente {
+    background: var(--accent, #15a0a5); color: #000; border: none;
+    border-radius: 6px; padding: 0 14px; font-size: 1.1rem; cursor: pointer; flex-shrink: 0;
+}
+.btn-novo-cliente:hover { filter: brightness(1.1); }
+.modal-cliente-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    z-index: 9999; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-cliente-overlay.aberto { display: flex; }
+.modal-cliente-box {
+    background: #1e1e1e; border-radius: 10px; padding: 22px; max-width: 420px; width: 100%;
+    border: 1px solid #333;
+}
+.modal-cliente-box h3 { margin: 0 0 16px; color: var(--accent, #15a0a5); }
+.modal-cliente-box label { display: block; margin: 10px 0 4px; font-size: 0.9em; }
+.modal-cliente-box input { width: 100%; box-sizing: border-box; }
+.modal-cliente-acoes { display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; }
+.nfe-page-header { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.nfe-badge-saida { background: rgba(21,160,165,0.2); border: 1px solid rgba(21,160,165,0.5); color: #03dac6; padding: 8px 14px; border-radius: 8px; font-size: 0.9em; }
+.nfe-accordion {
+    margin-bottom: 12px; border-radius: 10px; overflow: hidden;
+    border: 1px solid rgba(21, 160, 165, 0.45);
+    background: rgba(21, 160, 165, 0.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.25);
+}
+.nfe-accordion summary {
+    list-style: none; cursor: pointer; padding: 14px 18px 14px 16px; font-weight: 600; color: #f2f2f2;
+    display: flex; justify-content: space-between; align-items: center; user-select: none;
+    background: linear-gradient(90deg, rgba(21, 160, 165, 0.28) 0%, rgba(21, 160, 165, 0.08) 55%, rgba(30, 30, 30, 0.9) 100%);
+    border-left: 4px solid var(--accent, #15a0a5);
+}
+.nfe-accordion summary::-webkit-details-marker { display: none; }
+.nfe-accordion summary::after { content: '▾'; color: var(--accent, #15a0a5); font-size: 0.95em; }
+.nfe-accordion[open] summary {
+    border-bottom: 1px solid rgba(21, 160, 165, 0.35);
+    background: linear-gradient(90deg, rgba(21, 160, 165, 0.35) 0%, rgba(21, 160, 165, 0.12) 100%);
+}
+.nfe-accordion[open] summary::after { transform: rotate(180deg); }
+.nfe-accordion summary .nfe-card-extra { font-weight: 600; color: #03dac6; font-size: 0.95em; }
+.nfe-accordion-body {
+    padding: 16px 18px 20px;
+    background: rgba(0, 0, 0, 0.2);
+    border-top: 1px solid rgba(21, 160, 165, 0.15);
+}
+.nfe-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.nfe-grid .span-2 { grid-column: 1 / -1; }
+.nfe-total-bar {
+    margin: 16px 0; padding: 16px 20px; border-radius: 8px;
+    background: linear-gradient(90deg, #0d4f6e 0%, #15a0a5 100%);
+    display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.nfe-total-bar strong { font-size: 1.25em; color: #fff; }
+.nfe-hint { font-size: 0.85em; color: #888; margin: 6px 0 0; }
+.nfe-field-ie.is-hidden { display: none; }
+label { display: block; margin-bottom: 4px; font-size: 0.9em; color: #bbb; }
+</style>
+
+<div class="nfe-page-header">
+    <div>
+        <h2 style="margin:0;">{% if doc_origem %}Editar NF-e (modelo 55){% else %}Cadastrar NF-e (modelo 55){% endif %}</h2>
+        <p style="color:#aaa;margin:8px 0 0;">{% if doc_origem %}Corrigir a nota #{{ doc_origem.id }} e reenviar à SEFAZ.{% else %}Fiscal → NF-e — saída com destinatário, tributos e transporte.{% endif %}</p>
+    </div>
+    <div class="nfe-badge-saida"><i class="fas fa-file-export"></i> NF-e Saída</div>
+</div>
+
+<datalist id="lista_clientes_nfe">
+    {% for cliente in clientes %}
+    <option value="{{ cliente.nome }}"
+            data-endereco="{{ cliente.endereco|default:''|escape }}"
+            data-bairro="{{ cliente.bairro|default:''|escape }}"></option>
+    {% endfor %}
+</datalist>
+
+<div id="modal-novo-cliente" class="modal-cliente-overlay" role="dialog" aria-labelledby="modal-cliente-titulo">
+    <div class="modal-cliente-box">
+        <h3 id="modal-cliente-titulo"><i class="fas fa-user-plus"></i> Novo Cliente</h3>
+        <label for="modal_cliente_nome">Nome *</label>
+        <input type="text" id="modal_cliente_nome" class="form-control" autocomplete="off">
+        <label for="modal_cliente_whatsapp">WhatsApp</label>
+        <input type="text" id="modal_cliente_whatsapp" class="form-control" placeholder="(00) 00000-0000">
+        <label for="modal_cliente_endereco">Endereço</label>
+        <input type="text" id="modal_cliente_endereco" class="form-control">
+        <label for="modal_cliente_bairro">Bairro</label>
+        <input type="text" id="modal_cliente_bairro" class="form-control">
+        <div class="modal-cliente-acoes">
+            <button type="button" class="btn" id="btn-modal-cliente-cancelar" style="background:#555;color:#fff;">Cancelar</button>
+            <button type="button" class="btn" id="btn-modal-cliente-salvar" style="background:var(--accent,#15a0a5);color:#000;">Salvar</button>
+        </div>
+    </div>
+</div>
+
+<form method="post" data-submit-lock-msg="Emitindo NF-e…">
+    {% csrf_token %}
+    {{ form.codigo_municipio }}
+
+    <details class="nfe-accordion" open>
+        <summary>Natureza da operação</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2">
+                <label>Natureza (CFOP)</label>
+                <div class="pdv-cliente-row">
+                    {{ form.natureza_cfop }}
+                    <button type="button" id="btn-nova-natureza" class="btn btn-novo-cliente" title="Cadastrar natureza"><i class="fas fa-plus"></i></button>
+                </div>
+            </div>
+            <div><label>CFOP</label>{{ form.cfop }}</div>
+            <div><label>Tributação</label>{{ form.tributacao_nfe }}</div>
+            <div><label>Finalidade</label>{{ form.finalidade_emissao }}</div>
+            <div><label>Série (referência local)</label>{{ form.serie }}</div>
+            <div><label>Presença do comprador</label>{{ form.presenca_comprador }}</div>
+            <p class="span-2 nfe-hint" style="margin:0;">Numeração oficial no painel da API fiscal (não enviamos série/número no JSON).</p>
+        </div>
+    </details>
+
+<div id="modal-nova-natureza" class="modal-cliente-overlay" role="dialog">
+    <div class="modal-cliente-box">
+        <h3><i class="fas fa-list"></i> Nova natureza da operação</h3>
+        <label for="modal_nat_cfop">CFOP *</label>
+        <input type="text" id="modal_nat_cfop" class="form-control" placeholder="Ex.: 5667" maxlength="4">
+        <label for="modal_nat_desc">Descrição *</label>
+        <input type="text" id="modal_nat_desc" class="form-control" placeholder="Ex.: Venda de GLP a consumidor final">
+        <label for="modal_nat_trib">Tributação</label>
+        <select id="modal_nat_trib" class="form-control">
+            {% for val, label in form.tributacao_nfe.field.choices %}
+            <option value="{{ val }}">{{ label }}</option>
+            {% endfor %}
+        </select>
+        <div class="modal-cliente-acoes">
+            <button type="button" class="btn" id="btn-modal-nat-cancelar" style="background:#555;color:#fff;">Cancelar</button>
+            <button type="button" class="btn" id="btn-modal-nat-salvar" style="background:var(--accent,#15a0a5);color:#000;">Salvar</button>
+        </div>
+    </div>
+</div>
+
+    <details class="nfe-accordion" open>
+        <summary>Destinatário <span class="nfe-card-extra">Cliente / fornecedor</span></summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2">
+                <label>Nome / razão social *</label>
+                <div class="pdv-cliente-row">
+                    {{ form.nome_destinatario }}
+                    <button type="button" id="btn-novo-cliente" class="btn btn-novo-cliente" title="Cadastrar cliente"><i class="fas fa-plus"></i></button>
+                </div>
+                <p class="nfe-hint">Sugestões dos clientes cadastrados no PDV.</p>
+            </div>
+            <div><label>CNPJ</label>{{ form.cnpj_destinatario }}</div>
+            <div><label>CPF</label>{{ form.cpf_destinatario }}</div>
+            <div><label>Indicador IE</label>{{ form.indicador_ie_destinatario }}</div>
+            <div class="nfe-field-ie" id="wrap_ie_destinatario"><label>Inscrição Estadual (IE)</label>{{ form.inscricao_estadual_destinatario }}</div>
+            <div><label>CEP *</label>{{ form.cep }}</div>
+            <div><label>Número *</label>{{ form.numero }}</div>
+            <div class="span-2"><label>Logradouro *</label>{{ form.logradouro }}</div>
+            <div><label>Complemento</label>{{ form.complemento }}</div>
+            <div><label>Bairro *</label>{{ form.bairro }}</div>
+            <div><label>Município *</label>{{ form.municipio }}</div>
+            <div><label>UF *</label>{{ form.uf }}</div>
+        </div>
+    </details>
+
+    <details class="nfe-accordion" open>
+        <summary>Itens <span class="nfe-card-extra" id="nfe_resumo_itens">R$ 0,00</span></summary>
+        <div class="nfe-accordion-body">
+            <div class="avulsa-layout">
+                <div>
+                    <h4 style="margin:0 0 10px;color:#15a0a5;">Adicionar produto</h4>
+                    <div class="avulsa-row">
+                        <div><label>Produto</label><select id="nfe-comp-prod" class="form-control"></select></div>
+                        <div><label>Qtd</label><input id="nfe-comp-qtd" type="number" step="0.001" min="0.001" class="form-control" value="1"></div>
+                        <div><label>Preço (R$)</label><input id="nfe-comp-preco" type="number" step="0.01" min="0" class="form-control"></div>
+                        <div><label>Desc. (R$)</label><input id="nfe-comp-desc" type="number" step="0.01" min="0" class="form-control" value="0"></div>
+                        <div><label>Acrésc. (R$)</label><input id="nfe-comp-acre" type="number" step="0.01" min="0" class="form-control" value="0"></div>
+                        <button type="button" class="fiscal-btn fiscal-btn--accent fiscal-btn--sm avulsa-btn-add" id="nfe-add-item" title="Adicionar produto">+</button>
+                    </div>
+                </div>
+                <aside class="card avulsa-pedido">
+                    <h4 style="margin:0 0 8px;color:#15a0a5;">Produtos da nota</h4>
+                    <div id="nfe-lista-itens"></div>
+                    <p id="nfe-empty-itens" class="avulsa-empty">Nenhum produto adicionado.</p>
+                    <div id="nfe-hidden-itens"></div>
+                </aside>
+            </div>
+        </div>
+    </details>
+
+    <details class="nfe-accordion">
+        <summary>Cálculo / totais</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div><label>Total produtos</label><input type="text" class="form-control" id="nfe_total_produtos" readonly value="R$ 0,00"></div>
+            <div><label>Desconto</label><input type="text" class="form-control" id="nfe_total_desconto" readonly value="R$ 0,00"></div>
+            <div><label>Frete</label><input type="text" class="form-control" id="nfe_total_frete" readonly value="R$ 0,00"></div>
+            <div><label>Acréscimo</label><input type="text" class="form-control" id="nfe_total_acrescimo" readonly value="R$ 0,00"></div>
+            <p class="span-2 nfe-hint" style="margin:0;">Impostos (ICMS, PIS, COFINS) calculados automaticamente pela API com base no cadastro fiscal do produto.</p>
+        </div>
+    </details>
+
+    <details class="nfe-accordion">
+        <summary>Transportador / volumes</summary>
+        <div class="nfe-accordion-body nfe-grid">
+            <div class="span-2"><label>Frete por conta</label>{{ form.modalidade_frete }}</div>
+            <div><label>Valor frete (R$)</label>{{ form.valor_frete }}</div>
+            <div><label>Quantidade volumes</label>{{ form.quantidade_volumes }}</div>
+            <div><label>Peso bruto (kg)</label>{{ form.peso_bruto }}</div>
+            <div><label>Peso líquido (kg)</label>{{ form.peso_liquido }}</div>
+        </div>
+    </details>
+
+    <details class="nfe-accordion" open>
+        <summary>Formas de pagamento</summary>
+        <div class="nfe-accordion-body">
+            <div class="avulsa-layout">
+                <div>
+                    <h4 style="margin:0 0 10px;color:#15a0a5;">Adicionar pagamento</h4>
+                    <p class="nfe-hint">A soma dos valores deve igualar o total da nota. Use + para pagamento dividido.</p>
+                    <div class="avulsa-row avulsa-row--pag">
+                        <div><label>Forma</label><select id="nfe-comp-pag-forma" class="form-control"></select></div>
+                        <div><label>Valor (R$)</label><input id="nfe-comp-pag-valor" type="number" step="0.01" min="0" class="form-control"></div>
+                        <button type="button" class="fiscal-btn fiscal-btn--accent fiscal-btn--sm avulsa-btn-add" id="nfe-add-pag" title="Adicionar pagamento">+</button>
+                    </div>
+                </div>
+                <aside class="card avulsa-pedido">
+                    <h4 style="margin:0 0 8px;color:#15a0a5;">Pagamentos da nota</h4>
+                    <div id="nfe-lista-pags"></div>
+                    <p id="nfe-empty-pags" class="avulsa-empty">Nenhum pagamento adicionado.</p>
+                    <p id="nfe-totais-pag" class="avulsa-totais"></p>
+                    <div id="nfe-hidden-pags"></div>
+                </aside>
+            </div>
+        </div>
+    </details>
+
+    <div class="nfe-total-bar">
+        <span>Total da NF-e</span>
+        <strong id="nfe_total_geral">R$ 0,00</strong>
+    </div>
+
+    <button type="submit" class="btn btn-success">{% if doc_origem %}Salvar e reemitir NF-e{% else %}Emitir NF-e{% endif %}</button>
+</form>
+
+<script>
+(function () {
+    const produtos = {{ produtos_json|default:'[]'|safe }};
+    const formas = {{ formas_pagamento_json|default:'[]'|safe }};
+    const itensInicial = {{ itens_inicial_json|default:'[]'|safe }};
+    const pagsInicial = {{ pagamentos_inicial_json|default:'[]'|safe }};
+    const itens = [];
+    const pags = [];
+
+    function brl(n) {
+        return 'R$ ' + (isNaN(n) ? 0 : n).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+    function numEl(el) { return parseFloat(String(el && el.value || '0').replace(',', '.')) || 0; }
+    function num(id) {
+        var el = document.getElementById(id);
+        if (!el) return 0;
+        return parseFloat(String(el.value || '').replace(',', '.')) || 0;
+    }
+    function money(n) { return (Math.round(n * 100) / 100).toFixed(2); }
+    function nomeProduto(id) {
+        const p = produtos.find(function (x) { return String(x.id) === String(id); });
+        return p ? (p.nome + ' (#' + p.id + ')') : ('Produto #' + id);
+    }
+    function nomeForma(cod) {
+        const f = formas.find(function (x) { return String(x[0]) === String(cod); });
+        return f ? f[1] : cod;
+    }
+    function precoDoProduto(id) {
+        const p = produtos.find(function (x) { return String(x.id) === String(id); });
+        return p ? p.preco : '';
+    }
+    function totaisItens() {
+        let bruto = 0, desc = 0, acres = 0;
+        itens.forEach(function (i) {
+            bruto += (parseFloat(i.quantidade) || 0) * (parseFloat(i.preco_unitario) || 0);
+            desc += parseFloat(i.valor_desconto) || 0;
+            acres += parseFloat(i.valor_acrescimo) || 0;
+        });
+        return { bruto: bruto, desc: desc, acres: acres, liquido: bruto - desc + acres };
+    }
+    function setMoney(id, v) {
+        var e = document.getElementById(id);
+        if (!e) return;
+        var txt = brl(v);
+        if (e.tagName === 'INPUT' || e.tagName === 'TEXTAREA' || e.tagName === 'SELECT') e.value = txt;
+        else e.textContent = txt;
+    }
+    function recalcTotais() {
+        var t = totaisItens();
+        var frete = num('id_valor_frete');
+        var total = Math.max(t.liquido + frete, t.bruto === 0 && t.desc === 0 && t.acres === 0 && frete === 0 ? 0 : 0.01);
+        if (t.bruto === 0 && t.desc === 0 && t.acres === 0 && frete === 0) total = 0;
+        else total = Math.max(t.liquido + frete, 0.01);
+        setMoney('nfe_total_produtos', t.bruto);
+        setMoney('nfe_total_desconto', t.desc);
+        setMoney('nfe_total_acrescimo', t.acres);
+        setMoney('nfe_total_frete', frete);
+        setMoney('nfe_resumo_itens', total);
+        setMoney('nfe_total_geral', total);
+        var pago = pags.reduce(function (s, p) { return s + (parseFloat(p.valor_pagamento) || 0); }, 0);
+        var pagEl = document.getElementById('nfe-totais-pag');
+        if (pagEl) {
+            var ok = itens.length && pags.length && Math.abs(pago - (t.liquido + frete)) < 0.05;
+            pagEl.textContent = 'Total: ' + brl(t.liquido + frete) + ' · Pagamentos: ' + brl(pago)
+                + (itens.length && pags.length && !ok ? ' (a soma deve igualar o total)' : '');
+            pagEl.style.color = (!itens.length || !pags.length) ? '#888' : (ok ? '#03dac6' : '#cf6679');
+        }
+        var inpPag = document.getElementById('nfe-comp-pag-valor');
+        if (inpPag && !inpPag.dataset.manual) {
+            inpPag.value = money(Math.max(t.liquido + frete - pago, 0));
+        }
+    }
+    function syncHidden() {
+        var boxI = document.getElementById('nfe-hidden-itens');
+        var boxP = document.getElementById('nfe-hidden-pags');
+        var html = '';
+        itens.forEach(function (i) {
+            html += '<input type="hidden" name="item_produto_id" value="' + i.produto_id + '">';
+            html += '<input type="hidden" name="item_quantidade" value="' + i.quantidade + '">';
+            html += '<input type="hidden" name="item_preco" value="' + i.preco_unitario + '">';
+            html += '<input type="hidden" name="item_desconto" value="' + (i.valor_desconto || 0) + '">';
+            html += '<input type="hidden" name="item_acrescimo" value="' + (i.valor_acrescimo || 0) + '">';
+        });
+        if (boxI) boxI.innerHTML = html;
+        html = '';
+        pags.forEach(function (p) {
+            html += '<input type="hidden" name="pag_forma" value="' + p.forma_pagamento + '">';
+            html += '<input type="hidden" name="pag_valor" value="' + p.valor_pagamento + '">';
+        });
+        if (boxP) boxP.innerHTML = html;
+    }
+    function renderNfeListas() {
+        var listaI = document.getElementById('nfe-lista-itens');
+        var listaP = document.getElementById('nfe-lista-pags');
+        var emptyI = document.getElementById('nfe-empty-itens');
+        var emptyP = document.getElementById('nfe-empty-pags');
+        listaI.innerHTML = '';
+        itens.forEach(function (i, idx) {
+            var linha = (parseFloat(i.quantidade) || 0) * (parseFloat(i.preco_unitario) || 0)
+                - (parseFloat(i.valor_desconto) || 0) + (parseFloat(i.valor_acrescimo) || 0);
+            var el = document.createElement('div');
+            el.className = 'avulsa-pedido-item';
+            el.innerHTML =
+                '<div><strong>' + nomeProduto(i.produto_id) + '</strong>' +
+                '<span>' + i.quantidade + ' × R$ ' + money(i.preco_unitario) + '</span></div>' +
+                '<div class="avulsa-pedido-valor">R$ ' + money(linha) +
+                ' <button type="button" class="fiscal-btn fiscal-btn--sm js-del-item" data-idx="' + idx + '" title="Remover">×</button></div>';
+            listaI.appendChild(el);
+        });
+        listaP.innerHTML = '';
+        pags.forEach(function (p, idx) {
+            var el = document.createElement('div');
+            el.className = 'avulsa-pedido-item';
+            el.innerHTML =
+                '<div><strong>' + nomeForma(p.forma_pagamento) + '</strong></div>' +
+                '<div class="avulsa-pedido-valor">R$ ' + money(p.valor_pagamento) +
+                ' <button type="button" class="fiscal-btn fiscal-btn--sm js-del-pag" data-idx="' + idx + '" title="Remover">×</button></div>';
+            listaP.appendChild(el);
+        });
+        if (emptyI) emptyI.style.display = itens.length ? 'none' : '';
+        if (emptyP) emptyP.style.display = pags.length ? 'none' : '';
+        syncHidden();
+        recalcTotais();
+        autoCombustivelNfe();
+    }
+    var selProd = document.getElementById('nfe-comp-prod');
+    var inpQtd = document.getElementById('nfe-comp-qtd');
+    var inpPreco = document.getElementById('nfe-comp-preco');
+    var inpDesc = document.getElementById('nfe-comp-desc');
+    var inpAcre = document.getElementById('nfe-comp-acre');
+    var selPag = document.getElementById('nfe-comp-pag-forma');
+    var inpPagValor = document.getElementById('nfe-comp-pag-valor');
+    if (selProd) {
+        var html = '<option value="">— Selecione —</option>';
+        produtos.forEach(function (p) {
+            html += '<option value="' + p.id + '">' + p.nome + ' (#' + p.id + ')</option>';
+        });
+        selProd.innerHTML = html;
+        selProd.addEventListener('change', function () {
+            if (inpPreco && !inpPreco.dataset.manual) inpPreco.value = precoDoProduto(selProd.value);
+        });
+    }
+    if (inpPreco) inpPreco.addEventListener('input', function () { inpPreco.dataset.manual = '1'; });
+    if (selPag) {
+        var htmlP = '';
+        formas.forEach(function (f) { htmlP += '<option value="' + f[0] + '">' + f[1] + '</option>'; });
+        selPag.innerHTML = htmlP;
+        selPag.value = '01';
+    }
+    if (inpPagValor) inpPagValor.addEventListener('input', function () { inpPagValor.dataset.manual = '1'; });
+    var btnAddItem = document.getElementById('nfe-add-item');
+    if (btnAddItem) btnAddItem.addEventListener('click', function () {
+        if (!selProd || !selProd.value) { alert('Selecione um produto.'); return; }
+        var qtd = numEl(inpQtd) || 1;
+        var preco = numEl(inpPreco);
+        if (preco <= 0) { alert('Informe o preço do produto.'); return; }
+        itens.push({
+            produto_id: selProd.value,
+            quantidade: qtd,
+            preco_unitario: preco,
+            valor_desconto: numEl(inpDesc),
+            valor_acrescimo: numEl(inpAcre),
+        });
+        inpQtd.value = '1';
+        inpDesc.value = '0';
+        inpAcre.value = '0';
+        inpPreco.value = '';
+        delete inpPreco.dataset.manual;
+        selProd.value = '';
+        renderNfeListas();
+    });
+    var btnAddPag = document.getElementById('nfe-add-pag');
+    if (btnAddPag) btnAddPag.addEventListener('click', function () {
+        var valor = numEl(inpPagValor);
+        if (valor <= 0) { alert('Informe o valor do pagamento.'); return; }
+        pags.push({ forma_pagamento: (selPag && selPag.value) || '01', valor_pagamento: valor });
+        if (inpPagValor) delete inpPagValor.dataset.manual;
+        renderNfeListas();
+    });
+    var listaI = document.getElementById('nfe-lista-itens');
+    if (listaI) listaI.addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.js-del-item');
+        if (!btn) return;
+        itens.splice(parseInt(btn.dataset.idx, 10), 1);
+        renderNfeListas();
+    });
+    var listaP = document.getElementById('nfe-lista-pags');
+    if (listaP) listaP.addEventListener('click', function (ev) {
+        var btn = ev.target.closest('.js-del-pag');
+        if (!btn) return;
+        pags.splice(parseInt(btn.dataset.idx, 10), 1);
+        renderNfeListas();
+    });
+    var freteEl = document.getElementById('id_valor_frete');
+    if (freteEl) {
+        freteEl.addEventListener('input', recalcTotais);
+        freteEl.addEventListener('change', recalcTotais);
+    }
+    (itensInicial || []).forEach(function (i) {
+        if (!i.produto_id) return;
+        itens.push({
+            produto_id: i.produto_id,
+            quantidade: i.quantidade || 1,
+            preco_unitario: i.preco_unitario || precoDoProduto(i.produto_id) || 0,
+            valor_desconto: i.valor_desconto || 0,
+            valor_acrescimo: i.valor_acrescimo || 0,
+        });
+    });
+    (pagsInicial || []).forEach(function (p) {
+        pags.push({
+            forma_pagamento: p.forma_pagamento || '01',
+            valor_pagamento: p.valor_pagamento || 0,
+        });
+    });
+    renderNfeListas();
+
+    var sel = document.getElementById('id_natureza_cfop');
+    var cfop = document.getElementById('id_cfop');
+    if (sel && cfop) {
+        function sync() { cfop.value = sel.value || ''; autoCombustivelNfe(); }
+        sel.addEventListener('change', sync);
+        sync();
+    }
+
+    function cfopCombustivel(c) {
+        c = String(c || '').replace(/\D/g, '').slice(0, 4);
+        if (c.length !== 4) return false;
+        return c.charAt(1) === '6' && '567'.indexOf(c.charAt(2)) >= 0;
+    }
+    function pesoKgDoNome(txt) {
+        var m = String(txt || '').match(/(\d+(?:[.,]\d+)?)\s*kg/i);
+        if (m) return parseFloat(String(m[1]).replace(',', '.')) || 0;
+        m = String(txt || '').match(/(?:^|[^A-Za-z0-9])P\s*(0?8|10|13|20|45|90)(?:\b|[^0-9])/i);
+        if (m) return parseFloat(m[1]) || 0;
+        return 0;
+    }
+    function autoCombustivelNfe() {
+        var cf = cfop ? cfop.value : '';
+        if (!cfopCombustivel(cf)) return;
+        var trib = document.getElementById('id_tributacao_nfe');
+        if (trib && (trib.value === 'produto' || trib.value === 'csosn_102')) {
+            trib.value = 'cst_61_combustivel';
+        }
+        var kgTotal = 0;
+        var qtdTotal = 0;
+        itens.forEach(function (i) {
+            var qtd = parseFloat(i.quantidade) || 1;
+            qtdTotal += qtd;
+            kgTotal += pesoKgDoNome(nomeProduto(i.produto_id)) * qtd;
+        });
+        if (!(kgTotal > 0)) return;
+        var pesoL = document.getElementById('id_peso_liquido');
+        var pesoB = document.getElementById('id_peso_bruto');
+        var qvol = document.getElementById('id_quantidade_volumes');
+        if (pesoL && !(parseFloat(pesoL.value) > 0)) {
+            pesoL.value = kgTotal.toFixed(3);
+        }
+        if (pesoB && !(parseFloat(pesoB.value) > 0)) {
+            pesoB.value = (kgTotal * 2.077).toFixed(3);
+        }
+        if (qvol && !(parseInt(qvol.value, 10) > 0)) {
+            qvol.value = String(Math.max(1, Math.round(qtdTotal)));
+        }
+    }
+    autoCombustivelNfe();
+
+    var modalNat = document.getElementById('modal-nova-natureza');
+    var btnNovaNat = document.getElementById('btn-nova-natureza');
+    var btnSalvarNat = document.getElementById('btn-modal-nat-salvar');
+    var btnCancelNat = document.getElementById('btn-modal-nat-cancelar');
+    function fecharNat() { if (modalNat) modalNat.classList.remove('aberto'); }
+    if (btnNovaNat) btnNovaNat.addEventListener('click', function () {
+        if (!modalNat) return;
+        document.getElementById('modal_nat_cfop').value = cfop ? cfop.value : '';
+        document.getElementById('modal_nat_desc').value = '';
+        modalNat.classList.add('aberto');
+    });
+    if (btnCancelNat) btnCancelNat.addEventListener('click', fecharNat);
+    if (modalNat) modalNat.addEventListener('click', function (e) { if (e.target === modalNat) fecharNat(); });
+    if (btnSalvarNat) {
+        btnSalvarNat.addEventListener('click', async function () {
+            btnSalvarNat.disabled = true;
+            try {
+                var resp = await fetch('{% url "fiscal_natureza_criar" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({
+                        cfop: document.getElementById('modal_nat_cfop').value.trim(),
+                        descricao: document.getElementById('modal_nat_desc').value.trim(),
+                        tributacao: document.getElementById('modal_nat_trib').value
+                    })
+                });
+                var data = await resp.json();
+                if (!resp.ok) { alert(data.erro || 'Erro ao salvar natureza.'); return; }
+                if (sel) {
+                    var opt = document.createElement('option');
+                    opt.value = data.cfop;
+                    opt.textContent = data.label;
+                    sel.appendChild(opt);
+                    sel.value = data.cfop;
+                    if (cfop) cfop.value = data.cfop;
+                }
+                fecharNat();
+            } catch (err) {
+                alert('Erro de rede.');
+            } finally {
+                btnSalvarNat.disabled = false;
+            }
+        });
+    }
+
+    var indIe = document.getElementById('id_indicador_ie_destinatario');
+    var wrapIe = document.getElementById('wrap_ie_destinatario');
+    function syncIeField() {
+        if (!indIe || !wrapIe) return;
+        wrapIe.classList.toggle('is-hidden', indIe.value !== '1');
+    }
+    if (indIe) {
+        indIe.addEventListener('change', syncIeField);
+        syncIeField();
+    }
+
+    var cnpjEl = document.getElementById('id_cnpj_destinatario');
+    var cpfEl = document.getElementById('id_cpf_destinatario');
+    function syncDocTipo() {
+        if (cpfEl && cpfEl.value.replace(/\D/g, '').length === 11 && indIe) {
+            indIe.value = '9';
+            syncIeField();
+        }
+    }
+    if (cpfEl) cpfEl.addEventListener('blur', syncDocTipo);
+
+    var nomeInput = document.getElementById('id_nome_destinatario');
+    var datalist = document.getElementById('lista_clientes_nfe');
+    if (nomeInput && datalist) {
+        nomeInput.addEventListener('change', function () {
+            var val = nomeInput.value.trim();
+            datalist.querySelectorAll('option').forEach(function (opt) {
+                if (opt.value !== val) return;
+                var log = document.getElementById('id_logradouro');
+                var bairro = document.getElementById('id_bairro');
+                if (log && opt.dataset.endereco) log.value = opt.dataset.endereco;
+                if (bairro && opt.dataset.bairro) bairro.value = opt.dataset.bairro;
+            });
+        });
+    }
+
+    var cepEl = document.getElementById('id_cep');
+    var ibgeEl = document.getElementById('id_codigo_municipio');
+    function preencherEnderecoViaCep(cepDigits) {
+        if (!cepDigits || cepDigits.length !== 8) return;
+        fetch('https://viacep.com.br/ws/' + cepDigits + '/json/')
+            .then(function (r) { return r.json(); })
+            .then(function (data) {
+                if (data.erro) return;
+                var map = {
+                    id_logradouro: data.logradouro,
+                    id_bairro: data.bairro,
+                    id_municipio: data.localidade,
+                    id_uf: data.uf
+                };
+                Object.keys(map).forEach(function (id) {
+                    var el = document.getElementById(id);
+                    if (el && map[id]) el.value = map[id];
+                });
+                if (ibgeEl && data.ibge) ibgeEl.value = data.ibge;
+                var num = document.getElementById('id_numero');
+                if (num && !num.value.trim()) num.focus();
+            })
+            .catch(function () {});
+    }
+    if (cepEl) {
+        cepEl.addEventListener('blur', function () {
+            preencherEnderecoViaCep((cepEl.value || '').replace(/\D/g, ''));
+        });
+    }
+
+    var modal = document.getElementById('modal-novo-cliente');
+    var btnNovo = document.getElementById('btn-novo-cliente');
+    var btnSalvar = document.getElementById('btn-modal-cliente-salvar');
+    var btnCancelar = document.getElementById('btn-modal-cliente-cancelar');
+    function fecharModal() { if (modal) modal.classList.remove('aberto'); }
+    function abrirModal() {
+        if (!modal) return;
+        ['modal_cliente_nome', 'modal_cliente_whatsapp', 'modal_cliente_endereco', 'modal_cliente_bairro'].forEach(function (id) {
+            var e = document.getElementById(id);
+            if (e) e.value = '';
+        });
+        modal.classList.add('aberto');
+        document.getElementById('modal_cliente_nome').focus();
+    }
+    if (btnNovo) btnNovo.addEventListener('click', abrirModal);
+    if (btnCancelar) btnCancelar.addEventListener('click', fecharModal);
+    if (modal) modal.addEventListener('click', function (e) { if (e.target === modal) fecharModal(); });
+    if (btnSalvar) {
+        btnSalvar.addEventListener('click', async function () {
+            var nome = document.getElementById('modal_cliente_nome').value.trim();
+            if (!nome) { alert('Informe o nome do cliente.'); return; }
+            btnSalvar.disabled = true;
+            try {
+                var resp = await fetch('{% url "api_criar_cliente_pdv" %}', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value
+                    },
+                    body: JSON.stringify({
+                        nome: nome,
+                        whatsapp: document.getElementById('modal_cliente_whatsapp').value.trim(),
+                        endereco: document.getElementById('modal_cliente_endereco').value.trim(),
+                        bairro: document.getElementById('modal_cliente_bairro').value.trim()
+                    })
+                });
+                var data = await resp.json();
+                if (!resp.ok) { alert(data.erro || 'Não foi possível cadastrar.'); return; }
+                var opt = document.createElement('option');
+                opt.value = data.nome;
+                opt.dataset.endereco = data.endereco || '';
+                opt.dataset.bairro = data.bairro || '';
+                datalist.appendChild(opt);
+                if (nomeInput) nomeInput.value = data.nome;
+                var log = document.getElementById('id_logradouro');
+                var bairro = document.getElementById('id_bairro');
+                if (log && data.endereco) log.value = data.endereco;
+                if (bairro && data.bairro) bairro.value = data.bairro;
+                fecharModal();
+            } catch (err) {
+                alert('Erro de rede.');
+            } finally {
+                btnSalvar.disabled = false;
+            }
+        });
+    }
+})();
+</script>
+{% endblock %}

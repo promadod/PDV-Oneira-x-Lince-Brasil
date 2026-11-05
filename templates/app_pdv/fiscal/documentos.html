@@ -1,0 +1,157 @@
+{% extends 'base.html' %}
+{% load humanize %}
+{% block title %}Documentos Fiscais{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+
+<div class="fiscal-page-head">
+    <div>
+        <h2>Documentos fiscais</h2>
+        <p class="fiscal-page-sub">NF-e, NFC-e e NFS-e emitidos no período</p>
+    </div>
+    <a href="{% url 'fiscal_emitir' %}" class="fiscal-btn fiscal-btn--accent"><i class="fas fa-plus"></i> Emitir novo</a>
+</div>
+
+<form method="get" class="fiscal-filter-panel" data-submit-lock="off">
+    <div class="fiscal-filter-grid">
+        <div>
+            <label for="id_periodo">Período</label>
+            <select name="periodo" id="id_periodo" class="form-control">
+                <option value="hoje" {% if filtro_periodo == 'hoje' %}selected{% endif %}>Hoje</option>
+                <option value="ontem" {% if filtro_periodo == 'ontem' %}selected{% endif %}>Ontem</option>
+                <option value="7dias" {% if filtro_periodo == '7dias' %}selected{% endif %}>Últimos 7 dias</option>
+                <option value="mes_atual" {% if filtro_periodo == 'mes_atual' %}selected{% endif %}>Mês atual</option>
+                <option value="mes_anterior" {% if filtro_periodo == 'mes_anterior' %}selected{% endif %}>Mês anterior</option>
+                <option value="personalizado" {% if filtro_periodo == 'personalizado' %}selected{% endif %}>Período personalizado</option>
+            </select>
+        </div>
+        <div>
+            <label for="id_data_inicial">Data inicial</label>
+            <input type="date" name="data_inicial" id="id_data_inicial" class="form-control" value="{{ filtro_data_inicial }}">
+        </div>
+        <div>
+            <label for="id_data_final">Data final</label>
+            <input type="date" name="data_final" id="id_data_final" class="form-control" value="{{ filtro_data_final }}">
+        </div>
+        <div>
+            <label for="id_tipo">Tipo</label>
+            <select name="tipo" id="id_tipo" class="form-control">
+                <option value="">Todos</option>
+                <option value="nfce" {% if filtro_tipo == 'nfce' %}selected{% endif %}>NFC-e</option>
+                <option value="nfe" {% if filtro_tipo == 'nfe' %}selected{% endif %}>NF-e</option>
+                <option value="nfse" {% if filtro_tipo == 'nfse' %}selected{% endif %}>NFS-e</option>
+            </select>
+        </div>
+        <div>
+            <label for="id_status">Status</label>
+            <select name="status" id="id_status" class="form-control">
+                <option value="">Todos</option>
+                <option value="autorizado" {% if filtro_status == 'autorizado' %}selected{% endif %}>Autorizado</option>
+                <option value="processando" {% if filtro_status == 'processando' %}selected{% endif %}>Processando</option>
+                <option value="erro" {% if filtro_status == 'erro' %}selected{% endif %}>Erro</option>
+                <option value="cancelado" {% if filtro_status == 'cancelado' %}selected{% endif %}>Cancelado</option>
+                <option value="denegado" {% if filtro_status == 'denegado' %}selected{% endif %}>Denegado</option>
+            </select>
+        </div>
+        <div class="fiscal-filter-actions">
+            <button type="submit" class="fiscal-btn fiscal-btn--accent"><i class="fas fa-search"></i> Pesquisar</button>
+        </div>
+    </div>
+</form>
+
+<div class="fiscal-stats-grid">
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon"><i class="fas fa-file-invoice"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Documentos</div>
+            <div class="fiscal-stat-value">{{ doc_stats.total_documentos|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon"><i class="fas fa-check-circle"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Autorizadas</div>
+            <div class="fiscal-stat-value">{{ doc_stats.autorizados|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon"><i class="fas fa-dollar-sign"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Faturamento</div>
+            <div class="fiscal-stat-value fiscal-stat-value--sm">R$ {{ doc_stats.faturamento|floatformat:2|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon fiscal-stat-icon--warn"><i class="fas fa-receipt"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Total de taxas</div>
+            <div class="fiscal-stat-value fiscal-stat-value--sm">R$ {{ doc_stats.total_taxas|default:doc_stats.taxa_entrega|floatformat:2|intcomma }}</div>
+        </div>
+    </div>
+    <div class="fiscal-stat-card">
+        <div class="fiscal-stat-icon fiscal-stat-icon--danger"><i class="fas fa-ban"></i></div>
+        <div>
+            <div class="fiscal-stat-label">Canceladas</div>
+            <div class="fiscal-stat-value">{{ doc_stats.cancelados|intcomma }}</div>
+        </div>
+    </div>
+</div>
+
+<div class="fiscal-table-card">
+    <div class="fiscal-table-wrap">
+        <table class="fiscal-table">
+            <thead>
+                <tr>
+                    <th>Número</th>
+                    <th>Doc.</th>
+                    <th>Emissão</th>
+                    <th>Operador</th>
+                    <th>Cliente</th>
+                    <th>Status</th>
+                    <th>Valor</th>
+                    <th>Origem</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for d in documentos %}
+                <tr>
+                    <td>{{ d.numero|default:"—" }}</td>
+                    <td>{{ d.get_tipo_display }}</td>
+                    <td style="white-space:nowrap;">{{ d.criado_em|date:"d/m/Y H:i" }}</td>
+                    <td style="font-size:0.85em;">{{ d.fiscal_operador_label }}</td>
+                    <td>{{ d.fiscal_cliente_label }}</td>
+                    <td>
+                        <span class="fiscal-status-pill fiscal-status-pill--{{ d.fiscal_status_key|default:d.status|default:'default' }}">{{ d.fiscal_status_label|default:d.get_status_display }}</span>
+                    </td>
+                    <td style="white-space:nowrap;">R$ {{ d.valor_total|floatformat:2 }}</td>
+                    <td style="font-size:0.88em;">
+                        {% if d.venda_id %}Venda #{{ d.venda_id }}
+                        {% elif d.produto_avulso_id %}Avulsa · {{ d.produto_avulso.nome_venda }}
+                        {% else %}<span class="fiscal-ref" title="{{ d.ref }}">{{ d.ref|truncatechars:24 }}</span>{% endif %}
+                    </td>
+                    <td>
+                        <div class="fiscal-link-actions">
+                            <a href="{% url 'fiscal_documento_detalhe' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">Abrir</a>
+                            {% if d.status == 'erro' or d.status == 'denegado' %}
+                            <a href="{% url 'fiscal_documento_editar' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm" title="Corrigir o campo e reemitir">Editar</a>
+                            <form method="post" action="{% url 'fiscal_documento_reemitir' d.id %}" data-submit-lock-msg="Reemitindo…">
+                                {% csrf_token %}
+                                <button type="submit" class="fiscal-btn fiscal-btn--warn fiscal-btn--sm" title="Enviar novamente com os mesmos dados">Reemitir</button>
+                            </form>
+                            {% endif %}
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="9" style="padding:28px;text-align:center;color:#888;">Nenhum documento no período.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+    {% if documentos %}
+    <div class="fiscal-table-foot">Exibindo até {{ doc_limite }} registros · Refine o período ou filtros para reduzir a lista.</div>
+    {% endif %}
+</div>
+
+{% endblock %}

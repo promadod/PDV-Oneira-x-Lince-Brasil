@@ -1,0 +1,60 @@
+{% load static %}
+<link rel="stylesheet" href="{% static 'css/fiscal.css' %}">
+{% with an=request.resolver_match.url_name nav=fiscal_nav_ativa|default:'' %}
+<div class="card fiscal-nav-card">
+    <nav class="fiscal-nav" aria-label="Módulo fiscal">
+        {% if 'hub' in fiscal_telas %}
+        <a href="{% url 'fiscal_hub' %}" class="fiscal-nav-btn{% if an == 'fiscal_hub' %} is-active{% endif %}">Hub</a>
+        {% endif %}
+        {% if fiscal_pode_config %}
+        <a href="{% url 'fiscal_focus' %}" class="fiscal-nav-btn{% if an == 'fiscal_focus' or an == 'fiscal_focus_salvar' or an == 'fiscal_focus_testar' or an == 'fiscal_focus_registrar_webhooks' %} is-active{% endif %}">Integração API</a>
+        <a href="{% url 'fiscal_config' %}" class="fiscal-nav-btn{% if an == 'fiscal_config' %} is-active{% endif %}">Config</a>
+        {% endif %}
+        {% if 'matriz' in fiscal_telas %}
+        <a href="{% url 'fiscal_matriz' %}" class="fiscal-nav-btn{% if an == 'fiscal_matriz' or an == 'fiscal_matriz_excluir' %} is-active{% endif %}">Matriz</a>
+        {% endif %}
+        {% if 'produtos' in fiscal_telas %}
+        <a href="{% url 'fiscal_produtos' %}" class="fiscal-nav-btn{% if an == 'fiscal_produtos' or an == 'fiscal_produto_editar' %} is-active{% endif %}">Produtos</a>
+        {% endif %}
+        {% if 'avulsa' in fiscal_telas %}
+        <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_avulsa' or an == 'fiscal_documento_editar' and nav != 'nfe' %} is-active{% endif %}">Avulsa</a>
+        {% endif %}
+        {% if 'documentos' in fiscal_telas %}
+        <a href="{% url 'fiscal_documentos' %}" class="fiscal-nav-btn{% if an == 'fiscal_documentos' or an == 'fiscal_documento_detalhe' or an == 'fiscal_documento_cancelar' or an == 'fiscal_documento_cce' %} is-active{% endif %}">Documentos</a>
+        {% endif %}
+        {% if 'nfce' in fiscal_telas %}
+        <a href="{% url 'fiscal_emitir' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir' %} is-active{% endif %}">NFC-e</a>
+        {% endif %}
+        {% if 'lote' in fiscal_telas %}
+        <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_lote' or an == 'fiscal_lote_detalhe' %} is-active{% endif %}">NFC-e Lote</a>
+        {% endif %}
+        {% if 'nfe' in fiscal_telas %}
+        <a href="{% url 'fiscal_emitir_nfe' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_nfe' or nav == 'nfe' %} is-active{% endif %}">NF-e</a>
+        {% endif %}
+        {% if 'contabilidade' in fiscal_telas %}
+        <a href="{% url 'fiscal_contabilidade' %}" class="fiscal-nav-btn{% if an == 'fiscal_contabilidade' or an == 'fiscal_contabilidade_baixar' %} is-active{% endif %}">Contabilidade</a>
+        {% endif %}
+        {% if 'relatorios' in fiscal_telas %}
+        <a href="{% url 'fiscal_relatorios' %}" class="fiscal-nav-btn{% if an == 'fiscal_relatorios' or an == 'fiscal_relatorio' %} is-active{% endif %}">Relatórios</a>
+        {% endif %}
+        {% if 'webhooks' in fiscal_telas %}
+        <a href="{% url 'fiscal_webhooks' %}" class="fiscal-nav-btn{% if an == 'fiscal_webhooks' %} is-active{% endif %}">Webhooks</a>
+        {% endif %}
+        {% if 'contingencia' in fiscal_telas %}
+        <a href="{% url 'fiscal_contingencia' %}" class="fiscal-nav-btn{% if an == 'fiscal_contingencia' %} is-active{% endif %}">Contingência</a>
+        {% endif %}
+        {% if 'arquivos' in fiscal_telas %}
+        <a href="{% url 'fiscal_arquivos' %}" class="fiscal-nav-btn{% if an == 'fiscal_arquivos' %} is-active{% endif %}">Arquivos</a>
+        {% endif %}
+        {% if 'reforma' in fiscal_telas %}
+        <a href="{% url 'fiscal_reforma' %}" class="fiscal-nav-btn{% if an == 'fiscal_reforma' %} is-active{% endif %}">Reforma</a>
+        {% endif %}
+        {% if 'inutilizacao' in fiscal_telas %}
+        <a href="{% url 'fiscal_inutilizacao' %}" class="fiscal-nav-btn{% if an == 'fiscal_inutilizacao' %} is-active{% endif %}">Inutilização</a>
+        {% endif %}
+        {% if 'manifestacao' in fiscal_telas %}
+        <a href="{% url 'fiscal_manifestacao' %}" class="fiscal-nav-btn{% if an == 'fiscal_manifestacao' or an == 'fiscal_manifestar' %} is-active{% endif %}">Manifestação</a>
+        {% endif %}
+    </nav>
+</div>
+{% endwith %}

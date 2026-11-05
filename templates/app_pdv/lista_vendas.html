@@ -121,7 +121,9 @@
                 <th>Cliente</th>
                 <th>Status</th>
                 <th>Total</th>
+                {% if conferencia_dinheiro_habilitada %}
                 <th style="text-align: center;">Conferência</th>
+                {% endif %}
                 <th class="text-end">Ações</th>
             </tr>
         </thead>
@@ -214,6 +216,7 @@
 
                 <td style="font-weight: bold;">R$ {{ venda.total }}</td>
 
+                {% if conferencia_dinheiro_habilitada %}
                 <td style="text-align: center;">
                     {% if venda.status != 'CANCELADO' %}
                         {% if venda.exige_conferencia_pagamento %}
@@ -241,6 +244,7 @@
                         <span style="color: #e53935; font-size: 0.8em;">X</span>
                     {% endif %}
                 </td>
+                {% endif %}
                 <td class="text-end">
                     <a href="{% url 'detalhes_venda' venda.id %}"
                        style="display: inline-block; background-color: #03dac6; color: #000; padding: 6px 12px; border-radius: 4px; text-decoration: none; font-weight: bold; font-size: 0.9em; margin-right: 5px;"

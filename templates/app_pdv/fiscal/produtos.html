@@ -1,0 +1,69 @@
+{% extends 'base.html' %}
+{% block title %}Produtos Fiscais{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
+    <div>
+        <h2 style="margin:0;">Produtos — cadastro fiscal</h2>
+        <p style="color:#888;margin:4px 0 0;font-size:0.9em;">NCM, CFOP, tributos e ANP por item. Marque destinos e replique os parâmetros de um produto já cadastrado.</p>
+    </div>
+    <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-btn fiscal-btn--accent">Emissão avulsa</a>
+</div>
+
+<form method="post" action="{% url 'fiscal_produtos_replicar' %}" class="card" style="padding:16px;margin-bottom:16px;" data-submit-lock-msg="Replicando parâmetros…">
+    {% csrf_token %}
+    <div class="fiscal-replicate-bar">
+        <div>
+            <label for="origem_id">Copiar parâmetros de</label>
+            <select name="origem_id" id="origem_id" class="form-control" required>
+                <option value="">— Selecione o produto origem —</option>
+                {% for o in origens_fiscais %}
+                <option value="{{ o.id }}">{{ o.nome_venda }} · NCM {{ o.dados_fiscais.ncm|default:"—" }} · CFOP {{ o.dados_fiscais.cfop_venda|default:"—" }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <button type="submit" class="fiscal-btn fiscal-btn--accent" onclick="return confirm('Replicar os parâmetros fiscais da origem para os produtos marcados?');">
+            Replicar parâmetros fiscais
+        </button>
+    </div>
+    <p style="color:#888;font-size:0.85em;margin:0 0 12px;">Marque os produtos que devem receber a mesma tributação. A origem não precisa estar marcada.</p>
+    <div class="fiscal-table-wrap">
+        <table class="fiscal-table" style="width:100%;">
+            <thead>
+                <tr>
+                    <th style="width:42px;"><input type="checkbox" id="chk-todos" title="Selecionar todos"></th>
+                    <th>Produto</th>
+                    <th>NCM</th>
+                    <th>CFOP</th>
+                    <th>ANP</th>
+                    <th>Ações</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in produtos %}
+                <tr>
+                    <td><input type="checkbox" name="destino_ids" value="{{ p.id }}" class="chk-destino"></td>
+                    <td style="padding:10px;">{{ p.nome_venda }}</td>
+                    <td style="color:#03dac6;">{% if p.dados_fiscais %}{{ p.dados_fiscais.ncm|default:"—" }}{% else %}—{% endif %}</td>
+                    <td>{% if p.dados_fiscais %}{{ p.dados_fiscais.cfop_venda|default:"—" }}{% else %}—{% endif %}</td>
+                    <td>{% if p.dados_fiscais and p.dados_fiscais.codigo_anp %}{{ p.dados_fiscais.codigo_anp }}{% else %}—{% endif %}</td>
+                    <td>
+                        <div class="fiscal-link-actions">
+                            <a href="{% url 'fiscal_produto_editar' p.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">Cadastro fiscal</a>
+                            <a href="{% url 'fiscal_emitir_avulsa' %}?produto={{ p.id }}" class="fiscal-btn fiscal-btn--sm">Emitir avulsa</a>
+                        </div>
+                    </td>
+                </tr>
+                {% empty %}
+                <tr><td colspan="6" style="padding:20px;text-align:center;">Nenhum produto.</td></tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</form>
+<script>
+document.getElementById('chk-todos') && document.getElementById('chk-todos').addEventListener('change', function () {
+    document.querySelectorAll('.chk-destino').forEach(function (el) { el.checked = this.checked; }, this);
+});
+</script>
+{% endblock %}

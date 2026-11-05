@@ -2,6 +2,7 @@ from django.urls import path, include
 from . import views
 from . import gestor_views
 from .views import CustomAuthToken,EntregasDisponiveisView, AssumirEntregaView, MinhasEntregasView, DevolverEntregaView, ReceberLeadTrafficHub
+from .fiscal import views as fiscal_views
 
 
 urlpatterns = [
@@ -16,6 +17,7 @@ urlpatterns = [
     path('produtos/editar/<int:id>/', views.gerenciar_produto, name='editar_produto'),
     path('produtos/deletar/<int:id>/', views.deletar_produto, name='deletar_produto'),
     path('produtos/carga-balanca/', views.exportar_carga_balanca, name='exportar_carga_balanca'),
+    path('produtos/grupos/', views.gerenciar_grupos_produto, name='gerenciar_grupos_produto'),
     path('produtos/grupos/deletar/<int:id>/', views.deletar_grupo_produto, name='deletar_grupo_produto'),
 
     # ------------------------------Clientes------------------------------
@@ -120,6 +122,7 @@ urlpatterns = [
     path('importacao/', views.menu_importacao, name='menu_importacao'),
     path('importacao/clientes/', views.importar_clientes, name='importar_clientes'),
     path('importacao/produtos/', views.importar_produtos, name='importar_produtos'),
+    path('importacao/produtos/<int:importacao_id>/reverter/', views.reverter_importacao_produtos, name='reverter_importacao_produtos'),
     path('importacao/modelo/<str:tipo>/', views.baixar_modelo_excel, name='baixar_modelo_excel'),
 
     # ------------------------------Vendedor------------------------------
@@ -189,6 +192,9 @@ urlpatterns = [
 
     path('api/receber-lead/', ReceberLeadTrafficHub.as_view(), name='receber_lead'),
 
+    path('fiscal/', include('app_pdv.fiscal.urls')),
+    path('api/fiscal/webhooks/focus/', fiscal_views.fiscal_webhook_focus, name='fiscal_webhook_focus'),
+    path('consultacnpj/', fiscal_views.fiscal_consulta_cnpj, name='consulta_cnpj'),
 
     # -------------------------------- OUTRAS ROTAS --------------------------------------
 

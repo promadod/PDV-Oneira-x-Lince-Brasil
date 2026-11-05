@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Reforma Tributária{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>9. Reforma tributária (IBS / CBS)</h2>
+<p style="color:#aaa;">Campos preparados na matriz e nos dados do produto (NBS, cClassTrib). Ajuste as alíquotas nas regras tributárias.</p>
+<div class="card">
+    <table style="width:100%;border-collapse:collapse;color:#fff;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:10px;">Regra</th><th>CFOP</th><th>IBS %</th><th>CBS %</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for r in regras %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">{{ r.nome }}</td>
+                <td>{{ r.cfop }}</td>
+                <td style="color:#03dac6;">{{ r.aliquota_ibs }}</td>
+                <td style="color:#03dac6;">{{ r.aliquota_cbs }}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="padding:20px;text-align:center;">Cadastre regras em Matriz tributária.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+<p style="margin-top:16px;"><a href="{% url 'fiscal_matriz' %}" class="btn">Editar matriz</a>
+<a href="{% url 'fiscal_produtos' %}" class="btn" style="background:#333;">NBS / cClassTrib nos produtos</a></p>
+{% endblock %}

@@ -7,3 +7,4 @@ class AppPdvConfig(AppConfig):
 
     def ready(self):
         import app_pdv.signals  # noqa: F401
+        import app_pdv.fiscal.models  # noqa: F401

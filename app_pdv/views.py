@@ -51,10 +51,12 @@ from .models import (
     FormaPagamentoLoja, PrecoFornecedorItem, PagamentoFiado, PagamentoMercadoria,
     LiquidacaoVenda, ParcelaFiadoAgendada, ParcelaMercadoriaAgendada,
     saldo_agendavel_venda, saldo_agendavel_entrada, LogAuditoria,
+    ImportacaoProdutosLog,
     validar_forma_pagamento, montar_resumo_pagamentos_loja,
     montar_relatorio_pagamentos, get_nome_forma_pagamento, criar_formas_pagamento_padrao,
     validar_meio_liquidacao, montar_resumo_liquidacao_loja, calcular_entradas_gaveta,
     get_nome_meio_liquidacao, validar_liquidacoes_payload, persistir_liquidacoes_venda,
+    calcular_troco_dinheiro, loja_usa_conferencia_dinheiro, normalizar_liquidacoes_troco_dinheiro,
     ORIGEM_VENDA_CHOICES, STATUS_COMPROMETIDOS, STATUS_VENDA_FATURADA, STATUS_GERA_LIQUIDACAO,
     MEIO_LIQUIDACAO_VENDA_CHOICES,
     produtos_disponiveis_pdv, validar_estoque_item_venda, estoque_diario_ativo,
@@ -72,9 +74,15 @@ from .fiado_helpers import (
 )
 from .mercadoria_helpers import listar_entradas_abertas_cmv, listar_parcelas_mercadoria
 from .balanca import config_balanca_loja, gerar_csv_carga_balanca
+from .importacao_produtos import (
+    executar_importacao_produtos,
+    normalizar_codigo_barras_excel,
+    normalizar_colunas_dataframe,
+    reverter_importacao_produtos as reverter_importacao_produtos_svc,
+)
 from .forms import (
-    ProdutoForm, ClienteForm, FornecedorForm, LojaForm, 
-    CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, 
+    ProdutoForm, ClienteForm, FornecedorForm, LojaForm,
+    CategoriaTransacaoForm, TransacaoForm, ImportacaoForm, ImportacaoProdutosForm,
     CadastroVendedorForm, MotoboyForm, MotoForm, 
     EntradaEstoqueForm, ItemEstoqueForm, PermissoesUsuarioForm, EditarVendedorForm
 )
@@ -99,6 +107,7 @@ from .fidelidade_service import (
     listar_acompanhamento_fidelidade,
 )
 from .audit_log import registrar_log
+from .idempotencia import reivindicar, concluir, liberar
 from .seguranca import usuario_pode_configurar_loja
 from .whatsapp_service import (
     notificar_novo_pedido_empresa, notificar_cliente_saiu_entrega,
@@ -302,17 +311,25 @@ def lista_produtos(request):
 
 @login_required
 def exportar_carga_balanca(request):
-    """CSV com o mesmo código do cadastro para carregar no MGV (Prix 4 Uno e 3 Fit)."""
+    """CSV só com produtos KG (granel) para carregar no MGV (Prix 4 Uno e 3 Fit)."""
     loja = check_loja(request)
     if not loja:
         return redirect('admin:index')
+    if not getattr(loja, 'trabalha_com_balanca_granel', False):
+        messages.warning(request, 'Balança granel não está habilitada para esta loja.')
+        return redirect('lista_produtos')
     produtos = (
-        Produto.objects.filter(loja=loja)
-        .exclude(codigo_barras='')
+        Produto.objects.filter(loja=loja, item_estoque__unidade_medida='KG')
         .select_related('item_estoque')
         .order_by('nome_venda')
     )
     conteudo = gerar_csv_carga_balanca(produtos, loja)
+    if conteudo.strip().count('\n') <= 1:
+        messages.warning(
+            request,
+            'Nenhum produto em quilograma (KG) encontrado para exportar à balança.',
+        )
+        return redirect('lista_produtos')
     response = HttpResponse('\ufeff' + conteudo, content_type='text/csv; charset=utf-8')
     response['Content-Disposition'] = 'attachment; filename="carga_balanca_mgv.csv"'
     return response
@@ -709,6 +726,7 @@ def lista_vendas(request):
         'total_resultados': total_resultados,
         'total_geral': total_geral,
         'por_pagina': HISTORICO_POR_PAGINA,
+        'conferencia_dinheiro_habilitada': loja.conferencia_dinheiro_habilitada,
     })
 
 @login_required
@@ -723,9 +741,21 @@ def detalhes_venda(request, id):
         (item.quantidade * item.preco_unitario for item in itens),
         Decimal('0'),
     )
+    info_pagamento_dinheiro = None
+    if not venda.pagamento_dividido and venda.meio_liquidacao == 'DINHEIRO':
+        liq_din = next((l for l in liquidacoes if l.meio_liquidacao == 'DINHEIRO'), None)
+        vr = liq_din.valor_recebido_dinheiro if liq_din else venda.valor_recebido_dinheiro
+        troco = liq_din.troco_para if liq_din else venda.troco_para
+        if vr and troco:
+            info_pagamento_dinheiro = {
+                'valor_venda': liq_din.valor if liq_din else venda.total,
+                'valor_pago': vr,
+                'troco': troco,
+            }
     return render(request, 'app_pdv/detalhes_venda.html', {
         'venda': venda, 'itens': itens, 'pagamentos_fiado': pagamentos_fiado,
         'liquidacoes': liquidacoes,
+        'info_pagamento_dinheiro': info_pagamento_dinheiro,
         'impressao_automatica': loja.impressao_automatica,
         'auto_print': auto_print,
         'subtotal_consumo': subtotal_consumo,
@@ -819,11 +849,14 @@ def _mapa_codigos_barras_pdv(loja, produtos_pdv=None):
     qs = Produto.objects.filter(loja=loja).only('id', 'nome_venda', 'codigo_barras')
     mapa = {}
     cfg = config_balanca_loja(loja)
+    plu_n = cfg['plu_digitos']
     for p in qs:
-        mapa[str(p.id)] = p.nome_venda
+        # ID do produto e paddings (export MGV / digitação na balança)
+        for chave in chaves_busca_plu(str(p.id), plu_n):
+            mapa[chave] = p.nome_venda
         codigo = (p.codigo_barras or '').strip()
         if codigo:
-            for chave in chaves_busca_plu(codigo, cfg['plu_digitos']):
+            for chave in chaves_busca_plu(codigo, plu_n):
                 mapa[chave] = p.nome_venda
     return mapa
 
@@ -883,7 +916,8 @@ CAMPOS_CONFIG_LOJA_PDV = [
     'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon',
     'taxa_entrega_pdv',
     # PDV
-    'impressao_automatica', 'trabalha_com_leitor_codigo_barras',
+    'impressao_automatica', 'conferencia_dinheiro_habilitada',
+    'trabalha_com_leitor_codigo_barras',
     'trabalha_com_balanca_granel', 'balanca_ean_prefixo',
     'balanca_plu_digitos', 'balanca_ean_variavel',
     'cobra_taxa_servico', 'taxa_servico_pct',
@@ -1104,6 +1138,36 @@ def salvar_venda(request):
 
 def _processar_salvar_venda(request, loja, data):
 
+        chave_idem = (data.get('idempotency_key') or data.get('idempotencia_chave') or '').strip()
+        reivindicado, resposta_existente = reivindicar(loja, 'salvar_venda', chave_idem, request.user)
+        if not reivindicado:
+            status_http = 200 if (resposta_existente or {}).get('status') == 'sucesso' else 409
+            return JsonResponse(resposta_existente or {'status': 'erro', 'mensagem': 'Operação duplicada.'}, status=status_http)
+
+        try:
+            response = _processar_salvar_venda_interno(request, loja, data)
+        except Exception:
+            liberar(loja, 'salvar_venda', chave_idem)
+            raise
+
+        if chave_idem:
+            status_code = getattr(response, 'status_code', 200)
+            if status_code >= 400:
+                liberar(loja, 'salvar_venda', chave_idem)
+            else:
+                try:
+                    payload = json.loads(response.content.decode('utf-8'))
+                except Exception:
+                    payload = {}
+                if payload.get('status') == 'sucesso':
+                    concluir(loja, 'salvar_venda', chave_idem, payload)
+                else:
+                    liberar(loja, 'salvar_venda', chave_idem)
+        return response
+
+
+def _processar_salvar_venda_interno(request, loja, data):
+
         eh_fiado = bool(data.get('eh_fiado')) and loja.usa_fiado
         valor_pago_inicial = _valor_decimal_payload(data.get('valor_pago_inicial'))
         total_final_venda = _valor_decimal_payload(data.get('total_final'))
@@ -1265,15 +1329,15 @@ def _processar_salvar_venda(request, loja, data):
         status_entrega_inicial = 'PENDENTE' if eh_entrega else 'ENTREGUE'
         
         venda_id = data.get('venda_id') 
-        valor_troco = data.get('troco_para')
+        valor_recebido_bruto = data.get('valor_recebido_dinheiro')
+        valor_recebido_dinheiro = None
+        valor_troco = None
         if pagamento_dividido or (meio_liquidacao and meio_liquidacao != 'DINHEIRO'):
+            valor_recebido_dinheiro = None
             valor_troco = None
-        elif not valor_troco or valor_troco == '':
-            valor_troco = None
-        else:
-            valor_troco = _valor_decimal_payload(valor_troco)
-            if valor_troco <= 0:
-                valor_troco = None
+        elif valor_recebido_bruto not in (None, '', 0, '0', '0.00'):
+            bruto = _valor_decimal_payload(valor_recebido_bruto)
+            valor_recebido_dinheiro, valor_troco = calcular_troco_dinheiro(total_final_venda, bruto)
 
         # VARIÁVEL PARA CONTROLAR SE É UMA VENDA NOVA QUE PRECISA BAIXAR ESTOQUE
         dar_baixa_estoque = False
@@ -1292,6 +1356,10 @@ def _processar_salvar_venda(request, loja, data):
         if eh_entrega and not eh_fiado and status_venda == 'FINALIZADO':
             status_venda = 'EM_PREPARACAO'
 
+        usa_conferencia = loja_usa_conferencia_dinheiro(loja)
+        conferencia_inicial = not (
+            meio_liquidacao == 'DINHEIRO' and usa_conferencia and not pagamento_dividido
+        )
         if venda_id:
             try:
                 venda = Venda.objects.get(id=venda_id, loja=loja)
@@ -1305,6 +1373,7 @@ def _processar_salvar_venda(request, loja, data):
                 venda.taxa_servico_pct = taxa_servico_pct_val
                 venda.total = total_final_venda
                 venda.troco_para = valor_troco if not pagamento_dividido else None
+                venda.valor_recebido_dinheiro = valor_recebido_dinheiro if not pagamento_dividido else None
                 venda.eh_entrega = eh_entrega
                 venda.endereco_entrega = endereco_entrega
                 venda.pagamento_dividido = pagamento_dividido
@@ -1345,11 +1414,12 @@ def _processar_salvar_venda(request, loja, data):
                 endereco_entrega=endereco_entrega,
                 status_entrega=status_entrega_inicial,
                 troco_para=valor_troco if not pagamento_dividido else None,
+                valor_recebido_dinheiro=valor_recebido_dinheiro if not pagamento_dividido else None,
                 eh_fiado=eh_fiado,
                 eh_cortesia=eh_cortesia,
                 eh_avaria=eh_avaria,
                 desconto_fidelidade=desconto_fidelidade,
-                conferencia_ok=False,
+                conferencia_ok=conferencia_inicial,
             )
             if nova_venda.status in ['FINALIZADO', 'RETIRADO_NA_LOJA', 'FIADO']:
                 dar_baixa_estoque = True
@@ -1399,14 +1469,21 @@ def _processar_salvar_venda(request, loja, data):
             total_final = total_final_venda
 
             if pagamento_dividido:
-                liquidacoes = data.get('liquidacoes') or []
+                liquidacoes = normalizar_liquidacoes_troco_dinheiro(
+                    total_final, data.get('liquidacoes') or [],
+                )
                 err = validar_liquidacoes_payload(total_final, liquidacoes, exige_multiplo=True)
             else:
                 liquidacoes = [{
                     'meio_liquidacao': meio_liquidacao,
                     'valor': total_final,
-                    'troco_para': valor_troco if meio_liquidacao == 'DINHEIRO' and valor_troco else None,
+                    'valor_recebido_dinheiro': (
+                        valor_recebido_bruto
+                        if meio_liquidacao == 'DINHEIRO' and valor_recebido_bruto not in (None, '', 0, '0', '0.00')
+                        else None
+                    ),
                 }]
+                liquidacoes = normalizar_liquidacoes_troco_dinheiro(total_final, liquidacoes)
                 err = validar_liquidacoes_payload(total_final, liquidacoes)
 
             if err:
@@ -1556,6 +1633,7 @@ def retomar_venda(request, id):
             {
                 'meio_liquidacao': liq.meio_liquidacao,
                 'valor': float(liq.valor),
+                'valor_recebido_dinheiro': float(liq.valor_recebido_dinheiro) if liq.valor_recebido_dinheiro else None,
                 'troco_para': float(liq.troco_para) if liq.troco_para else None,
             }
             for liq in venda.liquidacoes.all()
@@ -3491,10 +3569,46 @@ def relatorio_entregadores(request):
 
 # --------------------------------- IMPORTÇÃO ---------------------------------
 
+def _formatar_colunas_texto_xlsx(workbook, sheet_name, nomes_colunas):
+    """Força formato Texto (@) nas colunas indicadas do modelo Excel."""
+    ws = workbook[sheet_name]
+    headers = [cell.value for cell in ws[1]]
+    for nome in nomes_colunas:
+        if nome not in headers:
+            continue
+        col_idx = headers.index(nome) + 1
+        for row in range(2, ws.max_row + 1):
+            cell = ws.cell(row=row, column=col_idx)
+            if cell.value is None or cell.value == '':
+                cell.value = ''
+            else:
+                cell.value = str(cell.value)
+            cell.number_format = '@'
+
+
 @login_required
 def menu_importacao(request):
-    form = ImportacaoForm()
-    return render(request, 'app_pdv/importacao.html', {'form': form})
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+    form_clientes = ImportacaoForm()
+    form_produtos = ImportacaoProdutosForm()
+    historico_importacoes = (
+        ImportacaoProdutosLog.objects.filter(loja=loja)
+        .select_related('usuario', 'revertida_por')
+        .order_by('-criado_em')[:30]
+    )
+    ultima_ativa = (
+        ImportacaoProdutosLog.objects.filter(loja=loja, revertida_em__isnull=True)
+        .order_by('-criado_em', '-id')
+        .first()
+    )
+    return render(request, 'app_pdv/importacao.html', {
+        'form': form_clientes,
+        'form_produtos': form_produtos,
+        'historico_importacoes': historico_importacoes,
+        'importacao_revertivel_id': ultima_ativa.id if ultima_ativa else None,
+    })
 
 @login_required
 def importar_clientes(request):
@@ -3508,8 +3622,8 @@ def importar_clientes(request):
             try:
                 df = pd.read_excel(arquivo, engine='openpyxl')
                 df.columns = (df.columns.str.strip().str.lower()
-                              .str.replace('ç', 'c').str.replace('ã', 'a')
-                              .str.replace('é', 'e').str.replace('ó', 'o'))
+                              .str.replace('├º', 'c').str.replace('├ú', 'a')
+                              .str.replace('├⌐', 'e').str.replace('├│', 'o'))
 
                 contador_criados = 0
                 contador_atualizados = 0
@@ -3560,163 +3674,112 @@ def importar_clientes(request):
 
 
 @login_required
-@transaction.atomic
 def importar_produtos(request):
     loja = check_loja(request)
-    if not loja: return redirect('admin:index')
+    if not loja:
+        return redirect('admin:index')
 
     if request.method == 'POST':
-        form = ImportacaoForm(request.POST, request.FILES)
+        form = ImportacaoProdutosForm(request.POST, request.FILES)
         if form.is_valid():
             arquivo = request.FILES['arquivo_excel']
+            modo_estoque = form.cleaned_data['modo_estoque']
             try:
-                df = pd.read_excel(arquivo, engine='openpyxl')
-                
-                # Tratamento avançado de nomes de colunas
-                df.columns = (df.columns.str.lower().str.strip()
-                              .str.replace(' ', '_')
-                              .str.replace('ç', 'c').str.replace('ã', 'a')
-                              .str.replace('á', 'a').str.replace('à', 'a')
-                              .str.replace('é', 'e').str.replace('ê', 'e')
-                              .str.replace('í', 'i').str.replace('ó', 'o')
-                              .str.replace('ô', 'o').str.replace('ú', 'u'))
+                df = normalizar_colunas_dataframe(pd.read_excel(arquivo, engine='openpyxl'))
+                log, resultado = executar_importacao_produtos(
+                    loja=loja,
+                    usuario=request.user,
+                    df=df,
+                    nome_arquivo=getattr(arquivo, 'name', '') or 'importacao.xlsx',
+                    modo_estoque=modo_estoque,
+                )
 
-                contador = 0
-                
-                def limpar_preco(valor):
-                    if pd.isna(valor): return 0.0
-                    if isinstance(valor, (int, float)): return float(valor)
-                    valor = str(valor).replace('R$', '').replace(' ', '').replace('.', '').replace(',', '.')
-                    try: return float(valor)
-                    except: return 0.0
+                for aviso in resultado.avisos[:15]:
+                    messages.warning(request, aviso)
+                if len(resultado.avisos) > 15:
+                    messages.warning(request, f'… e mais {len(resultado.avisos) - 15} aviso(s).')
 
-                for index, row in df.iterrows():
-                    item_pai_nome = row.get('item_pai')
-                    nome_venda = row.get('nome_venda')
-                    
-                    if pd.isna(item_pai_nome) or pd.isna(nome_venda): continue 
-                    
-                    item_pai_nome = str(item_pai_nome).strip()
-                    nome_venda = str(nome_venda).strip()
-                    
-                    unidade = str(row.get('unidade', 'UN')).strip().upper()
-                    if unidade not in ['UN', 'KG', 'L']: unidade = 'UN'
+                modo_label = 'somado' if modo_estoque == 'SOMAR' else 'substituído'
+                registrar_log(
+                    request,
+                    'IMPORTACAO',
+                    (
+                        f'Importação produtos #{log.id}: {log.nome_arquivo} — '
+                        f'estoque {modo_label} — {resultado.linhas_processadas} linha(s), '
+                        f'{resultado.produtos_criados} novo(s), {resultado.produtos_atualizados} atualizado(s)'
+                    ),
+                    modelo='ImportacaoProdutosLog',
+                    objeto_id=log.id,
+                    loja=loja,
+                )
 
-                    estoque_total = limpar_preco(row.get('estoque_total', 0))
-                    qtd_baixa = limpar_preco(row.get('qtd_baixa', 1))
-                    if qtd_baixa <= 0: qtd_baixa = 1 
-                    
-                    custo = limpar_preco(row.get('preco_custo', 0))
-                    venda = limpar_preco(row.get('preco_venda', 0))
-
-                    codigo_barras = str(row.get('codigo_barras', '') or '').strip()
-                    if codigo_barras.lower() == 'nan':
-                        codigo_barras = ''
-
-                    grupo_nome = row.get('grupo')
-                    grupo_obj = None
-                    if pd.notna(grupo_nome) and str(grupo_nome).strip() and str(grupo_nome).strip().lower() != 'nan':
-                        grupo_obj, _ = GrupoProduto.objects.get_or_create(
-                            loja=loja,
-                            nome=str(grupo_nome).strip(),
-                        )
-
-                    # --- NOVA LEITURA: VALIDADE E OBSERVAÇÃO ---
-                    validade_raw = row.get('data_validade')
-                    observacao_raw = row.get('observacao')
-                    
-                    data_val = None
-                    if pd.notna(validade_raw) and str(validade_raw).strip() != '':
-                        try:
-                            # Converte a data do Excel para o formato que o banco de dados entende
-                            data_val = pd.to_datetime(validade_raw).date()
-                        except:
-                            pass # Se a pessoa digitar lixo na data, ignora para não travar a importação
-                            
-                    obs_val = str(observacao_raw).strip() if pd.notna(observacao_raw) else ""
-                    if obs_val == 'nan': obs_val = ""
-                    # ---------------------------------------------
-                    
-                    # 1. Cria ou Encontra o Cofre (Item Pai) ATUALIZADO
-                    item, created_item = ItemEstoque.objects.get_or_create(
-                        nome=item_pai_nome, 
-                        loja=loja,
-                        defaults={
-                            'unidade_medida': unidade,
-                            'data_validade': data_val,  # Salva a data nova
-                            'observacao': obs_val       # Salva a observação nova
-                        }
+                if resultado.produtos_criados > 0:
+                    messages.success(
+                        request,
+                        f'{resultado.produtos_criados} produto(s) criado(s). '
+                        f'{resultado.produtos_atualizados} atualizado(s). '
+                        f'Estoque {modo_label}. Registro #{log.id}.',
                     )
-                    
-                    # Se o item já existia e a planilha tem data/obs nova, ele atualiza!
-                    if not created_item:
-                        mudou = False
-                        if data_val: 
-                            item.data_validade = data_val
-                            mudou = True
-                        if obs_val: 
-                            item.observacao = obs_val
-                            mudou = True
-                        if mudou:
-                            item.save()
-                    
-                    # Soma o estoque apenas se houver na planilha (evita somar infinito ao atualizar)
-                    if estoque_total > 0:
-                        # --- CORREÇÃO AQUI: Forçando ambos a serem Decimal antes da soma ---
-                        estoque_atual = Decimal(str(item.quantidade_estoque))
-                        estoque_novo = Decimal(str(estoque_total))
-                        item.quantidade_estoque = estoque_atual + estoque_novo
-                        item.save()
-
-                    if codigo_barras:
-                        conflito = Produto.objects.filter(
-                            loja=loja, codigo_barras=codigo_barras
-                        ).exclude(nome_venda=nome_venda, item_estoque=item).exists()
-                        if conflito:
-                            messages.warning(
-                                request,
-                                f"Código de barras '{codigo_barras}' já usado em outro produto "
-                                f"(linha {index + 2}). Produto '{nome_venda}' importado sem o código."
-                            )
-                            codigo_barras = ''
-
-                    defaults_produto = {
-                        'quantidade_baixa': Decimal(str(qtd_baixa)),
-                        'preco_compra': Decimal(str(custo)),
-                        'preco_venda': Decimal(str(venda)),
-                        'ativo': True,
-                    }
-                    if codigo_barras:
-                        defaults_produto['codigo_barras'] = codigo_barras
-                    if grupo_obj is not None:
-                        defaults_produto['grupo'] = grupo_obj
-
-                    # 2. Cria ou Atualiza o Produto da Prateleira
-                    produto, created_prod = Produto.objects.update_or_create(
-                        loja=loja,
-                        nome_venda=nome_venda,
-                        item_estoque=item,
-                        defaults=defaults_produto,
-                    )
-                    if created_prod:
-                        contador += 1
-        
-                if contador > 0:
-                    messages.success(request, f"{contador} novos produtos criados com sucesso! Os estoques e preços foram sincronizados.")
                 else:
-                    messages.info(request, "Nenhum produto novo criado, mas os preços e estoques dos existentes foram atualizados.")
+                    messages.info(
+                        request,
+                        f'Importação #{log.id} concluída: {resultado.produtos_atualizados} produto(s) '
+                        f'atualizado(s), estoque {modo_label}.',
+                    )
 
             except Exception as e:
                 import traceback
                 traceback.print_exc()
-                messages.error(request, f"Erro ao processar arquivo. Verifique se usou a planilha modelo. Detalhe: {str(e)}")
+                messages.error(
+                    request,
+                    f'Erro ao processar arquivo. Verifique se usou a planilha modelo. Detalhe: {str(e)}',
+                )
 
+    return redirect('menu_importacao')
+
+
+@login_required
+@transaction.atomic
+def reverter_importacao_produtos(request, importacao_id):
+    loja = check_loja(request)
+    if not loja:
+        return redirect('admin:index')
+
+    if request.method != 'POST':
+        return redirect('menu_importacao')
+
+    log = get_object_or_404(ImportacaoProdutosLog, pk=importacao_id, loja=loja)
+    resultado = reverter_importacao_produtos_svc(log, request.user)
+
+    if not resultado.ok:
+        for msg in resultado.mensagens:
+            messages.error(request, msg)
+        return redirect('menu_importacao')
+
+    registrar_log(
+        request,
+        'IMPORTACAO',
+        (
+            f'Reversão importação #{log.id} ({log.nome_arquivo}): '
+            f'{resultado.itens_restaurados} item(ns) de estoque, '
+            f'{resultado.produtos_removidos} produto(s) removido(s), '
+            f'{resultado.produtos_restaurados} produto(s) restaurado(s)'
+        ),
+        modelo='ImportacaoProdutosLog',
+        objeto_id=log.id,
+        loja=loja,
+    )
+    messages.success(
+        request,
+        f'Importação #{log.id} revertida com sucesso. Estoques e produtos restaurados.',
+    )
     return redirect('menu_importacao')
 
 @login_required
 def baixar_modelo_excel(request, tipo):
     output = io.BytesIO()
-    
+    colunas_texto = []
+
     if tipo == 'clientes':
         df = pd.DataFrame({
             'Nome': ['João da Silva (Exemplo)'],
@@ -3725,7 +3788,8 @@ def baixar_modelo_excel(request, tipo):
             'Bairro': ['Centro'],
         })
         nome_arquivo = 'Modelo_Importacao_Clientes.xlsx'
-        
+        colunas_texto = ['WhatsApp']
+
     elif tipo == 'produtos':
         df = pd.DataFrame({
             'Item Pai': ['Special Dog', 'Special Dog', 'Coca Cola Lata'],
@@ -3740,19 +3804,23 @@ def baixar_modelo_excel(request, tipo):
             'Preco Custo': [5.00, 50.00, 2.50],
             'Preco Venda': [10.00, 95.00, 5.00],
         })
+        # Garante dtype string na coluna (evita Excel tratar como número)
+        df['Codigo Barras'] = df['Codigo Barras'].astype(str).replace({'nan': ''})
         nome_arquivo = 'Modelo_Importacao_Produtos.xlsx'
+        colunas_texto = ['Codigo Barras']
     else:
         return HttpResponse("Tipo inválido", status=400)
 
-    # Gera o Excel usando o pandas e manda para o download
-    writer = pd.ExcelWriter(output, engine='openpyxl')
-    df.to_excel(writer, index=False, sheet_name='Planilha_Modelo')
-    writer.close()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Planilha_Modelo')
+        if colunas_texto:
+            _formatar_colunas_texto_xlsx(writer.book, 'Planilha_Modelo', colunas_texto)
+
     output.seek(0)
-    
+
     response = HttpResponse(output, content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
     response['Content-Disposition'] = f'attachment; filename="{nome_arquivo}"'
-    return response 
+    return response
 
 
 #--------------------------------------Vendedor------------------------------------------
@@ -4632,15 +4700,15 @@ def api_criar_pedido(request):
             # PUXA A INFORMAÇÃO SE É ENTREGA OU RETIRADA
             eh_entrega = data.get('eh_entrega', True) 
             
-            valor_troco = 0.00
+            valor_recebido_bruto = Decimal('0')
             if 'Troco p/:' in observacao_texto:
                 try:
                     partes = observacao_texto.split('R$')
                     if len(partes) > 1:
                         valor_limpo = partes[1].replace(')', '').strip()
-                        valor_troco = float(valor_limpo)
-                except:
-                    valor_troco = 0.00
+                        valor_recebido_bruto = Decimal(str(valor_limpo))
+                except Exception:
+                    valor_recebido_bruto = Decimal('0')
 
             if not loja.loja_aberta:
                 return JsonResponse({'erro': 'LOJA FECHADA - PEDIDO REJEITADO'}, status=403)
@@ -4657,7 +4725,7 @@ def api_criar_pedido(request):
             if not meio_liquidacao and pagamento in ('DINHEIRO', 'PIX', 'CREDITO', 'DEBITO'):
                 meio_liquidacao = pagamento
             elif not meio_liquidacao:
-                meio_liquidacao = 'DINHEIRO' if valor_troco > 0 else 'PIX'
+                meio_liquidacao = 'DINHEIRO' if valor_recebido_bruto > 0 else 'PIX'
             if not validar_meio_liquidacao(meio_liquidacao):
                 return JsonResponse({'erro': 'Meio de liquidação inválido.'}, status=400)
 
@@ -4694,6 +4762,13 @@ def api_criar_pedido(request):
                     cliente_obj.progresso_fidelidade = Decimal('0')
                     cliente_obj.save(update_fields=['promocao_fidelidade_ativa', 'progresso_fidelidade'])
 
+            valor_recebido_dinheiro, troco_calculado = (None, None)
+            if meio_liquidacao == 'DINHEIRO' and valor_recebido_bruto > 0:
+                valor_recebido_dinheiro, troco_calculado = calcular_troco_dinheiro(
+                    total_pedido, valor_recebido_bruto,
+                )
+            usa_conf_dinheiro = loja_usa_conferencia_dinheiro(loja)
+
             # CRIA A VENDA
             venda = Venda.objects.create(
                 loja=loja, 
@@ -4707,8 +4782,9 @@ def api_criar_pedido(request):
                 observacao=obs_extra,
                 origem='APP',
                 status='PENDENTE',
-                troco_para=valor_troco if meio_liquidacao == 'DINHEIRO' else 0,
-                conferencia_ok=(meio_liquidacao != 'DINHEIRO'),
+                troco_para=troco_calculado,
+                valor_recebido_dinheiro=valor_recebido_dinheiro,
+                conferencia_ok=not (meio_liquidacao == 'DINHEIRO' and usa_conf_dinheiro),
             )
 
             itens_data = data.get('itens', [])

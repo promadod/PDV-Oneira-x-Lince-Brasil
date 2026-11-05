@@ -1,0 +1,71 @@
+{% extends 'base.html' %}
+{% block title %}Configuração Fiscal{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2 style="margin-bottom:16px;">1. Configurações Fiscais (Empresa e Certificado)</h2>
+<p style="color:#aaa;margin-bottom:20px;">Cadastro do emitente e parâmetros fiscais. Certificado A1 e token da API em Integração fiscal.</p>
+<form method="post" data-submit-lock-msg="Salvando configuração fiscal…">
+    {% csrf_token %}
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Empresa</h3>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>Razão social</label>{{ form.razao_social }}</div>
+            <div><label>Nome fantasia</label>{{ form.nome_fantasia }}</div>
+            <div><label>CNPJ</label>{{ form.cnpj }}</div>
+            <div><label>CRT</label>{{ form.crt }}</div>
+            <div><label>IE</label>{{ form.inscricao_estadual }}</div>
+            <div><label>IM</label>{{ form.inscricao_municipal }}</div>
+            <div><label>CNAE</label>{{ form.cnae }}</div>
+            <div><label>Ambiente</label>{{ form.ambiente }}</div>
+        </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Endereço</h3>
+        <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:12px;">
+            <div><label>Logradouro</label>{{ form.logradouro }}</div>
+            <div><label>Número</label>{{ form.numero }}</div>
+            <div><label>Complemento</label>{{ form.complemento }}</div>
+            <div><label>Bairro</label>{{ form.bairro }}</div>
+            <div><label>CEP</label>{{ form.cep }}</div>
+            <div><label>Município</label>{{ form.municipio }}</div>
+            <div><label>UF</label>{{ form.uf }}</div>
+            <div><label>Código IBGE</label>{{ form.codigo_ibge }}</div>
+            <div><label>Telefone (DANFE)</label>{{ form.telefone }}</div>
+        </div>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">API fiscal / Certificado</h3>
+        <p style="color:#aaa;font-size:0.9em;">
+            Token, ambiente, teste de conexão e cadastro de webhooks:
+            <a href="{% url 'fiscal_focus' %}" style="color:#03dac6;">Integração API fiscal</a>.
+        </p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+            <div><label>CSC ID (NFC-e)</label>{{ form.csc_id }}</div>
+            <div><label>CSC Token</label>{{ form.csc_token }}</div>
+            <div><label>E-mail XML/DANFE</label>{{ form.email_envio_xml }}</div>
+        </div>
+        <p style="color:#888;font-size:0.85em;margin-top:10px;">Status certificado: <strong>{{ fiscal_config.certificado_status }}</strong>
+            {% if fiscal_config.certificado_validade %} · validade {{ fiscal_config.certificado_validade|date:"d/m/Y" }}{% endif %}
+        </p>
+    </div>
+    <div class="card" style="margin-bottom:16px;">
+        <h3 style="color:#15a0a5;margin-top:0;">Séries / numeração / tipos</h3>
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;">
+            <div><label>Série NF-e</label>{{ form.serie_nfe }}</div>
+            <div><label>Série NFC-e</label>{{ form.serie_nfce }}</div>
+            <div><label>Série NFS-e</label>{{ form.serie_nfse }}</div>
+            <div><label>Próx. NF-e</label>{{ form.proximo_numero_nfe }}</div>
+            <div><label>Próx. NFC-e</label>{{ form.proximo_numero_nfce }}</div>
+            <div><label>Próx. NFS-e</label>{{ form.proximo_numero_nfse }}</div>
+        </div>
+        <div class="fiscal-check-grid">
+            <label class="fiscal-check-row">{{ form.emite_nfe }} <span class="fiscal-check-label">Emitir NF-e</span></label>
+            <label class="fiscal-check-row">{{ form.emite_nfce }} <span class="fiscal-check-label">Emitir NFC-e</span></label>
+            <label class="fiscal-check-row">{{ form.emite_nfse }} <span class="fiscal-check-label">Emitir NFS-e</span></label>
+            <label class="fiscal-check-row">{{ form.emite_nfse_nacional }} <span class="fiscal-check-label">NFS-e Nacional</span></label>
+            <label class="fiscal-check-row">{{ form.enviar_whatsapp_danfe }} <span class="fiscal-check-label">Enviar DANFE no WhatsApp</span></label>
+        </div>
+    </div>
+    <button type="submit" class="btn btn-success">Salvar configurações</button>
+</form>
+{% endblock %}

@@ -1,7 +1,7 @@
 from decimal import Decimal
 from types import SimpleNamespace
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase
 
 from app_pdv.balanca import (
     chaves_busca_plu,
@@ -47,27 +47,57 @@ class EtiquetaBalancaTests(SimpleTestCase):
         qtd = quantidade_da_etiqueta(dec, preco_unitario='20.00')
         self.assertEqual(qtd, Decimal('0.500'))
 
+    def test_etiqueta_preco_ean_real_balanca(self):
+        """EAN real da balança: prefixo 2 + PLU 194400 + total R$ 2,59."""
+        ean = '2194400002592'
+        dec = decodificar_ean13_balanca(
+            ean,
+            config={'prefixo': '2', 'plu_digitos': 6, 'variavel': 'PRECO'},
+        )
+        self.assertIsNotNone(dec)
+        self.assertEqual(dec['plu'], '194400')
+        self.assertEqual(dec['preco_total'], Decimal('2.59'))
+        self.assertTrue(dec['dv_ok'])
+        self.assertIn('194400', set(chaves_busca_plu('1944', 6)))
+        qtd = quantidade_da_etiqueta(dec, preco_unitario='71.99')
+        self.assertEqual(qtd, Decimal('0.036'))
+
     def test_chaves_plu_aceitam_com_e_sem_zeros(self):
         chaves = set(chaves_busca_plu('2030', 6))
         self.assertIn('2030', chaves)
         self.assertIn('002030', chaves)
+        self.assertIn('203000', chaves)  # padding à direita (algumas balanças)
         self.assertIn('002030', set(chaves_busca_plu('002030', 6)))
+        self.assertIn('194400', set(chaves_busca_plu('1944', 6)))
+        self.assertIn('001944', set(chaves_busca_plu('1944', 6)))
 
-    def test_csv_carga_so_granel_com_codigo(self):
+    def test_csv_carga_apenas_kg(self):
         oregano = SimpleNamespace(
+            pk=102030,
+            id=102030,
             codigo_barras='102030',
             nome_venda='Oregano',
             preco_venda=Decimal('20.00'),
             item_estoque=SimpleNamespace(unidade_medida='KG'),
         )
-        lata = SimpleNamespace(
-            codigo_barras='7894900011517',
-            nome_venda='Refrigerante',
-            preco_venda=Decimal('5.00'),
+        curry_sem_codigo = SimpleNamespace(
+            pk=1944,
+            id=1944,
+            codigo_barras='',
+            nome_venda='Curry',
+            preco_venda=Decimal('45.00'),
+            item_estoque=SimpleNamespace(unidade_medida='KG'),
+        )
+        gas_un = SimpleNamespace(
+            pk=99,
+            id=99,
+            codigo_barras='405060',
+            nome_venda='Gas 13 kg',
+            preco_venda=Decimal('110.00'),
             item_estoque=SimpleNamespace(unidade_medida='UN'),
         )
         csv = gerar_csv_carga_balanca(
-            [oregano, lata],
+            [oregano, curry_sem_codigo, gas_un],
             loja=SimpleNamespace(
                 trabalha_com_balanca_granel=True,
                 balanca_ean_prefixo='2',
@@ -76,7 +106,10 @@ class EtiquetaBalancaTests(SimpleTestCase):
             ),
         )
         self.assertIn('102030;Oregano;20.00;P;KG', csv)
-        self.assertNotIn('7894900011517', csv)
+        self.assertIn('001944;Curry;45.00;P;KG', csv)
+        self.assertNotIn('Gas 13 kg', csv)
+        self.assertNotIn(';U;', csv)
+        self.assertNotIn(';UN', csv)
 
     def test_nao_decodifica_ean_de_fabricante(self):
         self.assertIsNone(
@@ -85,3 +118,159 @@ class EtiquetaBalancaTests(SimpleTestCase):
                 config={'prefixo': '2', 'plu_digitos': 6, 'variavel': 'PESO'},
             )
         )
+
+
+class NormalizarCodigoBarrasExcelTests(SimpleTestCase):
+    def test_float_sem_ponto_zero(self):
+        from app_pdv.importacao_produtos import normalizar_codigo_barras_excel
+
+        self.assertEqual(normalizar_codigo_barras_excel(7898908582765.0), '7898908582765')
+        self.assertEqual(normalizar_codigo_barras_excel(7894900011517), '7894900011517')
+
+    def test_string_com_ponto_zero(self):
+        from app_pdv.importacao_produtos import normalizar_codigo_barras_excel
+
+        self.assertEqual(normalizar_codigo_barras_excel('7898908582956.0'), '7898908582956')
+        self.assertEqual(normalizar_codigo_barras_excel('nan'), '')
+
+    def test_notacao_cientifica(self):
+        from app_pdv.importacao_produtos import normalizar_codigo_barras_excel
+
+        self.assertEqual(normalizar_codigo_barras_excel('7.894900011517E+12'), '7894900011517')
+        self.assertEqual(normalizar_codigo_barras_excel(7.894900011517e12), '7894900011517')
+
+
+class ImportacaoProdutosTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+
+        from app_pdv.models import Loja
+
+        self.loja = Loja.objects.create(nome='Loja Import Test')
+        self.user = User.objects.create_user(username='importador', password='x')
+
+    def _df_goiabada(self, estoque=10):
+        import pandas as pd
+
+        return pd.DataFrame([{
+            'item_pai': 'goiabada cascao doces tradicao 250g',
+            'unidade': 'UN',
+            'estoque_total': estoque,
+            'nome_venda': 'Goiabada cascao D. tradicao 250g',
+            'codigo_barras': '7898917764060',
+            'qtd_baixa': 1,
+            'preco_custo': 4.35,
+            'preco_venda': 10.99,
+        }])
+
+    def test_importacao_somar_acumula_estoque(self):
+        from app_pdv.importacao_produtos import MODO_SOMAR, executar_importacao_produtos, normalizar_colunas_dataframe
+        from app_pdv.models import ItemEstoque
+
+        df = normalizar_colunas_dataframe(self._df_goiabada(10))
+        executar_importacao_produtos(self.loja, self.user, df, 'a.xlsx', MODO_SOMAR)
+        executar_importacao_produtos(self.loja, self.user, df, 'a.xlsx', MODO_SOMAR)
+        item = ItemEstoque.objects.get(loja=self.loja, nome='goiabada cascao doces tradicao 250g')
+        self.assertEqual(item.quantidade_estoque, Decimal('20'))
+
+    def test_importacao_substituir_nao_acumula(self):
+        from app_pdv.importacao_produtos import MODO_SUBSTITUIR, executar_importacao_produtos, normalizar_colunas_dataframe
+        from app_pdv.models import ItemEstoque
+
+        df = normalizar_colunas_dataframe(self._df_goiabada(10))
+        executar_importacao_produtos(self.loja, self.user, df, 'a.xlsx', MODO_SUBSTITUIR)
+        executar_importacao_produtos(self.loja, self.user, df, 'b.xlsx', MODO_SUBSTITUIR)
+        item = ItemEstoque.objects.get(loja=self.loja, nome='goiabada cascao doces tradicao 250g')
+        self.assertEqual(item.quantidade_estoque, Decimal('10'))
+
+    def test_reverter_importacao_restaura_estoque(self):
+        from app_pdv.importacao_produtos import (
+            MODO_SOMAR,
+            executar_importacao_produtos,
+            normalizar_colunas_dataframe,
+            reverter_importacao_produtos,
+        )
+        from app_pdv.models import ImportacaoProdutosLog, ItemEstoque, Produto
+
+        df = normalizar_colunas_dataframe(self._df_goiabada(10))
+        log, _ = executar_importacao_produtos(self.loja, self.user, df, 'c.xlsx', MODO_SOMAR)
+        self.assertEqual(Produto.objects.filter(loja=self.loja).count(), 1)
+        item = ItemEstoque.objects.get(pk=log.itens_snapshot.first().item_estoque_id)
+        self.assertEqual(item.quantidade_estoque, Decimal('10'))
+
+        log2, _ = executar_importacao_produtos(self.loja, self.user, df, 'd.xlsx', MODO_SOMAR)
+        item.refresh_from_db()
+        self.assertEqual(item.quantidade_estoque, Decimal('20'))
+
+        out = reverter_importacao_produtos(
+            ImportacaoProdutosLog.objects.get(pk=log2.id), self.user,
+        )
+        self.assertTrue(out.ok)
+        item.refresh_from_db()
+        self.assertEqual(item.quantidade_estoque, Decimal('10'))
+
+        out = reverter_importacao_produtos(
+            ImportacaoProdutosLog.objects.get(pk=log.id), self.user,
+        )
+        self.assertTrue(out.ok)
+        self.assertFalse(ItemEstoque.objects.filter(loja=self.loja).exists())
+        self.assertFalse(Produto.objects.filter(loja=self.loja).exists())
+
+
+class TrocoDinheiroTests(SimpleTestCase):
+    def test_calcular_troco_valor_maior(self):
+        from app_pdv.models import calcular_troco_dinheiro
+
+        recebido, troco = calcular_troco_dinheiro(Decimal('150'), Decimal('200'))
+        self.assertEqual(recebido, Decimal('200'))
+        self.assertEqual(troco, Decimal('50'))
+
+    def test_normalizar_liquidacao_card_maior_que_total(self):
+        from app_pdv.models import normalizar_liquidacoes_troco_dinheiro
+
+        out = normalizar_liquidacoes_troco_dinheiro(
+            Decimal('1500'),
+            [{'meio_liquidacao': 'DINHEIRO', 'valor': Decimal('1600')}],
+        )
+        self.assertEqual(len(out), 1)
+        self.assertEqual(out[0]['valor'], Decimal('1500'))
+        self.assertEqual(out[0]['valor_recebido_dinheiro'], Decimal('1600'))
+
+        from app_pdv.models import calcular_troco_dinheiro
+
+        self.assertEqual(calcular_troco_dinheiro(Decimal('150'), Decimal('150')), (None, None))
+        self.assertEqual(calcular_troco_dinheiro(Decimal('150'), None), (None, None))
+
+
+class ConferenciaDinheiroLojaTests(TestCase):
+    def setUp(self):
+        from django.contrib.auth.models import User
+        from app_pdv.models import Loja, Venda
+
+        self.user = User.objects.create_user('op', password='x')
+        self.loja_com = Loja.objects.create(nome='Com conferencia', conferencia_dinheiro_habilitada=True)
+        self.loja_sem = Loja.objects.create(nome='Sem conferencia', conferencia_dinheiro_habilitada=False)
+        self.venda_com = Venda.objects.create(
+            loja=self.loja_com, total=Decimal('10'), meio_liquidacao='DINHEIRO', conferencia_ok=False,
+        )
+        self.venda_sem = Venda.objects.create(
+            loja=self.loja_sem, total=Decimal('10'), meio_liquidacao='DINHEIRO', conferencia_ok=True,
+        )
+
+    def test_exige_conferencia_respeita_flag_loja(self):
+        self.assertTrue(self.venda_com.exige_conferencia_pagamento())
+        self.assertFalse(self.venda_sem.exige_conferencia_pagamento())
+
+    def test_persistir_liquidacao_auto_confirma_sem_conferencia(self):
+        from app_pdv.models import persistir_liquidacoes_venda
+
+        persistir_liquidacoes_venda(
+            self.venda_sem,
+            [{'meio_liquidacao': 'DINHEIRO', 'valor': Decimal('10'), 'valor_recebido_dinheiro': Decimal('20')}],
+        )
+        self.venda_sem.refresh_from_db()
+        liq = self.venda_sem.liquidacoes.first()
+        self.assertTrue(liq.conferencia_ok)
+        self.assertTrue(self.venda_sem.conferencia_ok)
+        self.assertEqual(self.venda_sem.troco_para, Decimal('10'))
+        self.assertEqual(self.venda_sem.valor_recebido_dinheiro, Decimal('20'))

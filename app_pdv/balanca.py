@@ -43,14 +43,21 @@ def chaves_busca_plu(codigo, plu_digitos=PLU_DIGITOS_PADRAO):
     """Variações do código cadastrado para achar o produto após a leitura da etiqueta."""
     bruto = str(codigo or '').strip()
     digitos = _apenas_digitos(bruto)
+    plu_n = int(plu_digitos)
     chaves = set()
     if bruto:
         chaves.add(bruto)
     if digitos:
         chaves.add(digitos)
-        chaves.add(digitos.lstrip('0') or '0')
-        if len(digitos) <= int(plu_digitos):
-            chaves.add(digitos.zfill(int(plu_digitos)))
+        core = digitos.lstrip('0') or '0'
+        chaves.add(core)
+        if len(core) <= plu_n:
+            # Esquerda (001944) e direita (194400) — balanças/MGV variam o padding
+            chaves.add(core.zfill(plu_n))
+            chaves.add(core.ljust(plu_n, '0'))
+        if len(digitos) <= plu_n:
+            chaves.add(digitos.zfill(plu_n))
+            chaves.add(digitos.ljust(plu_n, '0'))
     return [c for c in chaves if c]
 
 
@@ -164,21 +171,29 @@ def quantidade_da_etiqueta(decodificado, preco_unitario=None):
 def gerar_csv_carga_balanca(produtos, loja=None):
     """
     CSV para importar no MGV (Prix 4 Uno e Prix 3 Fit).
-    codigo = o mesmo digitado na balança (cadastro do PDV).
-    tipo_venda P = peso (granel).
+    Apenas produtos granel (unidade KG do item de estoque).
+    codigo = PLU digitado na balança (cadastro) ou, se vazio, id do produto.
+    tipo_venda P = peso.
     """
     cfg = config_balanca_loja(loja)
+    plu_n = int(cfg['plu_digitos'])
     linhas = ['codigo;descricao;preco;tipo_venda;unidade']
     for produto in produtos:
-        codigo = (getattr(produto, 'codigo_barras', None) or '').strip()
-        if not codigo:
-            continue
         item = getattr(produto, 'item_estoque', None)
-        unidade = (getattr(item, 'unidade_medida', None) or 'UN') if item else 'UN'
+        unidade = (getattr(item, 'unidade_medida', None) or '') if item else ''
         if unidade != 'KG':
             continue
-        plu = normalizar_plu(codigo, cfg['plu_digitos'])
-        if not _apenas_digitos(plu):
+        codigo = (getattr(produto, 'codigo_barras', None) or '').strip()
+        digitos = _apenas_digitos(codigo)
+        if digitos and len(digitos) <= plu_n:
+            plu = normalizar_plu(digitos, plu_n)
+        else:
+            # Sem PLU cadastrado: usa id do produto (cabe no tamanho da balança)
+            pid = getattr(produto, 'pk', None) or getattr(produto, 'id', None)
+            if not pid:
+                continue
+            plu = str(int(pid) % (10 ** plu_n)).zfill(plu_n)
+        if not plu:
             continue
         nome = (getattr(produto, 'nome_venda', None) or '').replace(';', ' ').strip()
         preco = Decimal(str(getattr(produto, 'preco_venda', 0) or 0)).quantize(Decimal('0.01'))

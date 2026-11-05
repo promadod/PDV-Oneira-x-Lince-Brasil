@@ -84,7 +84,7 @@
                 <div class="card-body">
                     <h3 class="text-uppercase fw-bold mb-3" style="color: var(--cor-tema);">Melhor Cliente Compras</h3>
                     {% if melhor_cliente %}
-                        <h4 class="text-white fw-bold mb-1">{{ melhor_cliente.cliente__nome }}</h4>
+                        <h4 class="text-white fw-bold mb-1">{% if melhor_cliente.cliente__nome %}{{ melhor_cliente.cliente__nome }}{% else %}venda na loja{% endif %}</h4>
                         
                         <div class="h4 fw-bold mt-1 text-success">R$ {{ melhor_cliente.total_gasto|floatformat:2 }}</div>
                     {% else %}
@@ -134,9 +134,9 @@
                     
                     <ul class="list-unstyled mt-2 mb-0">
                         {% for item in estoque_baixo %}
-                        <li class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary" style="border-opacity: 0.2;">
-                            <span class="text-white small text-truncate" style="max-width: 65%;">{{ item.nome }}</span>
-                            <span class="badge bg-danger rounded-pill">{{ item.quantidade_estoque }}</span>
+                        <li class="d-flex justify-content-between align-items-center mb-2 pb-2 border-bottom border-secondary" style="border-opacity: 0.2; gap: 6px; flex-wrap: nowrap;">
+                            <span class="text-white small" style="min-width: 0; flex: 1 1 auto; max-width: calc(100% - 3.5rem); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="{{ item.nome }}">{{ item.nome|truncatechars:18 }}</span>
+                            <span class="badge bg-danger rounded-pill" style="flex: 0 0 auto; white-space: nowrap;">{{ item.quantidade_estoque }}</span>
                         </li>
                         {% empty %}
                         <li class="text-muted small">Estoque saudável!</li>

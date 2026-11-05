@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}Arquivos Fiscais{% endblock %}
+{% block content %}
+{% include 'app_pdv/fiscal/_nav.html' %}
+<h2>8. Arquivos (XML / DANFE)</h2>
+<p style="color:#aaa;">Documentos autorizados com links de XML e DANFE/DANFCE.</p>
+<div class="card">
+    <table style="width:100%;border-collapse:collapse;color:#fff;">
+        <thead>
+            <tr style="border-bottom:1px solid #444;text-align:left;">
+                <th style="padding:10px;">Documento</th><th>Chave</th><th>XML</th><th>PDF</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for d in documentos %}
+            <tr style="border-bottom:1px solid #333;">
+                <td style="padding:8px;">
+                    <a href="{% url 'fiscal_documento_detalhe' d.id %}" class="fiscal-btn fiscal-btn--primary fiscal-btn--sm">{{ d.get_tipo_display }} {{ d.numero|default:d.ref }}</a>
+                </td>
+                <td style="font-size:0.8em;">{{ d.chave_acesso|default:"—" }}</td>
+                <td>{% if d.url_xml or d.caminho_xml or d.chave_acesso %}<a href="{% url 'fiscal_documento_arquivo' d.id 'xml' %}" target="_blank" class="fiscal-btn fiscal-btn--sm">Abrir</a>{% else %}—{% endif %}</td>
+                <td>{% if d.url_pdf or d.caminho_pdf or d.chave_acesso %}<a href="{% url 'fiscal_documento_arquivo' d.id 'pdf' %}" target="_blank" class="fiscal-btn fiscal-btn--sm">Abrir</a>{% else %}—{% endif %}</td>
+            </tr>
+            {% empty %}
+            <tr><td colspan="4" style="padding:20px;text-align:center;">Nenhum arquivo disponível.</td></tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}
