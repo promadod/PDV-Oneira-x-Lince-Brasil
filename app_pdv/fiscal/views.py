@@ -973,7 +973,10 @@ def fiscal_documento_arquivo(request, pk, formato):
         return HttpResponse(status=404)
     preencher_caminhos_acbr(doc)
     usa_acbr = bool(id_documento_acbr(doc) or (doc.caminho_xml or '').startswith('acbr:'))
-    if not usa_acbr and not cfg.focus_token:
+    caminho_local = ((doc.caminho_xml if formato == 'xml' else doc.caminho_pdf) or doc.caminho_xml or '').strip()
+    usa_local = bool(caminho_local) and not caminho_local.startswith(('http://', 'https://', 'acbr:'))
+    usa_lib = (getattr(cfg, 'provedor_emissao', '') or '') == 'lib'
+    if not usa_acbr and not usa_local and not usa_lib and not cfg.focus_token:
         messages.error(request, 'Credenciais da API fiscal não configuradas.')
         return redirect('fiscal_documento_detalhe', pk=pk)
     conteudo, content_type, fname = obter_conteudo_documento(cfg, doc, formato=formato, refresh=True)
