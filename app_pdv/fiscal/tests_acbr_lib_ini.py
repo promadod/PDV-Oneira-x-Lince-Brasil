@@ -107,10 +107,39 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertIn('vICMSMonoRet=15.85', ini)
         self.assertNotIn('[origComb', ini)
         self.assertIn('[Transportador]', ini)
+        self.assertIn('modFrete=0', ini)
         self.assertIn('CNPJCPF=12345678000199', ini)
         self.assertIn('xNome=LOJA TESTE', ini)
         self.assertIn('[Volume001]', ini)
         self.assertIn('pesoL=13.000', ini)
+
+    def test_combustivel_nao_envia_transporta_com_mod_frete_9(self):
+        payload = {
+            'natureza_operacao': 'Venda de combustivel',
+            'modalidade_frete': '9',
+            'items': [{
+                'codigo_produto': '1',
+                'descricao': 'GLP 13 kg',
+                'codigo_ncm': '27111910',
+                'cfop': '5656',
+                'quantidade_comercial': 1,
+                'valor_unitario_comercial': 85,
+                'valor_bruto': 85,
+                'icms_origem': '0',
+                'icms_situacao_tributaria': '61',
+                'pis_situacao_tributaria': '49',
+                'cofins_situacao_tributaria': '49',
+                'combustivel_codigo_anp': '210203001',
+                'combustivel_descricao_anp': 'GLP',
+                'combustivel_sigla_uf': 'RJ',
+                'icms_base_calculo_mono_retido': 13.0,
+            }],
+            'formas_pagamento': [{'forma_pagamento': '01', 'valor_pagamento': 85}],
+        }
+        ini = montar_ini_nfe(_Cfg(), payload, tipo='nfe', numero=11, serie=1)
+        self.assertIn('modFrete=0', ini)
+        self.assertNotRegex(ini, r'\[Transportador\][^\[]*modFrete=9')
+        self.assertIn('CNPJCPF=12345678000199', ini)
 
     def test_montar_ini_nfe_origcomb_quando_gn(self):
         payload = {
