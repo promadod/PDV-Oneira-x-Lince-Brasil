@@ -1,5 +1,7 @@
 from datetime import date
 
+from django.conf import settings
+
 from .models import Loja
 from .seguranca import usuario_pode_configurar_loja
 
@@ -14,6 +16,7 @@ def saas_context(request):
         'nome_marca_pdv_max': Loja.NOME_MARCA_PDV_MAX,
         'pode_editar_marca_pdv': False,
         'pode_configurar_loja': False,
+        'STATIC_VERSION': getattr(settings, 'STATIC_VERSION', ''),
     }
     
     if request.user.is_authenticated and hasattr(request.user, 'perfil') and request.user.perfil.loja:
