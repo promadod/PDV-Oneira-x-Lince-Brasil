@@ -55,6 +55,88 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertIn('vNF=100.00', ini)
         self.assertIn('Fone=21994495071', ini)
         self.assertIn('infAdProd=GAS', ini)
+        self.assertNotIn('[Combustivel001]', ini)
+
+    def test_montar_ini_nfe_grupo_combustivel_cst61(self):
+        payload = {
+            'natureza_operacao': 'Venda de combustivel',
+            'items': [{
+                'codigo_produto': '1',
+                'descricao': 'GLP 13 kg',
+                'codigo_ncm': '27111910',
+                'cfop': '5656',
+                'quantidade_comercial': 1,
+                'valor_unitario_comercial': 85,
+                'valor_bruto': 85,
+                'icms_origem': '0',
+                'icms_situacao_tributaria': '61',
+                'pis_situacao_tributaria': '49',
+                'cofins_situacao_tributaria': '49',
+                'combustivel_codigo_anp': '210203001',
+                'combustivel_descricao_anp': 'GLP',
+                'combustivel_sigla_uf': 'RJ',
+                'combustivel_percentual_glp': 100,
+                'icms_base_calculo_mono_retido': 13.0,
+                'icms_aliquota_retido': 1.2196,
+                'icms_valor_mono_retido': 15.85,
+            }],
+            'formas_pagamento': [{'forma_pagamento': '01', 'valor_pagamento': 85}],
+        }
+        ini = montar_ini_nfe(_Cfg(), payload, tipo='nfe', numero=2, serie=1)
+        self.assertIn('mod=55', ini)
+        self.assertIn('[Combustivel001]', ini)
+        self.assertIn('cProdANP=210203001', ini)
+        self.assertIn('descANP=GLP', ini)
+        self.assertIn('UFCons=RJ', ini)
+        self.assertIn('pGLP=100.0000', ini)
+        self.assertIn('pGNn=0.0000', ini)
+        self.assertIn('pGNi=0.0000', ini)
+        self.assertIn('vPart=85.00', ini)
+        self.assertIn('CST=61', ini)
+        self.assertIn('qBCMonoRet=13', ini)
+        self.assertIn('adRemICMSRet=1.2196', ini)
+        self.assertIn('vICMSMonoRet=15.85', ini)
+        self.assertNotIn('[origComb', ini)
+
+    def test_montar_ini_nfe_origcomb_quando_gn(self):
+        payload = {
+            'natureza_operacao': 'Venda de combustivel',
+            'items': [{
+                'codigo_produto': '1',
+                'descricao': 'GLP 13 kg',
+                'codigo_ncm': '27111910',
+                'cfop': '5656',
+                'quantidade_comercial': 1,
+                'valor_unitario_comercial': 85,
+                'valor_bruto': 85,
+                'icms_origem': '0',
+                'icms_situacao_tributaria': '61',
+                'pis_situacao_tributaria': '49',
+                'cofins_situacao_tributaria': '49',
+                'combustivel_codigo_anp': '210203001',
+                'combustivel_descricao_anp': 'GLP',
+                'combustivel_sigla_uf': 'RJ',
+                'combustivel_percentual_glp': 100,
+                'combustivel_percentual_gas_natural_nacional': 70,
+                'combustivel_percentual_gas_natural_importado': 30,
+                'origens_combustivel': [
+                    {'indicador_importacao': '0', 'uf_origem': '33', 'percentual_originario_uf': 100.0},
+                    {'indicador_importacao': '1', 'uf_origem': '33', 'percentual_originario_uf': 100.0},
+                ],
+                'icms_base_calculo_mono_retido': 13.0,
+                'icms_aliquota_retido': 1.2196,
+                'icms_valor_mono_retido': 15.85,
+            }],
+            'formas_pagamento': [{'forma_pagamento': '01', 'valor_pagamento': 85}],
+        }
+        ini = montar_ini_nfe(_Cfg(), payload, tipo='nfe', numero=2, serie=1)
+        self.assertIn('[origComb00101]', ini)
+        self.assertIn('[origComb00102]', ini)
+        self.assertIn('indImport=0', ini)
+        self.assertIn('indImport=1', ini)
+        self.assertIn('cUFOrig=33', ini)
+        self.assertIn('pGNn=70.0000', ini)
+        self.assertIn('pGNi=30.0000', ini)
 
     def test_retorno_autorizado(self):
         interno = retorno_lib_para_interno({

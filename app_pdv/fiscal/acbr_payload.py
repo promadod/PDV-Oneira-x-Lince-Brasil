@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .models import FiscalConfig
-from .nfe_catalog import codigo_uf_ibge
+from .nfe_catalog import codigo_uf_ibge, grupo_combustivel_xml
 
 _HOMOLOG_XPROD = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
 
@@ -36,6 +36,15 @@ def _num(value, default=0):
 def _icms(item: dict) -> dict:
     origem = int(str(item.get('icms_origem') or '0')[:1] or '0')
     cst = ''.join(c for c in str(item.get('icms_situacao_tributaria') or '102') if c.isdigit())[:3]
+    if cst == '61':
+        grupo = {'orig': origem, 'CST': '61'}
+        if item.get('icms_base_calculo_mono_retido') not in (None, ''):
+            grupo['qBCMonoRet'] = _num(item.get('icms_base_calculo_mono_retido'))
+        if item.get('icms_aliquota_retido') not in (None, ''):
+            grupo['adRemICMSRet'] = _num(item.get('icms_aliquota_retido'))
+        if item.get('icms_valor_mono_retido') not in (None, ''):
+            grupo['vICMSMonoRet'] = round(_num(item.get('icms_valor_mono_retido')), 2)
+        return {'ICMS61': grupo}
     if cst in _CSOSN_SN102:
         return {'ICMSSN102': {'orig': origem, 'CSOSN': cst}}
     if cst == '101':
@@ -61,6 +70,20 @@ def _pis_cofins(item: dict, qual: str) -> dict:
     base = _num(item.get('valor_bruto'))
     valor = round(base * aliq / 100, 2) if aliq else 0
     return {f'{prefixo}Outr': {'CST': cst, 'vBC': base, f'p{prefixo}': aliq, f'v{prefixo}': valor}}
+
+
+def _icmstot(itens, v_prod, v_desc, v_outro, v_nf) -> dict:
+    tot = {
+        'vBC': 0, 'vICMS': 0, 'vICMSDeson': 0, 'vFCP': 0,
+        'vBCST': 0, 'vST': 0, 'vFCPST': 0, 'vFCPSTRet': 0,
+        'vProd': v_prod, 'vFrete': 0, 'vSeg': 0, 'vDesc': v_desc,
+        'vII': 0, 'vIPI': 0, 'vIPIDevol': 0, 'vPIS': 0, 'vCOFINS': 0,
+        'vOutro': v_outro, 'vNF': v_nf,
+    }
+    v_mono = round(sum(_num(it.get('icms_valor_mono_retido')) for it in itens), 2)
+    if v_mono:
+        tot['vICMSMonoRet'] = v_mono
+    return tot
 
 
 def _item_det(item: dict, *, homologacao: bool, primeiro: bool) -> dict:
@@ -97,6 +120,9 @@ def _item_det(item: dict, *, homologacao: bool, primeiro: bool) -> dict:
     v_outro = _num(item.get('valor_outras_despesas'))
     if v_outro > 0:
         prod['vOutro'] = round(v_outro, 2)
+    comb = grupo_combustivel_xml(item)
+    if comb:
+        prod['comb'] = comb
     return {
         'nItem': int(item.get('numero_item') or 1),
         'prod': prod,
@@ -163,13 +189,7 @@ def pedido_emissao(cfg: FiscalConfig, payload: dict, *, tipo: str, ref: str, num
             'CRT': int(cfg.crt or 1),
         },
         'det': dets,
-        'total': {'ICMSTot': {
-            'vBC': 0, 'vICMS': 0, 'vICMSDeson': 0, 'vFCP': 0,
-            'vBCST': 0, 'vST': 0, 'vFCPST': 0, 'vFCPSTRet': 0,
-            'vProd': v_prod, 'vFrete': 0, 'vSeg': 0, 'vDesc': v_desc,
-            'vII': 0, 'vIPI': 0, 'vIPIDevol': 0, 'vPIS': 0, 'vCOFINS': 0,
-            'vOutro': v_outro, 'vNF': v_nf,
-        }},
+        'total': {'ICMSTot': _icmstot(itens, v_prod, v_desc, v_outro, v_nf)},
         'transp': {'modFrete': int(payload.get('modalidade_frete') or 9)},
         'pag': {'detPag': pagamentos},
     }

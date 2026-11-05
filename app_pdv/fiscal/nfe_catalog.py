@@ -122,6 +122,54 @@ def produto_sujeito_icms_monofasico(cfop: str, codigo_anp: str, *, ncm: str = ''
     return n.startswith('2711')
 
 
+def _num_item(value, default=0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def grupo_combustivel_xml(item: dict) -> dict | None:
+    """Campos de prod/comb (cProdANP, descANP, UFCons, pGLP…) a partir do item Focus.
+
+    Sem este grupo a SEFAZ rejeita com cStat 660 em CFOP de combustível.
+    """
+    anp = str(item.get('combustivel_codigo_anp') or item.get('codigo_anp') or '').strip()
+    if not anp:
+        return None
+    desc = (item.get('combustivel_descricao_anp') or item.get('descricao_anp') or 'GLP').strip()[:95]
+    uf = (item.get('combustivel_sigla_uf') or item.get('uf_consumo') or 'RJ').strip().upper()[:2]
+    out: dict = {
+        'cProdANP': anp[:9],
+        'descANP': desc or 'GLP',
+        'UFCons': uf or 'RJ',
+    }
+    p_glp = item.get('combustivel_percentual_glp')
+    p_gnn = item.get('combustivel_percentual_gas_natural_nacional')
+    p_gni = item.get('combustivel_percentual_gas_natural_importado')
+    is_glp = anp in ANP_GLP_ORIGEM
+    if is_glp or p_glp is not None or p_gnn or p_gni:
+        pglp = _num_item(p_glp) if p_glp is not None else (100.0 if is_glp else 0.0)
+        pgnn = _num_item(p_gnn)
+        pgni = _num_item(p_gni)
+        out['pGLP'] = pglp
+        out['pGNn'] = pgnn
+        out['pGNi'] = pgni
+        v_prod = _num_item(item.get('valor_bruto'))
+        out['vPart'] = round(v_prod * pglp / 100.0, 2) if pglp else 0.0
+    origens = item.get('origens_combustivel') or []
+    if origens:
+        out['origComb'] = [
+            {
+                'indImport': int(_num_item(orig.get('indicador_importacao'))),
+                'cUFOrig': str(orig.get('uf_origem') or ''),
+                'pOrig': _num_item(orig.get('percentual_originario_uf'), 100.0),
+            }
+            for orig in origens
+        ]
+    return out
+
+
 MODALIDADE_FRETE_NFE = [
     ('9', '9 — Sem ocorrência de transporte'),
     ('0', '0 — Por conta do emitente'),
