@@ -1,4 +1,5 @@
 from pathlib import Path
+import hashlib
 import os
 
 from dotenv import load_dotenv
@@ -143,6 +144,22 @@ STORAGES = {
 }
 WHITENOISE_USE_FINDERS = DEBUG
 WHITENOISE_AUTOREFRESH = DEBUG
+
+
+def _static_version():
+    """Query string dos CSS/JS: o nginx da Contabo cacheia /static/ por 30 dias."""
+    digest = hashlib.md5()
+    for pasta in (BASE_DIR / 'static' / 'css', BASE_DIR / 'static' / 'js'):
+        if not pasta.is_dir():
+            continue
+        for path in sorted(pasta.glob('*')):
+            if path.is_file():
+                digest.update(path.name.encode())
+                digest.update(path.read_bytes())
+    return digest.hexdigest()[:12]
+
+
+STATIC_VERSION = os.getenv('STATIC_VERSION') or _static_version()
 
 MEDIA_URL = '/media/'
 MEDIA_ROOT = os.path.join(BASE_DIR, 'media')

@@ -195,6 +195,8 @@ class PermissoesFiscaisTest(TestCase):
         resp = self.client.get(reverse('fiscal_emitir_avulsa'))
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'avulsa-layout')
+        self.assertContains(resp, 'grid-template-columns: 1fr 1fr')
+        self.assertContains(resp, 'css/fiscal.css?v=')
         self.assertContains(resp, 'Itens da nota')
         self.assertContains(resp, 'id="btn-add-item"')
         self.assertContains(resp, 'id="lista-itens"')

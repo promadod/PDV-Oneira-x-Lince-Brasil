@@ -57,7 +57,7 @@
     <button type="submit" name="acao" value="atualizar" class="btn contabilidade-btn-atualizar">Atualizar resumo</button>
 </form>
 
-<link rel="stylesheet" href="{% static 'css/contabilidade.css' %}">
+<link rel="stylesheet" href="{% static 'css/contabilidade.css' %}?v={{ STATIC_VERSION }}">
 <script>
 (function () {
     var btn = document.getElementById('btn-baixar-pacote');

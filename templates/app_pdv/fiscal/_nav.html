@@ -1,5 +1,179 @@
 {% load static %}
-<link rel="stylesheet" href="{% static 'css/fiscal.css' %}">
+<link rel="stylesheet" href="{% static 'css/fiscal.css' %}?v={{ STATIC_VERSION }}">
+<style>
+/* Layout avulsa/NF-e no HTML: o nginx cacheia /static/css/fiscal.css por 30 dias. */
+.avulsa-layout {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+    align-items: stretch;
+    max-width: 1280px;
+}
+.avulsa-composer,
+.avulsa-pedido {
+    margin-bottom: 0;
+    min-height: 100%;
+    box-sizing: border-box;
+}
+.avulsa-composer {
+    padding: 22px 22px 20px;
+    border: 1px solid rgba(21, 160, 165, 0.28);
+    box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.card.avulsa-pedido {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    padding: 0;
+    overflow: hidden;
+    background:
+        radial-gradient(120% 80% at 100% 0%, rgba(3, 218, 198, 0.14) 0%, transparent 55%),
+        linear-gradient(165deg, rgba(21, 160, 165, 0.18) 0%, rgba(16, 16, 24, 0.96) 38%, #101018 100%);
+    border: 1px solid rgba(3, 218, 198, 0.38);
+    box-shadow:
+        0 0 0 1px rgba(21, 160, 165, 0.1),
+        0 12px 40px rgba(0, 0, 0, 0.45),
+        inset 0 1px 0 rgba(3, 218, 198, 0.22);
+}
+.avulsa-pedido::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent 4%, #03dac6 35%, #15a0a5 65%, transparent 96%);
+    pointer-events: none;
+}
+.avulsa-pedido-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 20px 22px 14px;
+    border-bottom: 1px solid rgba(3, 218, 198, 0.18);
+}
+.avulsa-pedido-kicker {
+    display: block;
+    font-size: 0.68rem;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: #03dac6;
+    margin-bottom: 4px;
+}
+.avulsa-pedido-head h4 {
+    margin: 0;
+    color: #f4f7f7;
+    font-size: 1.15rem;
+}
+.avulsa-pedido-count {
+    flex-shrink: 0;
+    min-width: 42px;
+    padding: 6px 10px;
+    border-radius: 999px;
+    text-align: center;
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: #041314;
+    background: linear-gradient(180deg, #5ff5e5 0%, #03dac6 100%);
+    box-shadow: 0 0 16px rgba(3, 218, 198, 0.45);
+}
+.avulsa-pedido-body {
+    flex: 1 1 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+    padding: 16px 18px 12px;
+    min-height: 280px;
+    overflow-y: auto;
+}
+.avulsa-pedido-sec h5 {
+    margin: 0 0 10px;
+    font-size: 0.72rem;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: rgba(3, 218, 198, 0.85);
+}
+.avulsa-empty {
+    color: #7a8890;
+    font-size: 0.88em;
+    margin: 0;
+    padding: 18px 14px;
+    text-align: center;
+    border: 1px dashed rgba(3, 218, 198, 0.28);
+    border-radius: 10px;
+    background: rgba(3, 218, 198, 0.04);
+}
+.avulsa-totais {
+    font-weight: 700;
+    margin: 0;
+    padding: 14px 22px;
+    color: #fff;
+    letter-spacing: 0.02em;
+    background: linear-gradient(90deg, rgba(13, 79, 110, 0.85) 0%, rgba(21, 160, 165, 0.72) 100%);
+    border-top: 1px solid rgba(3, 218, 198, 0.35);
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+.avulsa-pedido-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+    padding: 11px 12px;
+    font-size: 0.92em;
+    background: rgba(3, 218, 198, 0.06);
+    border: 1px solid rgba(3, 218, 198, 0.2);
+    border-radius: 10px;
+    box-shadow: inset 0 0 12px rgba(3, 218, 198, 0.04);
+}
+.avulsa-pedido-item:last-child { margin-bottom: 0; }
+.avulsa-pedido-item strong { display: block; color: #f2f2f2; }
+.avulsa-pedido-item span {
+    display: block;
+    color: #8aa0a6;
+    font-size: 0.84em;
+    margin-top: 2px;
+}
+.avulsa-pedido-valor {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    color: #5ff5e5;
+    font-weight: 700;
+}
+.avulsa-row {
+    display: grid;
+    grid-template-columns: 2fr 0.8fr 0.9fr 0.8fr 0.8fr auto;
+    gap: 8px;
+    align-items: end;
+    margin-bottom: 10px;
+}
+.avulsa-row--pag { grid-template-columns: 2fr 1fr auto; }
+.avulsa-row label {
+    display: block;
+    font-size: 0.8em;
+    color: #aaa;
+    margin-bottom: 4px;
+}
+.avulsa-btn-add {
+    height: 38px;
+    min-width: 38px;
+    padding: 0 12px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+}
+@media (max-width: 800px) {
+    .avulsa-layout { grid-template-columns: 1fr; }
+    .avulsa-pedido { position: static; min-height: 0; }
+    .avulsa-row,
+    .avulsa-row--pag { grid-template-columns: 1fr 1fr; }
+    .avulsa-btn-add { grid-column: 1 / -1; width: 100%; }
+}
+</style>
 {% with an=request.resolver_match.url_name nav=fiscal_nav_ativa|default:'' %}
 <div class="card fiscal-nav-card">
     <nav class="fiscal-nav" aria-label="Módulo fiscal">
