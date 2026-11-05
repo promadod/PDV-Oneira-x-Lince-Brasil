@@ -94,3 +94,4 @@ class PagamentoAcbrTest(SimpleTestCase):
         self.assertEqual(icms['ICMS61']['adRemICMSRet'], 1.2196)
         self.assertEqual(icms['ICMS61']['vICMSMonoRet'], 15.85)
         self.assertEqual(pedido['infNFe']['total']['ICMSTot']['vICMSMonoRet'], 15.85)
+        self.assertEqual(pedido['infNFe']['total']['ICMSTot']['qBCMonoRet'], 13.0)
