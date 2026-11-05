@@ -60,6 +60,11 @@ class DanfeNfeA4Tests(SimpleTestCase):
         self.assertIn(b'DANFE', pdf)
         self.assertNotIn(b'DANFE NFC-e', pdf)
         self.assertGreater(len(pdf), 1000)
+        self.assertIn(b'VALOR TOTAL DA NOTA', pdf)
+        self.assertIn(b'RECEBEMOS DE', pdf)
+        self.assertIn(b'DESTINAT', pdf)
+        self.assertIn(b'/MediaBox', pdf)
+        self.assertIn(b'595.27', pdf)
 
     def test_regenera_somente_modelo_55(self):
         with TemporaryDirectory() as tmp:
