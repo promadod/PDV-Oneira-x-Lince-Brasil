@@ -6,7 +6,7 @@ from datetime import datetime
 
 from django.utils import timezone
 
-from .nfe_catalog import codigo_uf_ibge
+from .nfe_catalog import codigo_uf_ibge, grupo_combustivel_xml
 
 _HOMOLOG_XPROD = 'NOTA FISCAL EMITIDA EM AMBIENTE DE HOMOLOGACAO - SEM VALOR FISCAL'
 _TPAG_COM_CARTAO = {'03', '04', '17'}
@@ -29,6 +29,56 @@ def _fmt_money(value) -> str:
 
 def _fmt_qtd(value) -> str:
     return f'{_num(value, 1):.4f}'.rstrip('0').rstrip('.') if '.' in f'{_num(value, 1):.4f}' else f'{_num(value, 1):.0f}'
+
+
+def _fmt_pct(value) -> str:
+    return f'{_num(value):.4f}'
+
+
+def _icms_do_item(item: dict) -> dict:
+    origem = str(item.get('icms_origem') or '0')[:1]
+    cst = _digitos(item.get('icms_situacao_tributaria') or '102')[:3] or '102'
+    icms = {'orig': origem}
+    if len(cst) == 3:
+        icms['CSOSN'] = cst
+    else:
+        icms['CST'] = cst.zfill(2)
+    if cst.zfill(2) == '61':
+        qbc = item.get('icms_base_calculo_mono_retido')
+        adrem = item.get('icms_aliquota_retido')
+        vicms = item.get('icms_valor_mono_retido')
+        if qbc is not None and qbc != '':
+            icms['qBCMonoRet'] = _fmt_qtd(qbc)
+        if adrem is not None and adrem != '':
+            icms['adRemICMSRet'] = _fmt_pct(adrem)
+        if vicms is not None and vicms != '':
+            icms['vICMSMonoRet'] = _fmt_money(vicms)
+    return icms
+
+
+def _secoes_combustivel(item: dict, idx: str) -> list[str]:
+    comb = grupo_combustivel_xml(item)
+    if not comb:
+        return []
+    origens = list(comb.get('origComb') or [])
+    pairs = {}
+    for chave, valor in comb.items():
+        if chave == 'origComb':
+            continue
+        if chave in ('pGLP', 'pGNn', 'pGNi'):
+            pairs[chave] = _fmt_pct(valor)
+        elif chave == 'vPart':
+            pairs[chave] = _fmt_money(valor)
+        else:
+            pairs[chave] = valor
+    secoes = [_section(f'Combustivel{idx}', pairs)]
+    for j, orig in enumerate(origens, start=1):
+        secoes.append(_section(f'origComb{idx}{j:02d}', {
+            'indImport': str(int(orig.get('indImport') or 0)),
+            'cUFOrig': str(orig.get('cUFOrig') or ''),
+            'pOrig': _fmt_pct(orig.get('pOrig')),
+        }))
+    return secoes
 
 
 def _dh_emi(payload: dict) -> str:
@@ -169,6 +219,7 @@ def montar_ini_nfe(
     v_prod = 0.0
     v_desc = 0.0
     v_outro = 0.0
+    v_icms_mono_ret = 0.0
     for i, item in enumerate(itens, start=1):
         idx = f'{i:03d}'
         qtd = _num(item.get('quantidade_comercial'), 1) or 1
@@ -211,15 +262,9 @@ def montar_ini_nfe(
         if homologacao and i == 1 and descricao_real:
             prod['infAdProd'] = descricao_real[:500]
         sections.append(_section(f'Produto{idx}', prod))
-
-        origem = str(item.get('icms_origem') or '0')[:1]
-        cst = _digitos(item.get('icms_situacao_tributaria') or '102')[:3] or '102'
-        icms = {'orig': origem}
-        if len(cst) == 3:
-            icms['CSOSN'] = cst
-        else:
-            icms['CST'] = cst.zfill(2)
-        sections.append(_section(f'ICMS{idx}', icms))
+        sections.extend(_secoes_combustivel(item, idx))
+        v_icms_mono_ret += _num(item.get('icms_valor_mono_retido'))
+        sections.append(_section(f'ICMS{idx}', _icms_do_item(item)))
 
         for trib, key in (('PIS', 'pis'), ('COFINS', 'cofins')):
             cst_t = _digitos(item.get(f'{key}_situacao_tributaria') or '49').zfill(2)[:2]
@@ -236,7 +281,7 @@ def montar_ini_nfe(
         v_outro = round(_num(payload.get('valor_outras_despesas')), 2)
     v_nf = round(max(v_prod - v_desc + v_outro, 0), 2)
 
-    sections.append(_section('Total', {
+    total = {
         'vBC': '0.00',
         'vICMS': '0.00',
         'vICMSDeson': '0.00',
@@ -253,7 +298,10 @@ def montar_ini_nfe(
         'vOutro': _fmt_money(v_outro),
         'vNF': _fmt_money(v_nf),
         'vTotTrib': '0.00',
-    }))
+    }
+    if v_icms_mono_ret:
+        total['vICMSMonoRet'] = _fmt_money(v_icms_mono_ret)
+    sections.append(_section('Total', total))
     sections.append(_section('Transportador', {
         'modFrete': str(int(payload.get('modalidade_frete') or 9)),
     }))

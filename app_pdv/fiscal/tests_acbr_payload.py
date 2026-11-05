@@ -61,3 +61,36 @@ class PagamentoAcbrTest(SimpleTestCase):
         det = self._det('99')
         self.assertEqual(det['xPag'], 'Outros')
         self.assertNotIn('card', det)
+
+    def test_nfe_item_combustivel_grupo_comb_e_icms61(self):
+        payload = _payload('01')
+        payload['items'][0].update({
+            'codigo_ncm': '27111910',
+            'cfop': '5656',
+            'descricao': 'GLP 13 kg',
+            'valor_unitario_comercial': 85,
+            'valor_bruto': 85,
+            'icms_situacao_tributaria': '61',
+            'combustivel_codigo_anp': '210203001',
+            'combustivel_descricao_anp': 'GLP',
+            'combustivel_sigla_uf': 'RJ',
+            'combustivel_percentual_glp': 100,
+            'icms_base_calculo_mono_retido': 13.0,
+            'icms_aliquota_retido': 1.2196,
+            'icms_valor_mono_retido': 15.85,
+        })
+        payload['formas_pagamento'][0]['valor_pagamento'] = 85
+        pedido = pedido_emissao(_cfg(), payload, tipo='nfe', ref='r', numero=2, serie=1)
+        prod = pedido['infNFe']['det'][0]['prod']
+        comb = prod['comb']
+        self.assertEqual(comb['cProdANP'], '210203001')
+        self.assertEqual(comb['descANP'], 'GLP')
+        self.assertEqual(comb['UFCons'], 'RJ')
+        self.assertEqual(comb['pGLP'], 100.0)
+        self.assertNotIn('origComb', comb)
+        icms = pedido['infNFe']['det'][0]['imposto']['ICMS']
+        self.assertEqual(icms['ICMS61']['CST'], '61')
+        self.assertEqual(icms['ICMS61']['qBCMonoRet'], 13.0)
+        self.assertEqual(icms['ICMS61']['adRemICMSRet'], 1.2196)
+        self.assertEqual(icms['ICMS61']['vICMSMonoRet'], 15.85)
+        self.assertEqual(pedido['infNFe']['total']['ICMSTot']['vICMSMonoRet'], 15.85)

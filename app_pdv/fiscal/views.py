@@ -306,6 +306,14 @@ def fiscal_acbr_lib_testar(request):
     loja = check_loja(request)
     cfg = get_or_create_config(loja)
     _log_focus_acao('testar_acbr_lib', loja.id)
+    form = FocusIntegracaoForm(request.POST, request.FILES, instance=cfg)
+    if form.is_valid():
+        cfg = form.save(commit=False)
+        uploaded = form.cleaned_data.get('acbr_lib_pfx_arquivo')
+        if uploaded:
+            cfg.acbr_lib_pfx_path = _salvar_pfx_lib(loja, uploaded)
+            cfg.certificado_status = 'valido'
+        cfg.save()
     try:
         teste = testar_status_acbr_lib(cfg)
         st = teste.get('status') or {}
