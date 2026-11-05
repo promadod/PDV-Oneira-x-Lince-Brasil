@@ -1,7 +1,6 @@
-"""DANFE NF-e (A4 retrato) gerado a partir do XML autorizado.
+"""DANFE NF-e (A4 retrato) no layout padrão SEFAZ.
 
-O DANFE NFC-e (bobina 80 mm) não serve para modelo 55. Este layout cobre
-emitente, destinatário, itens, totais, transporte e protocolo.
+Gera a partir do XML autorizado. O DANFE NFC-e (bobina 80 mm) não se aplica ao modelo 55.
 """
 from __future__ import annotations
 
@@ -11,43 +10,81 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from reportlab.graphics.barcode import code128
+from reportlab.lib.colors import black, white, Color
 from reportlab.lib.pagesizes import A4
+from reportlab.pdfbase.pdfmetrics import stringWidth
 from reportlab.pdfgen import canvas
 
 from .danfe_nfce_pdf import (
     FONT,
     FONT_BOLD,
-    FORMAS_PAGAMENTO,
     _NFE,
     _descricao_item,
     _find,
     _fmt_dh,
     _fmt_doc,
     _money,
-    _num,
     _qtd,
     _quebrar,
     _txt,
 )
 
 W, H = A4
-ML, MR, MT, MB = 14.0, 14.0, 14.0, 14.0
+ML, MR, MT, MB = 10.0, 10.0, 8.0, 10.0
 INNER = W - ML - MR
+CINZA = Color(0.88, 0.88, 0.88)
 
 
-def _caixa(c, x, y, w, h):
-    c.setLineWidth(0.5)
-    c.rect(x, y - h, w, h)
+def _folha_branca(c):
+    c.setFillColor(white)
+    c.rect(0, 0, W, H, stroke=0, fill=1)
+    c.setFillColor(black)
+    c.setStrokeColor(black)
 
 
-def _rotulo(c, x, y, texto):
-    c.setFont(FONT, 5)
-    c.drawString(x + 2, y - 7, (texto or '').upper())
+def _caixa(c, x, y, w, h, *, fill=None):
+    c.setLineWidth(0.4)
+    if fill is not None:
+        c.setFillColor(fill)
+        c.rect(x, y - h, w, h, stroke=1, fill=1)
+        c.setFillColor(black)
+    else:
+        c.rect(x, y - h, w, h)
 
 
-def _valor(c, x, y, texto, tamanho=8, negrito=True):
-    c.setFont(FONT_BOLD if negrito else FONT, tamanho)
-    c.drawString(x + 2, y - 16, texto or '')
+def _fit(texto: str, fonte: str, tamanho: float, largura: float) -> str:
+    t = (texto or '').strip()
+    if not t or stringWidth(t, fonte, tamanho) <= largura:
+        return t
+    ell = '...'
+    while t and stringWidth(t + ell, fonte, tamanho) > largura:
+        t = t[:-1]
+    return (t + ell) if t else ''
+
+
+def _texto(c, x, y, w, texto, fonte, tamanho, alinhar='L'):
+    t = _fit(texto, fonte, tamanho, max(w - 4, 4))
+    c.setFont(fonte, tamanho)
+    if alinhar == 'R':
+        c.drawRightString(x + w - 2, y, t)
+    elif alinhar == 'C':
+        c.drawCentredString(x + w / 2, y, t)
+    else:
+        c.drawString(x + 2, y, t)
+
+
+def _celula(c, x, y, w, h, rotulo, valor, *, alinhar='L', fill=None, tam_valor=8):
+    _caixa(c, x, y, w, h, fill=fill)
+    c.setFont(FONT, 4.5)
+    c.drawString(x + 2, y - 6, (rotulo or '').upper())
+    _texto(c, x, y - h + 5, w, valor or '', FONT_BOLD if alinhar == 'R' else FONT, tam_valor, alinhar)
+
+
+def _faixa(c, x, y, w, titulo, h=9):
+    _caixa(c, x, y, w, h)
+    c.setFont(FONT_BOLD, 6)
+    c.drawString(x + 2, y - 7, (titulo or '').upper())
+    return h
 
 
 def _chave_grupos(chave: str) -> str:
@@ -55,9 +92,44 @@ def _chave_grupos(chave: str) -> str:
     return ' '.join(d[i:i + 4] for i in range(0, len(d), 4))
 
 
-def _cst_item(det) -> str:
+def _fmt_nnf(n: str) -> str:
+    d = re.sub(r'\D', '', n or '').zfill(9)
+    return f'{d[:3]}.{d[3:6]}.{d[6:]}'
+
+
+def _fmt_cep(value: str) -> str:
+    d = re.sub(r'\D', '', value or '')
+    if len(d) == 8:
+        return f'{d[:5]}-{d[5:]}'
+    return value or ''
+
+
+def _fmt_fone(value: str) -> str:
+    d = re.sub(r'\D', '', value or '')
+    if len(d) == 11:
+        return f'({d[:2]}){d[2:7]}-{d[7:]}'
+    if len(d) == 10:
+        return f'({d[:2]}){d[2:6]}-{d[6:]}'
+    return value or ''
+
+
+def _data_hora(dh: str) -> tuple[str, str]:
+    txt = _fmt_dh(dh)
+    if ' ' in txt:
+        a, b = txt.split(' ', 1)
+        return a, b[:8]
+    return txt, ''
+
+
+def _imposto_grupo(det, nome: str):
     imposto = _find(det, 'imposto')
-    icms = _find(imposto, 'ICMS') if imposto is not None else None
+    if imposto is None:
+        return None
+    return _find(imposto, nome)
+
+
+def _cst_item(det) -> str:
+    icms = _imposto_grupo(det, 'ICMS')
     if icms is None:
         return ''
     for filho in list(icms):
@@ -65,6 +137,28 @@ def _cst_item(det) -> str:
         if cst:
             orig = (filho.findtext(f'{_NFE}orig') or '').strip()
             return f'{orig}{cst}' if orig else cst
+    return ''
+
+
+def _txt_icms(det, tag: str) -> str:
+    icms = _imposto_grupo(det, 'ICMS')
+    if icms is None:
+        return ''
+    for filho in list(icms):
+        val = (filho.findtext(f'{_NFE}{tag}') or '').strip()
+        if val:
+            return val
+    return ''
+
+
+def _txt_ipi(det, tag: str) -> str:
+    ipi = _imposto_grupo(det, 'IPI')
+    if ipi is None:
+        return ''
+    for filho in list(ipi):
+        val = (filho.findtext(f'{_NFE}{tag}') or '').strip()
+        if val:
+            return val
     return ''
 
 
@@ -82,8 +176,33 @@ def _montar_itens(inf) -> list[dict]:
             'qtd': _qtd(_txt(prod, 'qCom')),
             'vunit': _money(_txt(prod, 'vUnCom')),
             'vtotal': _money(_txt(prod, 'vProd')),
+            'vdesc': _money(_txt(prod, 'vDesc')),
+            'vbc': _money(_txt_icms(det, 'vBC')),
+            'vicms': _money(_txt_icms(det, 'vICMS')),
+            'vipi': _money(_txt_ipi(det, 'vIPI')),
+            'picms': _money(_txt_icms(det, 'pICMS')),
+            'pipi': _money(_txt_ipi(det, 'pIPI')),
         })
     return itens
+
+
+def _desenhar_barras(c, chave: str, x: float, y_base: float, max_w: float, altura: float):
+    digits = re.sub(r'\D', '', chave or '')
+    if not digits:
+        return
+    try:
+        probe = code128.Code128(digits, barHeight=altura, barWidth=1.0, humanReadable=False)
+        bw = ((max_w * 0.96) / probe.width) if probe.width else 0.4
+        barra = code128.Code128(digits, barHeight=altura, barWidth=bw, humanReadable=False)
+        if barra.width > max_w and barra.width:
+            barra = code128.Code128(
+                digits, barHeight=altura, barWidth=bw * max_w / barra.width, humanReadable=False,
+            )
+        x0 = x + max(0, (max_w - barra.width) / 2.0)
+        barra.drawOn(c, x0, y_base)
+    except Exception:
+        c.setFont(FONT, 6)
+        c.drawCentredString(x + max_w / 2, y_base + altura / 2, digits)
 
 
 def montar_danfe_nfe_pdf(xml_bytes: bytes) -> bytes:
@@ -99,257 +218,306 @@ def montar_danfe_nfe_pdf(xml_bytes: bytes) -> bytes:
     ender_dest = _find(dest, 'enderDest') if dest is not None else None
     tot = _find(inf, 'total/ICMSTot')
     transp = _find(inf, 'transp')
+    transporta = _find(transp, 'transporta') if transp is not None else None
+    veic = _find(transp, 'veicTransp') if transp is not None else None
+    vol = _find(transp, 'vol') if transp is not None else None
     prot = root.find(f'.//{_NFE}infProt')
     inf_adic = _find(inf, 'infAdic')
 
     chave = (inf.get('Id') or '').replace('NFe', '')
-    numero = _txt(ide, 'nNF').zfill(9)
+    numero = _txt(ide, 'nNF')
+    nnf = _fmt_nnf(numero)
     serie = _txt(ide, 'serie').zfill(3)
     tp_nf = _txt(ide, 'tpNF') or '1'
     natureza = _txt(ide, 'natOp')
-    dh_emi = _fmt_dh(_txt(ide, 'dhEmi'))
-    dh_sai = _fmt_dh(_txt(ide, 'dhSaiEnt'))
+    dh_emi = _txt(ide, 'dhEmi')
+    dh_sai = _txt(ide, 'dhSaiEnt') or dh_emi
+    data_emi, hora_emi = _data_hora(dh_emi)
+    data_sai, hora_sai = _data_hora(dh_sai)
+    n_prot = _txt(prot, 'nProt')
+    dh_prot_d, dh_prot_h = _data_hora(_txt(prot, 'dhRecbto'))
+    v_nf = _money(_txt(tot, 'vNF'))
+    nome_emit = _txt(emit, 'xNome') or _txt(emit, 'xFant') or 'EMITENTE'
+    nome_dest = _txt(dest, 'xNome') or 'NÃO INFORMADO'
+    cnpj_emit = _fmt_doc(_txt(emit, 'CNPJ') or _txt(emit, 'CPF'))
+    ie_emit = _txt(emit, 'IE')
+    ie_st = _txt(emit, 'IEST')
+    fone_emit = _fmt_fone(_txt(ender, 'fone'))
 
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=A4)
     c.setPageCompression(0)
-    c.setTitle(f'DANFE NF-e {numero}')
+    c.setTitle(f'DANFE NF-e {nnf}')
     c.setAuthor('Oneira PDV')
+    _folha_branca(c)
 
     y = H - MT
-    # --- Cabeçalho ---
-    h_cab = 92
-    w_emit = INNER * 0.46
+    # --- Canhoto ---
+    h_can = 42
+    w_nf = 108
+    _caixa(c, ML, y, INNER - w_nf, 18)
+    c.setFont(FONT, 5.5)
+    c.drawString(ML + 3, y - 8, _fit(
+        f'RECEBEMOS DE {nome_emit} OS PRODUTOS / SERVIÇOS CONSTANTES DA NOTA FISCAL INDICADO AO LADO',
+        FONT, 5.5, INNER - w_nf - 8,
+    ))
+    c.drawString(ML + 3, y - 16, _fit(
+        f'EMISSÃO: {data_emi} - DEST. / REM.: {nome_dest} - VALOR TOTAL: R$ {v_nf}',
+        FONT, 5.5, INNER - w_nf - 8,
+    ))
+    _celula(c, ML, y - 18, 90, h_can - 18, 'DATA DE RECEBIMENTO', '')
+    _celula(c, ML + 90, y - 18, INNER - w_nf - 90, h_can - 18, 'IDENTIFICAÇÃO E ASSINATURA DO RECEBEDOR', '')
+    _caixa(c, ML + INNER - w_nf, y, w_nf, h_can)
+    c.setFont(FONT_BOLD, 9)
+    c.drawCentredString(ML + INNER - w_nf / 2, y - 12, 'NF-e')
+    c.setFont(FONT_BOLD, 8)
+    c.drawCentredString(ML + INNER - w_nf / 2, y - 24, f'Nº {nnf}')
+    c.drawCentredString(ML + INNER - w_nf / 2, y - 36, f'SÉRIE {serie}')
+    y -= h_can + 3
+    c.setDash(1.5, 1.5)
+    c.setLineWidth(0.4)
+    c.line(ML, y + 1, ML + INNER, y + 1)
+    c.setDash()
+    y -= 4
+
+    # --- Identificação do emitente / DANFE / chave ---
+    h_cab = 88
+    w_emit = INNER * 0.42
     w_meio = INNER * 0.22
     w_dir = INNER - w_emit - w_meio
     _caixa(c, ML, y, w_emit, h_cab)
-    _caixa(c, ML + w_emit, y, w_meio, h_cab)
-    _caixa(c, ML + w_emit + w_meio, y, w_dir, h_cab)
-
+    c.setFont(FONT, 4.5)
+    c.drawString(ML + 3, y - 7, 'IDENTIFICAÇÃO DO EMITENTE')
     c.setFont(FONT_BOLD, 8)
-    c.drawString(ML + 4, y - 14, (_txt(emit, 'xNome') or _txt(emit, 'xFant') or 'EMITENTE')[:52])
+    ty = y - 18
+    for linha in _quebrar(nome_emit, FONT_BOLD, 8, w_emit - 8)[:2]:
+        c.drawCentredString(ML + w_emit / 2, ty, linha)
+        ty -= 10
+    cep = _fmt_cep(_txt(ender, 'CEP'))
+    end_linhas = [
+        ', '.join(p for p in (_txt(ender, 'xLgr'), _txt(ender, 'nro')) if p),
+        ' - '.join(p for p in (_txt(ender, 'xBairro'), f'CEP:{cep}' if cep else '', _txt(ender, 'xMun'), _txt(ender, 'UF')) if p),
+    ]
+    if fone_emit:
+        end_linhas.append(f'TEL: {fone_emit}')
     c.setFont(FONT, 6.5)
-    mun = ', '.join(p for p in (_txt(ender, 'xMun'), _txt(ender, 'UF')) if p)
-    end_emit = ', '.join(p for p in (
-        _txt(ender, 'xLgr'), _txt(ender, 'nro'), _txt(ender, 'xBairro'), mun,
-    ) if p)
-    ty = y - 26
-    for linha in _quebrar(end_emit, FONT, 6.5, w_emit - 8):
-        c.drawString(ML + 4, ty, linha)
-        ty -= 9
-    fone = re.sub(r'\D', '', _txt(ender, 'fone'))
-    c.drawString(ML + 4, ty, f'CNPJ: {_fmt_doc(_txt(emit, "CNPJ"))}  IE: {_txt(emit, "IE")}')
-    if fone:
-        c.drawString(ML + 4, ty - 9, f'Fone: {fone}')
+    for linha in end_linhas:
+        for pedaco in _quebrar(linha, FONT, 6.5, w_emit - 10)[:2]:
+            c.drawCentredString(ML + w_emit / 2, ty, pedaco)
+            ty -= 9
 
+    _caixa(c, ML + w_emit, y, w_meio, h_cab)
     cx = ML + w_emit + w_meio / 2
     c.setFont(FONT_BOLD, 11)
-    c.drawCentredString(cx, y - 18, 'DANFE')
-    c.setFont(FONT, 6)
-    c.drawCentredString(cx, y - 28, 'Documento Auxiliar da')
-    c.drawCentredString(cx, y - 36, 'Nota Fiscal Eletrônica')
-    c.setFont(FONT, 6.5)
-    c.drawCentredString(cx, y - 50, '0 — ENTRADA')
-    c.drawCentredString(cx, y - 60, '1 — SAÍDA')
-    c.setFont(FONT_BOLD, 10)
-    c.drawCentredString(cx, y - 74, tp_nf)
-    c.setFont(FONT_BOLD, 8)
-    c.drawCentredString(cx, y - 88, f'Nº {numero}  Série {serie}')
-
-    dx = ML + w_emit + w_meio + 4
-    c.setFont(FONT, 5)
-    c.drawString(dx, y - 10, 'CHAVE DE ACESSO')
-    try:
-        barra = code128.Code128(chave or '0', barHeight=28, barWidth=0.72, humanReadable=False)
-        barra.drawOn(c, dx, y - 46)
-    except Exception:
-        c.setFont(FONT, 7)
-        c.drawString(dx, y - 30, chave)
-    c.setFont(FONT, 6)
-    for i, linha in enumerate(_quebrar(_chave_grupos(chave), FONT, 6, w_dir - 8)):
-        c.drawString(dx, y - 58 - i * 8, linha)
-    c.setFont(FONT, 5.5)
-    c.drawString(dx, y - 86, 'Consulta de autenticidade no portal nacional da NF-e')
-
-    y -= h_cab + 2
-    h_nat = 28
-    w_nat = INNER * 0.62
-    _caixa(c, ML, y, w_nat, h_nat)
-    _caixa(c, ML + w_nat, y, INNER - w_nat, h_nat)
-    _rotulo(c, ML, y, 'NATUREZA DA OPERAÇÃO')
-    _valor(c, ML, y, natureza[:70], 8)
-    _rotulo(c, ML + w_nat, y, 'PROTOCOLO DE AUTORIZAÇÃO DE USO')
-    n_prot = _txt(prot, 'nProt')
-    dh_prot = _fmt_dh(_txt(prot, 'dhRecbto'))
-    _valor(c, ML + w_nat, y, f'{n_prot}  {dh_prot}'.strip(), 7)
-
-    y -= h_nat + 2
-    h_dest = 48
-    _caixa(c, ML, y, INNER, h_dest)
-    _rotulo(c, ML, y, 'DESTINATÁRIO / REMETENTE')
-    c.setFont(FONT_BOLD, 7.5)
-    c.drawString(ML + 2, y - 18, (_txt(dest, 'xNome') or 'NÃO INFORMADO')[:70])
-    c.setFont(FONT, 7)
-    doc_dest = _txt(dest, 'CNPJ') or _txt(dest, 'CPF')
-    rot = 'CNPJ' if _txt(dest, 'CNPJ') else 'CPF'
-    c.drawString(ML + 2, y - 30, f'{rot}: {_fmt_doc(doc_dest)}   IE: {_txt(dest, "IE") or "ISENTO"}')
-    mun_d = ', '.join(p for p in (_txt(ender_dest, 'xMun'), _txt(ender_dest, 'UF')) if p)
-    end_d = ', '.join(p for p in (
-        _txt(ender_dest, 'xLgr'), _txt(ender_dest, 'nro'), _txt(ender_dest, 'xBairro'), mun_d,
-        _txt(ender_dest, 'CEP'),
-    ) if p)
-    c.drawString(ML + 2, y - 42, (end_d or '')[:110])
-    c.setFont(FONT, 6.5)
-    c.drawRightString(W - MR - 2, y - 18, f'Emissão: {dh_emi}')
-    if dh_sai:
-        c.drawRightString(W - MR - 2, y - 30, f'Saída: {dh_sai}')
-
-    y -= h_dest + 2
-    itens = _montar_itens(inf)
-    cols = [
-        ('CÓDIGO', 48),
-        ('DESCRIÇÃO DOS PRODUTOS / SERVIÇOS', 0),
-        ('NCM', 48),
-        ('CST', 32),
-        ('CFOP', 30),
-        ('UN', 22),
-        ('QTDE', 40),
-        ('V. UNIT', 50),
-        ('V. TOTAL', 54),
-    ]
-    largura_desc = INNER - sum(w for n, w in cols if n != 'DESCRIÇÃO DOS PRODUTOS / SERVIÇOS')
-    cols[1] = ('DESCRIÇÃO DOS PRODUTOS / SERVIÇOS', largura_desc)
-    h_head = 12
-    _caixa(c, ML, y, INNER, h_head)
+    c.drawCentredString(cx, y - 14, 'DANFE')
     c.setFont(FONT_BOLD, 5.5)
+    c.drawCentredString(cx, y - 24, 'DOCUMENTO AUXILIAR DA')
+    c.drawCentredString(cx, y - 31, 'NOTA FISCAL ELETRÔNICA')
+    c.setFont(FONT, 6)
+    c.drawString(ML + w_emit + 6, y - 44, '0 - ENTRADA')
+    c.drawString(ML + w_emit + 6, y - 53, '1 - SAÍDA')
+    _caixa(c, ML + w_emit + w_meio - 22, y - 38, 16, 16)
+    c.setFont(FONT_BOLD, 11)
+    c.drawCentredString(ML + w_emit + w_meio - 14, y - 50, tp_nf)
+    c.setFont(FONT_BOLD, 7)
+    c.drawCentredString(cx, y - 68, f'Nº {nnf}   fl. 1 /1')
+    c.drawCentredString(cx, y - 80, f'SÉRIE {serie}')
+
+    _caixa(c, ML + w_emit + w_meio, y, w_dir, h_cab)
+    bar_w = w_dir - 8
+    _desenhar_barras(c, chave, ML + w_emit + w_meio + 4, y - 38, bar_w, 28)
+    c.setFont(FONT, 4.5)
+    c.drawString(ML + w_emit + w_meio + 4, y - 46, 'CHAVE DE ACESSO')
+    c.setFont(FONT, 6)
+    c.drawCentredString(ML + w_emit + w_meio + w_dir / 2, y - 56, _chave_grupos(chave))
+    c.setFont(FONT, 5)
+    c.drawCentredString(ML + w_emit + w_meio + w_dir / 2, y - 68, 'Consulta de autenticidade no portal nacional da NF-e')
+    c.drawCentredString(ML + w_emit + w_meio + w_dir / 2, y - 76, 'www.nfe.fazenda.gov.br/portal')
+    c.drawCentredString(ML + w_emit + w_meio + w_dir / 2, y - 84, 'ou no site da Sefaz Autorizadora')
+    y -= h_cab
+
+    # Natureza + protocolo
+    h_nat = 22
+    w_nat = INNER * 0.62
+    _celula(c, ML, y, w_nat, h_nat, 'NATUREZA DE OPERAÇÃO', natureza, tam_valor=8)
+    _celula(
+        c, ML + w_nat, y, INNER - w_nat, h_nat,
+        'PROTOCOLO DE AUTORIZAÇÃO DE USO',
+        f'{n_prot} {dh_prot_d} {dh_prot_h}'.strip(),
+        tam_valor=7,
+    )
+    y -= h_nat
+
+    h_ie = 20
+    w1, w2 = INNER * 0.34, INNER * 0.33
+    _celula(c, ML, y, w1, h_ie, 'INSCRIÇÃO ESTADUAL', ie_emit)
+    _celula(c, ML + w1, y, w2, h_ie, 'INSCRIÇÃO ESTADUAL DO SUBST. TRIB.', ie_st)
+    _celula(c, ML + w1 + w2, y, INNER - w1 - w2, h_ie, 'CNPJ / CPF', cnpj_emit)
+    y -= h_ie
+
+    # Destinatário
+    y -= _faixa(c, ML, y, INNER, 'DESTINATÁRIO / REMETENTE')
+    h_d = 20
+    doc_dest = _fmt_doc(_txt(dest, 'CNPJ') or _txt(dest, 'CPF'))
+    _celula(c, ML, y, INNER * 0.62, h_d, 'NOME / RAZÃO SOCIAL', nome_dest, tam_valor=7.5)
+    _celula(c, ML + INNER * 0.62, y, INNER * 0.22, h_d, 'CNPJ / CPF', doc_dest, alinhar='R', tam_valor=7)
+    _celula(c, ML + INNER * 0.84, y, INNER * 0.16, h_d, 'DATA DA EMISSÃO', data_emi, alinhar='C', tam_valor=7)
+    y -= h_d
+    end_dest = ', '.join(p for p in (_txt(ender_dest, 'xLgr'), _txt(ender_dest, 'nro')) if p)
+    _celula(c, ML, y, INNER * 0.46, h_d, 'ENDEREÇO', end_dest, tam_valor=7)
+    _celula(c, ML + INNER * 0.46, y, INNER * 0.20, h_d, 'BAIRRO / DISTRITO', _txt(ender_dest, 'xBairro'), tam_valor=7)
+    _celula(c, ML + INNER * 0.66, y, INNER * 0.18, h_d, 'CEP', _fmt_cep(_txt(ender_dest, 'CEP')), alinhar='C', tam_valor=7)
+    _celula(c, ML + INNER * 0.84, y, INNER * 0.16, h_d, 'DATA SAÍDA / ENTRADA', data_sai, alinhar='C', tam_valor=7)
+    y -= h_d
+    _celula(c, ML, y, INNER * 0.32, h_d, 'MUNICÍPIO', _txt(ender_dest, 'xMun'), tam_valor=7)
+    _celula(c, ML + INNER * 0.32, y, INNER * 0.16, h_d, 'FONE / FAX', _fmt_fone(_txt(ender_dest, 'fone')), tam_valor=7)
+    _celula(c, ML + INNER * 0.48, y, INNER * 0.08, h_d, 'UF', _txt(ender_dest, 'UF'), alinhar='C', tam_valor=8)
+    _celula(c, ML + INNER * 0.56, y, INNER * 0.28, h_d, 'INSCRIÇÃO ESTADUAL', _txt(dest, 'IE'), tam_valor=7)
+    _celula(c, ML + INNER * 0.84, y, INNER * 0.16, h_d, 'HORA DA SAÍDA', hora_sai, alinhar='C', tam_valor=7)
+    y -= h_d
+
+    # Cálculo do imposto (antes dos itens, como o DANFE padrão)
+    y -= _faixa(c, ML, y, INNER, 'CÁLCULO DO IMPOSTO')
+    h_imp = 22
+    cols5 = [INNER * 0.20, INNER * 0.16, INNER * 0.20, INNER * 0.18, INNER * 0.26]
+    labs1 = [
+        ('BASE DE CÁLCULO DO ICMS', _txt(tot, 'vBC')),
+        ('VALOR DO ICMS', _txt(tot, 'vICMS')),
+        ('BASE CÁLC. ICMS SUBST.', _txt(tot, 'vBCST')),
+        ('VALOR DO ICMS SUBST.', _txt(tot, 'vST')),
+        ('VALOR TOTAL DOS PRODUTOS', _txt(tot, 'vProd')),
+    ]
     x = ML
-    for nome, larg in cols:
-        c.drawString(x + 1, y - 9, nome)
+    for i, (lab, val) in enumerate(labs1):
+        _celula(c, x, y, cols5[i], h_imp, lab, _money(val), alinhar='R', tam_valor=8)
+        x += cols5[i]
+    y -= h_imp
+    cols6 = [INNER * 0.15, INNER * 0.14, INNER * 0.14, INNER * 0.16, INNER * 0.15, INNER * 0.26]
+    labs2 = [
+        ('VALOR DO FRETE', _txt(tot, 'vFrete')),
+        ('VALOR DO SEGURO', _txt(tot, 'vSeg')),
+        ('DESCONTO', _txt(tot, 'vDesc')),
+        ('OUTRAS DESP. ACESS.', _txt(tot, 'vOutro')),
+        ('VALOR DO IPI', _txt(tot, 'vIPI')),
+        ('VALOR TOTAL DA NOTA', _txt(tot, 'vNF')),
+    ]
+    x = ML
+    for i, (lab, val) in enumerate(labs2):
+        destaque = i == 5
+        _celula(
+            c, x, y, cols6[i], h_imp, lab, _money(val), alinhar='R',
+            fill=CINZA if destaque else None, tam_valor=9 if destaque else 8,
+        )
+        x += cols6[i]
+    y -= h_imp
+
+    # Transportador
+    y -= _faixa(c, ML, y, INNER, 'TRANSPORTADOR / VOLUMES TRANSPORTADOS')
+    h_t = 20
+    mod_frete = _txt(transp, 'modFrete')
+    nomes_frete = {
+        '0': '0 - REMETENTE', '1': '1 - DESTINATÁRIO',
+        '2': '2 - TERCEIROS', '3': '3 - PRÓPRIO REMET.',
+        '4': '4 - PRÓPRIO DEST.', '9': '9 - SEM FRETE',
+    }
+    _celula(c, ML, y, INNER * 0.40, h_t, 'RAZÃO SOCIAL', _txt(transporta, 'xNome'), tam_valor=7)
+    _celula(c, ML + INNER * 0.40, y, INNER * 0.18, h_t, 'FRETE POR CONTA', nomes_frete.get(mod_frete, mod_frete), tam_valor=6.5)
+    _celula(c, ML + INNER * 0.58, y, INNER * 0.10, h_t, 'CÓDIGO ANTT', _txt(transp, 'RNTC') or _txt(veic, 'RNTC'), tam_valor=7)
+    _celula(c, ML + INNER * 0.68, y, INNER * 0.12, h_t, 'PLACA DO VEÍCULO', _txt(veic, 'placa'), tam_valor=7)
+    _celula(c, ML + INNER * 0.80, y, INNER * 0.05, h_t, 'UF', _txt(veic, 'UF'), alinhar='C', tam_valor=7)
+    _celula(c, ML + INNER * 0.85, y, INNER * 0.15, h_t, 'CNPJ / CPF', _fmt_doc(_txt(transporta, 'CNPJ') or _txt(transporta, 'CPF')), tam_valor=6.5)
+    y -= h_t
+    _celula(c, ML, y, INNER * 0.40, h_t, 'ENDEREÇO', _txt(transporta, 'xEnder'), tam_valor=7)
+    _celula(c, ML + INNER * 0.40, y, INNER * 0.28, h_t, 'MUNICÍPIO', _txt(transporta, 'xMun'), tam_valor=7)
+    _celula(c, ML + INNER * 0.68, y, INNER * 0.05, h_t, 'UF', _txt(transporta, 'UF'), alinhar='C', tam_valor=7)
+    _celula(c, ML + INNER * 0.73, y, INNER * 0.27, h_t, 'INSCRIÇÃO ESTADUAL', _txt(transporta, 'IE'), tam_valor=7)
+    y -= h_t
+    _celula(c, ML, y, INNER * 0.12, h_t, 'QUANTIDADE', _txt(vol, 'qVol'), alinhar='C', tam_valor=7)
+    _celula(c, ML + INNER * 0.12, y, INNER * 0.20, h_t, 'ESPÉCIE', _txt(vol, 'esp'), tam_valor=7)
+    _celula(c, ML + INNER * 0.32, y, INNER * 0.16, h_t, 'MARCA', _txt(vol, 'marca'), tam_valor=7)
+    _celula(c, ML + INNER * 0.48, y, INNER * 0.16, h_t, 'NUMERAÇÃO', _txt(vol, 'nVol'), tam_valor=7)
+    _celula(c, ML + INNER * 0.64, y, INNER * 0.18, h_t, 'PESO BRUTO (Kg)', _txt(vol, 'pesoB'), alinhar='R', tam_valor=7)
+    _celula(c, ML + INNER * 0.82, y, INNER * 0.18, h_t, 'PESO LÍQUIDO (Kg)', _txt(vol, 'pesoL'), alinhar='R', tam_valor=7)
+    y -= h_t
+
+    # Produtos
+    y -= _faixa(c, ML, y, INNER, 'DADOS DO PRODUTO / SERVIÇOS')
+    cols = [
+        ('CÓDIGO DO PROD. / SERV.', 48, 'L'),
+        ('DESCRIÇÃO DO PRODUTO / SERVIÇO', 0, 'L'),
+        ('NCM / SH', 46, 'C'),
+        ('CST', 24, 'C'),
+        ('CFOP', 26, 'C'),
+        ('UNID.', 24, 'C'),
+        ('QUANT.', 38, 'R'),
+        ('VALOR UNITÁRIO', 48, 'R'),
+        ('VALOR TOTAL', 48, 'R'),
+        ('DESCONTO', 36, 'R'),
+        ('BASE CÁLC. ICMS', 42, 'R'),
+        ('VALOR I.C.M.S.', 38, 'R'),
+        ('VALOR I.P.I.', 34, 'R'),
+        ('ALÍQ. ICMS', 28, 'R'),
+        ('ALÍQ. IPI', 26, 'R'),
+    ]
+    largura_desc = INNER - sum(w for _, w, _ in cols if w)
+    cols[1] = (cols[1][0], largura_desc, 'L')
+    h_head = 16
+    _caixa(c, ML, y, INNER, h_head)
+    x = ML
+    for i, (nome, larg, alinhar) in enumerate(cols):
+        if i:
+            c.setLineWidth(0.3)
+            c.line(x, y, x, y - h_head)
+        linhas_h = nome.split('\n') if '\n' in nome else _quebrar(nome, FONT, 4.2, larg - 2)[:2]
+        ty = y - 6
+        for linha in linhas_h:
+            _texto(c, x, ty, larg, linha, FONT, 4.2, 'C' if alinhar != 'L' else 'L')
+            ty -= 5.5
         x += larg
     y -= h_head
 
-    c.setFont(FONT, 6.5)
+    itens = _montar_itens(inf)
+    h_adic = 70
+    y_min_itens = MB + h_adic
+    h_lin = 12
+    keys = ['codigo', 'descricao', 'ncm', 'cst', 'cfop', 'un', 'qtd', 'vunit', 'vtotal', 'vdesc', 'vbc', 'vicms', 'vipi', 'picms', 'pipi']
     for item in itens:
-        linhas_desc = _quebrar(item['descricao'], FONT, 6.5, largura_desc - 4) or ['']
-        h_lin = 9 + 8 * (len(linhas_desc) - 1)
-        if y - h_lin < MB + 120:
-            c.showPage()
-            y = H - MT
-        _caixa(c, ML, y, INNER, h_lin + 2)
-        valores = [
-            item['codigo'][:12],
-            linhas_desc[0],
-            item['ncm'],
-            item['cst'],
-            item['cfop'],
-            item['un'][:4],
-            item['qtd'],
-            item['vunit'],
-            item['vtotal'],
-        ]
-        x = ML
-        base = y - 10
-        for i, ((nome, larg), val) in enumerate(zip(cols, valores)):
-            if i >= 6:
-                c.drawRightString(x + larg - 2, base, val)
-            else:
-                c.drawString(x + 1, base, val)
-            x += larg
-        for extra in linhas_desc[1:]:
-            base -= 8
-            c.drawString(ML + cols[0][1] + 1, base, extra)
-        y -= h_lin + 2
-
-    y -= 2
-    h_tot = 42
-    if y - h_tot < MB + 80:
-        c.showPage()
-        y = H - MT
-    campos_tot = [
-        ('BASE CÁLC. ICMS', _txt(tot, 'vBC')),
-        ('VALOR ICMS', _txt(tot, 'vICMS')),
-        ('BASE CÁLC. ICMS ST', _txt(tot, 'vBCST')),
-        ('VALOR ICMS ST', _txt(tot, 'vST')),
-        ('VALOR PRODUTOS', _txt(tot, 'vProd')),
-        ('VALOR FRETE', _txt(tot, 'vFrete')),
-        ('VALOR SEGURO', _txt(tot, 'vSeg')),
-        ('DESCONTO', _txt(tot, 'vDesc')),
-        ('VALOR IPI', _txt(tot, 'vIPI')),
-        ('VALOR PIS', _txt(tot, 'vPIS')),
-        ('VALOR COFINS', _txt(tot, 'vCOFINS')),
-        ('OUTRAS DESP.', _txt(tot, 'vOutro')),
-        ('VALOR TOTAL NF', _txt(tot, 'vNF')),
-    ]
-    n_col = 5
-    cw = INNER / n_col
-    rh = h_tot / 3
-    for i, (nome, val) in enumerate(campos_tot):
-        linha, col = divmod(i, n_col)
-        if linha > 1:
+        if y - h_lin < y_min_itens:
             break
-        x = ML + col * cw
-        yy = y - linha * rh
-        _caixa(c, x, yy, cw, rh)
-        _rotulo(c, x, yy, nome)
-        c.setFont(FONT_BOLD, 7)
-        c.drawRightString(x + cw - 3, yy - 16, _money(val))
-    x = ML + 3 * cw
-    _caixa(c, x, y - 2 * rh, cw * 2, rh)
-    _rotulo(c, x, y - 2 * rh, 'VALOR TOTAL DA NOTA')
-    c.setFont(FONT_BOLD, 10)
-    c.drawRightString(ML + INNER - 4, y - 2 * rh - 16, _money(_txt(tot, 'vNF')))
-    y -= h_tot + 2
+        _caixa(c, ML, y, INNER, h_lin)
+        x = ML
+        for i, ((_, larg, alinhar), key) in enumerate(zip(cols, keys)):
+            if i:
+                c.setLineWidth(0.25)
+                c.line(x, y, x, y - h_lin)
+            _texto(c, x, y - 9, larg, item.get(key, ''), FONT, 6, alinhar)
+            x += larg
+        y -= h_lin
 
-    h_tr = 36
-    _caixa(c, ML, y, INNER, h_tr)
-    _rotulo(c, ML, y, 'TRANSPORTADOR / VOLUMES')
-    mod_frete = _txt(transp, 'modFrete')
-    nomes_frete = {
-        '0': 'Por conta do emitente', '1': 'Por conta do destinatário',
-        '2': 'Por conta de terceiros', '3': 'Próprio emitente',
-        '4': 'Próprio destinatário', '9': 'Sem ocorrência de transporte',
-    }
-    c.setFont(FONT, 7)
-    c.drawString(ML + 2, y - 18, f'Frete: {nomes_frete.get(mod_frete, mod_frete)}')
-    vol = _find(transp, 'vol') if transp is not None else None
-    if vol is not None:
-        c.drawString(
-            ML + 2, y - 30,
-            f'Volumes: {_txt(vol, "qVol") or "-"}   Peso L: {_txt(vol, "pesoL") or "-"} kg   '
-            f'Peso B: {_txt(vol, "pesoB") or "-"} kg',
-        )
-    y -= h_tr + 2
-
-    h_pag = 28
-    _caixa(c, ML, y, INNER, h_pag)
-    _rotulo(c, ML, y, 'FORMAS DE PAGAMENTO')
-    pags = []
-    for pag in inf.findall(f'{_NFE}pag'):
-        for det_pag in pag.findall(f'{_NFE}detPag'):
-            t_pag = _txt(det_pag, 'tPag')
-            pags.append(f'{FORMAS_PAGAMENTO.get(t_pag, t_pag)}: {_money(_txt(det_pag, "vPag"))}')
-    c.setFont(FONT, 7)
-    c.drawString(ML + 2, y - 18, '   |   '.join(pags)[:120] if pags else '—')
-    y -= h_pag + 2
-
+    # Dados adicionais no rodapé
+    y = MB + h_adic
+    _faixa(c, ML, y, INNER, 'DADOS ADICIONAIS')
+    y -= 9
+    w_inf = INNER * 0.62
     inf_cpl = _txt(inf_adic, 'infCpl')
     inf_fisco = _txt(inf_adic, 'infAdFisco')
-    extra = '  '.join(p for p in (inf_cpl, inf_fisco) if p)
-    linhas_info = _quebrar(extra, FONT, 6.5, INNER - 8)[:6] if extra else ['']
-    h_info = 14 + 9 * max(len(linhas_info), 1)
-    if y - h_info < MB:
-        c.showPage()
-        y = H - MT
-    _caixa(c, ML, y, INNER, h_info)
-    _rotulo(c, ML, y, 'DADOS ADICIONAIS')
+    _caixa(c, ML, y, w_inf, h_adic - 9)
+    _caixa(c, ML + w_inf, y, INNER - w_inf, h_adic - 9)
+    c.setFont(FONT, 4.5)
+    c.drawString(ML + 2, y - 6, 'INFORMAÇÕES COMPLEMENTARES')
+    c.drawString(ML + w_inf + 2, y - 6, 'RESERVADO AO FISCO')
     c.setFont(FONT, 6.5)
     ty = y - 16
-    for linha in linhas_info:
-        c.drawString(ML + 2, ty, linha)
-        ty -= 9
-    if n_prot:
-        c.setFont(FONT, 6)
-        c.drawString(ML + 2, y - h_info + 4, f'Protocolo de autorização: {n_prot}  {dh_prot}')
+    extra = inf_cpl or ''
+    if n_prot and 'Protocolo' not in extra:
+        extra = (extra + '  ' if extra else '') + f'Protocolo: {n_prot} {dh_prot_d} {dh_prot_h}'
+    for linha in _quebrar(extra, FONT, 6.5, w_inf - 8)[:6]:
+        c.drawString(ML + 3, ty, linha)
+        ty -= 8
+    ty = y - 16
+    for linha in _quebrar(inf_fisco, FONT, 6.5, INNER - w_inf - 8)[:6]:
+        c.drawString(ML + w_inf + 3, ty, linha)
+        ty -= 8
 
     c.showPage()
     c.save()
