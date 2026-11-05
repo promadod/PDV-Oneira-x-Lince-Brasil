@@ -176,15 +176,16 @@ def salvar_arquivos_lib(loja_id: int, chave: str, *, xml_b64: str = '', pdf_b64:
     if pdf_b64:
         pdf_path.write_bytes(base64.b64decode(pdf_b64))
         out['caminho_pdf'] = str(pdf_path.relative_to(media)).replace('\\', '/')
-    # Preferir DANFE próprio (acentos + fone + sem rodapé Demo).
+    # NFC-e: DANFE 80 mm próprio. NF-e: DANFE A4 (não usar o layout da bobina).
     if xml_path.is_file():
         try:
             from .danfe_nfce_pdf import regenerar_pdf_de_xml
+            from .danfe_nfe_pdf import regenerar_pdf_nfe_de_xml
 
-            if regenerar_pdf_de_xml(xml_path, pdf_path):
+            if regenerar_pdf_de_xml(xml_path, pdf_path) or regenerar_pdf_nfe_de_xml(xml_path, pdf_path):
                 out['caminho_pdf'] = str(pdf_path.relative_to(media)).replace('\\', '/')
         except Exception:
-            logger.exception('Falha ao regenerar DANFE NFC-e a partir do XML')
+            logger.exception('Falha ao regenerar DANFE a partir do XML')
     return out
 
 

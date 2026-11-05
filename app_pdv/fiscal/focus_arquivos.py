@@ -77,6 +77,61 @@ def _chave_numerica(doc: DocumentoFiscal) -> str:
     return chave if len(chave) == 44 else ''
 
 
+def _relativo_media(caminho: str) -> str:
+    p = (caminho or '').strip().replace('\\', '/')
+    if not p or p.startswith(('http://', 'https://', 'acbr:')):
+        return ''
+    p = p.lstrip('/')
+    if not p or '..' in p.split('/'):
+        return ''
+    return p
+
+
+def _loja_id_documento(doc) -> int | None:
+    loja = getattr(doc, 'loja', None)
+    for raw in (
+        getattr(doc, 'loja_id', None),
+        getattr(loja, 'pk', None),
+        getattr(loja, 'id', None),
+    ):
+        try:
+            valor = int(raw)
+        except (TypeError, ValueError):
+            continue
+        if valor:
+            return valor
+    return None
+
+
+def arquivo_lib_local(doc, ext: str) -> str:
+    """Caminho relativo no MEDIA_ROOT se o XML/PDF da ACBrLib existir no disco."""
+    from pathlib import Path
+
+    from django.conf import settings as dj_settings
+
+    media = Path(dj_settings.MEDIA_ROOT)
+    candidatos: list[str] = []
+    campo = _relativo_media(doc.caminho_xml if ext == 'xml' else doc.caminho_pdf)
+    if campo:
+        candidatos.append(campo)
+    if ext == 'pdf':
+        xml_rel = _relativo_media(doc.caminho_xml)
+        if xml_rel:
+            candidatos.append(str(Path(xml_rel).with_suffix('.pdf')).replace('\\', '/'))
+    chave = _chave_numerica(doc)
+    loja_id = _loja_id_documento(doc)
+    if chave and loja_id:
+        candidatos.append(f'fiscal/lib/{loja_id}/{chave}.{ext}')
+    vistos: set[str] = set()
+    for rel in candidatos:
+        if rel in vistos:
+            continue
+        vistos.add(rel)
+        if (media / rel).is_file():
+            return rel
+    return ''
+
+
 def urls_danfce_candidatas(cfg: FiscalConfig, doc: DocumentoFiscal) -> list[str]:
     """URLs do cupom NFC-e (HTML), ex.: /notas_fiscais_consumidor/Nfe{chave}.html"""
     chave = _chave_numerica(doc)
@@ -492,6 +547,45 @@ def obter_conteudo_documento(
         return conteudo, content_type, fname
 
     # Arquivos gerados pela ACBrLib (relativos ao MEDIA_ROOT).
+    xml_rel = arquivo_lib_local(doc, 'xml') or _relativo_media(doc.caminho_xml)
+    if xml_rel and doc.caminho_xml != xml_rel:
+        doc.caminho_xml = xml_rel
+        try:
+            doc.save(update_fields=['caminho_xml', 'atualizado_em'])
+        except Exception:
+            logger.debug('Não persistiu caminho_xml da Lib', exc_info=True)
+
+    if formato == 'pdf' and getattr(doc, 'tipo', '') == 'nfe' and xml_rel:
+        from pathlib import Path
+
+        from django.conf import settings as dj_settings
+
+        from .danfe_nfe_pdf import regenerar_pdf_nfe_de_xml
+
+        media = Path(dj_settings.MEDIA_ROOT)
+        xml_path = media / xml_rel
+        pdf_rel = arquivo_lib_local(doc, 'pdf') or _relativo_media(doc.caminho_pdf)
+        pdf_path = media / pdf_rel if pdf_rel else xml_path.with_suffix('.pdf')
+        try:
+            if xml_path.is_file() and regenerar_pdf_nfe_de_xml(xml_path, pdf_path):
+                rel = str(pdf_path.relative_to(media)).replace('\\', '/')
+                if doc.caminho_pdf != rel:
+                    doc.caminho_pdf = rel
+                    try:
+                        doc.save(update_fields=['caminho_pdf', 'atualizado_em'])
+                    except Exception:
+                        logger.debug('Não persistiu caminho_pdf da NF-e', exc_info=True)
+                conteudo = pdf_path.read_bytes()
+                fname = f'{doc.chave_acesso or doc.ref}.pdf'
+                return conteudo, 'application/pdf', fname
+        except Exception:
+            logger.exception('Falha ao gerar DANFE A4 da NF-e')
+
+    if formato == 'xml' and xml_rel:
+        caminho = xml_rel
+    elif formato == 'pdf':
+        caminho = arquivo_lib_local(doc, 'pdf') or _relativo_media(caminho) or caminho
+
     if caminho and not caminho.startswith(('http://', 'https://', 'acbr:')):
         from pathlib import Path
 
