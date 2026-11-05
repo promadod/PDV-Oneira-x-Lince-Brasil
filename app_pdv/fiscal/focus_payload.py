@@ -422,8 +422,12 @@ def _payload_tem_combustivel(payload: dict) -> bool:
     return any(cfop_exige_grupo_combustivel(it.get('cfop')) for it in (payload.get('items') or []))
 
 
+def _mod_frete_sem_transporte(valor) -> bool:
+    return str(valor or '9').strip() in {'9', '09', ''}
+
+
 def aplicar_transportador_combustivel(cfg: FiscalConfig, payload: dict) -> dict:
-    """SEFAZ 362: venda de combustível exige o grupo transporta no XML da NF-e."""
+    """SEFAZ 362: combustível exige transporta. SEFAZ 845: transporta é proibido com modFrete=9."""
     if not _payload_tem_combustivel(payload):
         return payload
     tr = payload.get('transportador') or {}
@@ -458,6 +462,9 @@ def aplicar_transportador_combustivel(cfg: FiscalConfig, payload: dict) -> dict:
             vol['peso_liquido'] = round(q_kg, 3)
             vol['peso_bruto'] = round(q_kg * 2.077, 3)
         payload['volumes'] = [vol]
+    # Frete 9 + grupo transporta = rejeição 845. 0 = por conta do emitente (dados da loja).
+    if payload.get('transportador') and _mod_frete_sem_transporte(payload.get('modalidade_frete')):
+        payload['modalidade_frete'] = '0'
     return payload
 
 

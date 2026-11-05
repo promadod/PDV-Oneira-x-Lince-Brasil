@@ -40,26 +40,28 @@ def _transp(cfg, payload: dict, *, tipo: str) -> dict:
     transp = {'modFrete': int(payload.get('modalidade_frete') or 9)}
     tr = payload.get('transportador') or {}
     transporta = {}
-    cnpj_t = ''.join(c for c in str(tr.get('cnpj') or '') if c.isdigit())
-    if len(cnpj_t) == 14:
-        transporta['CNPJ'] = cnpj_t
-    nome = (tr.get('nome') or tr.get('xNome') or '').strip()
-    if nome:
-        transporta['xNome'] = nome[:60]
-    ie = ''.join(c for c in str(tr.get('inscricao_estadual') or tr.get('IE') or '') if c.isdigit())
-    if ie:
-        transporta['IE'] = ie
-    ender = (tr.get('endereco') or tr.get('xEnder') or '').strip()
-    if ender:
-        transporta['xEnder'] = ender[:60]
-    mun = (tr.get('municipio') or tr.get('xMun') or '').strip()
-    if mun:
-        transporta['xMun'] = mun[:60]
-    uf = (tr.get('uf') or tr.get('UF') or '').strip().upper()[:2]
-    if uf:
-        transporta['UF'] = uf
-    if transporta:
-        transp['transporta'] = transporta
+    # SEFAZ 845: grupo transporta é proibido com modFrete=9.
+    if transp['modFrete'] != 9:
+        cnpj_t = ''.join(c for c in str(tr.get('cnpj') or '') if c.isdigit())
+        if len(cnpj_t) == 14:
+            transporta['CNPJ'] = cnpj_t
+        nome = (tr.get('nome') or tr.get('xNome') or '').strip()
+        if nome:
+            transporta['xNome'] = nome[:60]
+        ie = ''.join(c for c in str(tr.get('inscricao_estadual') or tr.get('IE') or '') if c.isdigit())
+        if ie:
+            transporta['IE'] = ie
+        ender = (tr.get('endereco') or tr.get('xEnder') or '').strip()
+        if ender:
+            transporta['xEnder'] = ender[:60]
+        mun = (tr.get('municipio') or tr.get('xMun') or '').strip()
+        if mun:
+            transporta['xMun'] = mun[:60]
+        uf = (tr.get('uf') or tr.get('UF') or '').strip().upper()[:2]
+        if uf:
+            transporta['UF'] = uf
+        if transporta:
+            transp['transporta'] = transporta
     vols = []
     for vol in payload.get('volumes') or []:
         v = {}

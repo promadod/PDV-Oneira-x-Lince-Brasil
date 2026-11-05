@@ -118,25 +118,28 @@ def _section(name: str, pairs: dict) -> str:
 
 def _secoes_transporte(payload: dict) -> list[str]:
     tr = payload.get('transportador') or {}
-    transp = {'modFrete': str(int(payload.get('modalidade_frete') or 9))}
-    cnpj = _digitos(tr.get('cnpj') or tr.get('CNPJ') or tr.get('CNPJCPF'))
-    if cnpj:
-        transp['CNPJCPF'] = cnpj
-    nome = (tr.get('nome') or tr.get('xNome') or '')[:60]
-    if nome:
-        transp['xNome'] = nome
-    ie = _digitos(tr.get('inscricao_estadual') or tr.get('IE') or tr.get('ie'))
-    if ie:
-        transp['IE'] = ie
-    ender = (tr.get('endereco') or tr.get('xEnder') or '')[:60]
-    if ender:
-        transp['xEnder'] = ender
-    mun = (tr.get('municipio') or tr.get('xMun') or '')[:60]
-    if mun:
-        transp['xMun'] = mun
-    uf = (tr.get('uf') or tr.get('UF') or '')[:2].upper()
-    if uf:
-        transp['UF'] = uf
+    mod = str(int(payload.get('modalidade_frete') or 9))
+    transp = {'modFrete': mod}
+    # SEFAZ 845: grupo transporta (CNPJ/xNome/…) é proibido com modFrete=9.
+    if mod != '9':
+        cnpj = _digitos(tr.get('cnpj') or tr.get('CNPJ') or tr.get('CNPJCPF'))
+        if cnpj:
+            transp['CNPJCPF'] = cnpj
+        nome = (tr.get('nome') or tr.get('xNome') or '')[:60]
+        if nome:
+            transp['xNome'] = nome
+        ie = _digitos(tr.get('inscricao_estadual') or tr.get('IE') or tr.get('ie'))
+        if ie:
+            transp['IE'] = ie
+        ender = (tr.get('endereco') or tr.get('xEnder') or '')[:60]
+        if ender:
+            transp['xEnder'] = ender
+        mun = (tr.get('municipio') or tr.get('xMun') or '')[:60]
+        if mun:
+            transp['xMun'] = mun
+        uf = (tr.get('uf') or tr.get('UF') or '')[:2].upper()
+        if uf:
+            transp['UF'] = uf
     secoes = [_section('Transportador', transp)]
     for i, vol in enumerate(payload.get('volumes') or [], start=1):
         pairs = {}
