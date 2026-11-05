@@ -29,6 +29,7 @@ from .forms import (
     ContingenciaForm,
     EmitirAvulsaForm,
     dados_edicao_avulsa,
+    dados_edicao_nfe,
     parse_itens_avulsa,
     parse_pagamentos_avulsa,
     total_itens_avulsa,
@@ -609,6 +610,64 @@ def fiscal_documentos(request):
     )
 
 
+def _nfe_dados_do_form(form, loja):
+    produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
+    preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
+    return {
+        'produto': produto,
+        'quantidade': float(form.cleaned_data['quantidade']),
+        'preco_unitario': float(preco),
+        'natureza_operacao': form.cleaned_data['natureza_operacao'],
+        'cfop': form.cleaned_data['cfop'],
+        'finalidade_emissao': form.cleaned_data['finalidade_emissao'],
+        'presenca_comprador': form.cleaned_data['presenca_comprador'],
+        'modalidade_frete': form.cleaned_data['modalidade_frete'],
+        'forma_pagamento': form.cleaned_data['forma_pagamento'],
+        'indicador_ie_destinatario': form.cleaned_data.get('indicador_ie_destinatario') or '9',
+        'inscricao_estadual_destinatario': form.cleaned_data.get('inscricao_estadual_destinatario') or '',
+        'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
+        'valor_acrescimo': float(form.cleaned_data.get('valor_acrescimo') or 0),
+        'cpf_destinatario': form.cleaned_data.get('cpf_destinatario') or '',
+        'cnpj_destinatario': form.cleaned_data.get('cnpj_destinatario') or '',
+        'nome_destinatario': form.cleaned_data.get('nome_destinatario') or '',
+        'logradouro': form.cleaned_data['logradouro'],
+        'numero': form.cleaned_data['numero'],
+        'complemento': form.cleaned_data.get('complemento') or '',
+        'bairro': form.cleaned_data['bairro'],
+        'valor_frete': float(form.cleaned_data.get('valor_frete') or 0),
+        'quantidade_volumes': int(form.cleaned_data.get('quantidade_volumes') or 0),
+        'peso_bruto': float(form.cleaned_data.get('peso_bruto') or 0),
+        'peso_liquido': float(form.cleaned_data.get('peso_liquido') or 0),
+        'municipio': form.cleaned_data['municipio'],
+        'uf': form.cleaned_data['uf'],
+        'cep': form.cleaned_data['cep'],
+        'codigo_municipio': form.cleaned_data.get('codigo_municipio') or '',
+        'tributacao': form.cleaned_data.get('tributacao') or 'produto',
+        'serie': form.cleaned_data.get('serie'),
+    }
+
+
+def _processar_emissao_nfe(request, loja, form, *, doc_origem=None):
+    if not form.is_valid():
+        messages.error(request, 'Corrija os campos do formulário antes de emitir.')
+        return None
+    try:
+        doc = emitir_documento(loja, request.user, nfe_dados=_nfe_dados_do_form(form, loja))
+    except FocusNFeError as exc:
+        messages.error(request, str(exc))
+        return None
+    if doc_origem:
+        from .models import DocumentoFiscalEvento
+        DocumentoFiscalEvento.objects.create(
+            documento=doc,
+            tipo='reemissao',
+            descricao=f'Reemissão editada do documento #{doc_origem.id} (ref {doc_origem.ref})',
+            payload={'documento_origem_id': doc_origem.id, 'ref_origem': doc_origem.ref},
+        )
+    messages.success(request, f'NF-e enviada — ref {doc.ref} ({doc.status}).')
+    return doc
+
+
 @login_required
 @requer_acesso_fiscal
 def fiscal_documento_editar(request, pk):
@@ -616,6 +675,11 @@ def fiscal_documento_editar(request, pk):
     doc = get_object_or_404(DocumentoFiscal, pk=pk, loja=loja)
     if doc.status not in ('erro', 'denegado'):
         messages.error(request, 'Só documentos com erro ou denegados podem ser editados e reemitidos.')
+        return redirect('fiscal_documento_detalhe', pk=pk)
+    if doc.tipo == 'nfe':
+        return _editar_nfe(request, loja, doc)
+    if doc.tipo not in ('nfce',):
+        messages.error(request, 'Este tipo de documento não pode ser editado por este formulário.')
         return redirect('fiscal_documento_detalhe', pk=pk)
     dados = dados_edicao_avulsa(doc)
     initial = {
@@ -638,6 +702,23 @@ def fiscal_documento_editar(request, pk):
             pagamentos_inicial=dados['pagamentos'],
             doc_origem=doc,
         ),
+    )
+
+
+def _editar_nfe(request, loja, doc):
+    from app_pdv.models import Cliente
+
+    initial = dados_edicao_nfe(doc)
+    form = EmitirNFeForm(request.POST or None, loja=loja, initial=initial)
+    if request.method == 'POST':
+        novo = _processar_emissao_nfe(request, loja, form, doc_origem=doc)
+        if novo:
+            return redirect('fiscal_documento_detalhe', pk=novo.id)
+    clientes = Cliente.objects.filter(loja=loja).order_by('nome')[:800]
+    return render(
+        request,
+        'app_pdv/fiscal/emitir_nfe.html',
+        _ctx(request, loja, form=form, clientes=clientes, doc_origem=doc, fiscal_nav_ativa='nfe'),
     )
 
 
@@ -1168,47 +1249,10 @@ def fiscal_natureza_criar(request):
 def fiscal_emitir_nfe(request):
     loja = check_loja(request)
     form = EmitirNFeForm(request.POST or None, loja=loja)
-    if request.method == 'POST' and form.is_valid():
-        produto = get_object_or_404(Produto, pk=int(form.cleaned_data['produto_id']), loja=loja)
-        preco = form.cleaned_data.get('preco_unitario') or produto.preco_venda
-        nfe_dados = {
-            'produto': produto,
-            'quantidade': float(form.cleaned_data['quantidade']),
-            'preco_unitario': float(preco),
-            'natureza_operacao': form.cleaned_data['natureza_operacao'],
-            'cfop': form.cleaned_data['cfop'],
-            'finalidade_emissao': form.cleaned_data['finalidade_emissao'],
-            'presenca_comprador': form.cleaned_data['presenca_comprador'],
-            'modalidade_frete': form.cleaned_data['modalidade_frete'],
-            'forma_pagamento': form.cleaned_data['forma_pagamento'],
-            'indicador_ie_destinatario': form.cleaned_data.get('indicador_ie_destinatario') or '9',
-            'inscricao_estadual_destinatario': form.cleaned_data.get('inscricao_estadual_destinatario') or '',
-            'valor_desconto': float(form.cleaned_data.get('valor_desconto') or 0),
-            'valor_acrescimo': float(form.cleaned_data.get('valor_acrescimo') or 0),
-            'cpf_destinatario': form.cleaned_data.get('cpf_destinatario') or '',
-            'cnpj_destinatario': form.cleaned_data.get('cnpj_destinatario') or '',
-            'nome_destinatario': form.cleaned_data.get('nome_destinatario') or '',
-            'logradouro': form.cleaned_data['logradouro'],
-            'numero': form.cleaned_data['numero'],
-            'complemento': form.cleaned_data.get('complemento') or '',
-            'bairro': form.cleaned_data['bairro'],
-            'valor_frete': float(form.cleaned_data.get('valor_frete') or 0),
-            'quantidade_volumes': int(form.cleaned_data.get('quantidade_volumes') or 0),
-            'peso_bruto': float(form.cleaned_data.get('peso_bruto') or 0),
-            'peso_liquido': float(form.cleaned_data.get('peso_liquido') or 0),
-            'municipio': form.cleaned_data['municipio'],
-            'uf': form.cleaned_data['uf'],
-            'cep': form.cleaned_data['cep'],
-            'codigo_municipio': form.cleaned_data.get('codigo_municipio') or '',
-            'tributacao': form.cleaned_data.get('tributacao') or 'produto',
-            'serie': form.cleaned_data.get('serie'),
-        }
-        try:
-            doc = emitir_documento(loja, request.user, nfe_dados=nfe_dados)
-            messages.success(request, f'NF-e enviada — ref {doc.ref} ({doc.status}).')
+    if request.method == 'POST':
+        doc = _processar_emissao_nfe(request, loja, form)
+        if doc:
             return redirect('fiscal_documento_detalhe', pk=doc.id)
-        except FocusNFeError as exc:
-            messages.error(request, str(exc))
     from app_pdv.models import Cliente
 
     clientes = Cliente.objects.filter(loja=loja).order_by('nome')[:800]

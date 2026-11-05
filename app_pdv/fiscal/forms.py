@@ -74,6 +74,9 @@ class ProdutoDadosFiscaisForm(forms.ModelForm):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.fields['unidade_tributavel'].help_text = (
+            'GLP (ANP 210203001) usa KG na NF-e mesmo se a venda for por botijão (UN).'
+        )
         for field in self.fields.values():
             field.widget.attrs.setdefault('class', 'form-control')
 
@@ -416,6 +419,22 @@ class EmitirNFeForm(forms.Form):
             (str(p.id), p.nome_venda) for p in qs
         ]
         self.fields['produto_id'].widget.attrs.setdefault('class', 'form-control')
+        initial = kwargs.get('initial') or {}
+        data0 = getattr(self, 'data', None)
+        cfop_ini = (data0.get('natureza_cfop') if data0 else None) or initial.get('natureza_cfop') or initial.get('cfop')
+        if cfop_ini:
+            cfop_ini = str(cfop_ini)
+            existentes = {str(c[0]) for c in self.fields['natureza_cfop'].choices}
+            if cfop_ini not in existentes:
+                self.fields['natureza_cfop'].choices.append((cfop_ini, f'{cfop_ini} — (da nota)'))
+        pid_ini = (data0.get('produto_id') if data0 else None) or initial.get('produto_id')
+        if pid_ini and loja:
+            existentes_p = {str(c[0]) for c in self.fields['produto_id'].choices}
+            if str(pid_ini) not in existentes_p:
+                from app_pdv.models import Produto as ProdutoModel
+                prod = ProdutoModel.objects.filter(pk=int(pid_ini), loja=loja).first()
+                if prod:
+                    self.fields['produto_id'].choices.append((str(prod.id), prod.nome_venda))
 
     def clean(self):
         cleaned = super().clean()
@@ -786,6 +805,52 @@ def total_itens_avulsa(itens):
     desc = sum(i.get('valor_desconto') or 0 for i in itens)
     acre = sum(i.get('valor_acrescimo') or 0 for i in itens)
     return round(max(bruto - desc + acre, 0.01), 2)
+
+
+def dados_edicao_nfe(doc) -> dict:
+    """Prefill do formulário NF-e (modelo 55) a partir do documento com erro."""
+    payload = doc.payload_envio if isinstance(doc.payload_envio, dict) else {}
+    snap = doc.snapshot_tributario or {}
+    item = (payload.get('items') or [{}])[0]
+    vols = payload.get('volumes') or []
+    vol = vols[0] if vols else {}
+    pag = (payload.get('formas_pagamento') or [{}])[0]
+    cfop = ''.join(c for c in str(item.get('cfop') or '') if c.isdigit())[:4]
+    trib = snap.get('tributacao') or 'produto'
+    if str(item.get('icms_situacao_tributaria') or '') == '61' and trib == 'produto':
+        trib = 'cst_61_combustivel'
+    return {
+        'natureza_cfop': cfop,
+        'cfop': cfop,
+        'tributacao_nfe': trib,
+        'serie': str(doc.serie or payload.get('serie') or '1'),
+        'finalidade_emissao': str(payload.get('finalidade_emissao') or '1'),
+        'presenca_comprador': str(payload.get('presenca_comprador') or '1'),
+        'produto_id': str(item.get('codigo_produto') or snap.get('produto_id') or doc.produto_avulso_id or ''),
+        'quantidade': item.get('quantidade_comercial') or '1',
+        'preco_unitario': item.get('valor_unitario_comercial') or '',
+        'valor_desconto': item.get('valor_desconto') or payload.get('valor_desconto') or 0,
+        'valor_acrescimo': item.get('valor_outras_despesas') or payload.get('valor_outras_despesas') or 0,
+        'forma_pagamento': str(pag.get('forma_pagamento') or '99').zfill(2)[:2],
+        'cnpj_destinatario': payload.get('cnpj_destinatario') or '',
+        'cpf_destinatario': payload.get('cpf_destinatario') or '',
+        'indicador_ie_destinatario': str(payload.get('indicador_inscricao_estadual_destinatario') or '9'),
+        'inscricao_estadual_destinatario': payload.get('inscricao_estadual_destinatario') or '',
+        'nome_destinatario': payload.get('nome_destinatario') or '',
+        'cep': payload.get('cep_destinatario') or payload.get('cep') or '',
+        'logradouro': payload.get('logradouro_destinatario') or payload.get('logradouro') or '',
+        'numero': payload.get('numero_destinatario') or payload.get('numero') or '',
+        'complemento': payload.get('complemento_destinatario') or payload.get('complemento') or '',
+        'bairro': payload.get('bairro_destinatario') or payload.get('bairro') or '',
+        'municipio': payload.get('municipio_destinatario') or payload.get('municipio') or '',
+        'uf': payload.get('uf_destinatario') or payload.get('uf') or '',
+        'codigo_municipio': payload.get('codigo_municipio_destinatario') or payload.get('codigo_municipio') or '',
+        'modalidade_frete': str(payload.get('modalidade_frete') or '9'),
+        'valor_frete': payload.get('valor_frete') or 0,
+        'quantidade_volumes': vol.get('quantidade') or 0,
+        'peso_bruto': vol.get('peso_bruto') or 0,
+        'peso_liquido': vol.get('peso_liquido') or 0,
+    }
 
 
 def dados_edicao_avulsa(doc):

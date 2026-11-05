@@ -147,6 +147,44 @@ class PermissoesFiscaisTest(TestCase):
         self.assertEqual(resp.status_code, 200)
         self.assertContains(resp, 'Editar')
 
+    def test_editar_nfe_abre_formulario_nfe(self):
+        from app_pdv.fiscal.models import DocumentoFiscal
+        doc = DocumentoFiscal.objects.create(
+            loja=self.loja, tipo='nfe', ref='t-nfe-err', status='erro', valor_total=Decimal('85'),
+            payload_envio={
+                'natureza_operacao': 'Venda de combustivel',
+                'items': [{'codigo_produto': '1', 'cfop': '5656', 'quantidade_comercial': 1, 'valor_unitario_comercial': 85}],
+                'nome_destinatario': 'Cliente Teste',
+                'cpf_destinatario': '12345678901',
+                'logradouro_destinatario': 'Rua A',
+                'numero_destinatario': '10',
+                'bairro_destinatario': 'Centro',
+                'municipio_destinatario': 'Rio de Janeiro',
+                'uf_destinatario': 'RJ',
+                'cep_destinatario': '20040020',
+            },
+        )
+        self.perfil.perm_fiscal_telas = ['produtos', 'avulsa', 'documentos', 'nfe']
+        self.perfil.save(update_fields=['perm_fiscal_telas'])
+        self.client.login(username='op-fiscal', password='x')
+        resp = self.client.get(reverse('fiscal_documento_editar', args=[doc.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Editar NF-e (modelo 55)')
+        self.assertNotContains(resp, 'Emissão avulsa por produto')
+
+    def test_editar_nfce_abre_formulario_avulsa(self):
+        from app_pdv.fiscal.models import DocumentoFiscal
+        doc = DocumentoFiscal.objects.create(
+            loja=self.loja, tipo='nfce', ref='t-nfce-err', status='erro', valor_total=Decimal('10'),
+            payload_envio={'items': [{'codigo_produto': '', 'quantidade_comercial': 1}]},
+        )
+        self.perfil.perm_fiscal_telas = ['produtos', 'avulsa', 'documentos']
+        self.perfil.save(update_fields=['perm_fiscal_telas'])
+        self.client.login(username='op-fiscal', password='x')
+        resp = self.client.get(reverse('fiscal_documento_editar', args=[doc.id]))
+        self.assertEqual(resp.status_code, 200)
+        self.assertContains(resp, 'Editar e reemitir NFC-e')
+
     def test_config_bloqueada_para_operador(self):
         self.client.login(username='op-fiscal', password='x')
         resp = self.client.get(reverse('fiscal_config'))

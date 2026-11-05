@@ -31,6 +31,11 @@ def _fmt_qtd(value) -> str:
     return f'{_num(value, 1):.4f}'.rstrip('0').rstrip('.') if '.' in f'{_num(value, 1):.4f}' else f'{_num(value, 1):.0f}'
 
 
+def _fmt_vun(value) -> str:
+    s = f'{_num(value):.10f}'.rstrip('0').rstrip('.')
+    return s if s else '0'
+
+
 def _fmt_pct(value) -> str:
     return f'{_num(value):.4f}'
 
@@ -230,12 +235,14 @@ def montar_ini_nfe(
         v_prod += bruto
         v_desc += desc
         v_outro += outro
-        unidade = (item.get('unidade_comercial') or 'UN')[:6]
+        unidade = (item.get('unidade_comercial') or 'UN').upper()[:6]
         descricao_real = (item.get('descricao') or 'PRODUTO')[:120]
         descricao = descricao_real
         if homologacao and i == 1:
             descricao = _HOMOLOG_XPROD
         ncm = _digitos(item.get('codigo_ncm')).zfill(8)[:8] or '00000000'
+        u_trib = (item.get('unidade_tributavel') or unidade).upper()[:6]
+        v_un_trib = item.get('valor_unitario_tributavel')
         prod = {
             'cProd': str(item.get('codigo_produto') or i)[:60],
             'cEAN': 'SEM GTIN',
@@ -247,9 +254,9 @@ def montar_ini_nfe(
             'vUnCom': _fmt_money(v_unit),
             'vProd': _fmt_money(bruto),
             'cEANTrib': 'SEM GTIN',
-            'uTrib': (item.get('unidade_tributavel') or unidade)[:6],
+            'uTrib': u_trib,
             'qTrib': _fmt_qtd(item.get('quantidade_tributavel') or qtd),
-            'vUnTrib': _fmt_money(item.get('valor_unitario_tributavel') or v_unit),
+            'vUnTrib': _fmt_vun(v_un_trib if v_un_trib not in (None, '') else v_unit),
             'indTot': '1',
         }
         cest = _digitos(item.get('cest'))

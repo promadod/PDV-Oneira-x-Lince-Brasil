@@ -1,6 +1,6 @@
 {% load static %}
 <link rel="stylesheet" href="{% static 'css/fiscal.css' %}">
-{% with an=request.resolver_match.url_name %}
+{% with an=request.resolver_match.url_name nav=fiscal_nav_ativa|default:'' %}
 <div class="card fiscal-nav-card">
     <nav class="fiscal-nav" aria-label="Módulo fiscal">
         {% if 'hub' in fiscal_telas %}
@@ -17,7 +17,7 @@
         <a href="{% url 'fiscal_produtos' %}" class="fiscal-nav-btn{% if an == 'fiscal_produtos' or an == 'fiscal_produto_editar' %} is-active{% endif %}">Produtos</a>
         {% endif %}
         {% if 'avulsa' in fiscal_telas %}
-        <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_avulsa' or an == 'fiscal_documento_editar' %} is-active{% endif %}">Avulsa</a>
+        <a href="{% url 'fiscal_emitir_avulsa' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_avulsa' or an == 'fiscal_documento_editar' and nav != 'nfe' %} is-active{% endif %}">Avulsa</a>
         {% endif %}
         {% if 'documentos' in fiscal_telas %}
         <a href="{% url 'fiscal_documentos' %}" class="fiscal-nav-btn{% if an == 'fiscal_documentos' or an == 'fiscal_documento_detalhe' or an == 'fiscal_documento_cancelar' or an == 'fiscal_documento_cce' %} is-active{% endif %}">Documentos</a>
@@ -29,7 +29,7 @@
         <a href="{% url 'fiscal_emitir_lote' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_lote' or an == 'fiscal_lote_detalhe' %} is-active{% endif %}">NFC-e Lote</a>
         {% endif %}
         {% if 'nfe' in fiscal_telas %}
-        <a href="{% url 'fiscal_emitir_nfe' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_nfe' %} is-active{% endif %}">NF-e</a>
+        <a href="{% url 'fiscal_emitir_nfe' %}" class="fiscal-nav-btn{% if an == 'fiscal_emitir_nfe' or nav == 'nfe' %} is-active{% endif %}">NF-e</a>
         {% endif %}
         {% if 'contabilidade' in fiscal_telas %}
         <a href="{% url 'fiscal_contabilidade' %}" class="fiscal-nav-btn{% if an == 'fiscal_contabilidade' or an == 'fiscal_contabilidade_baixar' %} is-active{% endif %}">Contabilidade</a>
