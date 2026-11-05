@@ -80,7 +80,10 @@ def _icmstot(itens, v_prod, v_desc, v_outro, v_nf) -> dict:
         'vII': 0, 'vIPI': 0, 'vIPIDevol': 0, 'vPIS': 0, 'vCOFINS': 0,
         'vOutro': v_outro, 'vNF': v_nf,
     }
+    q_mono = round(sum(_num(it.get('icms_base_calculo_mono_retido')) for it in itens), 4)
     v_mono = round(sum(_num(it.get('icms_valor_mono_retido')) for it in itens), 2)
+    if q_mono:
+        tot['qBCMonoRet'] = q_mono
     if v_mono:
         tot['vICMSMonoRet'] = v_mono
     return tot

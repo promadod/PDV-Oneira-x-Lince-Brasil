@@ -225,6 +225,7 @@ def montar_ini_nfe(
     v_desc = 0.0
     v_outro = 0.0
     v_icms_mono_ret = 0.0
+    q_icms_mono_ret = 0.0
     for i, item in enumerate(itens, start=1):
         idx = f'{i:03d}'
         qtd = _num(item.get('quantidade_comercial'), 1) or 1
@@ -271,6 +272,7 @@ def montar_ini_nfe(
         sections.append(_section(f'Produto{idx}', prod))
         sections.extend(_secoes_combustivel(item, idx))
         v_icms_mono_ret += _num(item.get('icms_valor_mono_retido'))
+        q_icms_mono_ret += _num(item.get('icms_base_calculo_mono_retido'))
         sections.append(_section(f'ICMS{idx}', _icms_do_item(item)))
 
         for trib, key in (('PIS', 'pis'), ('COFINS', 'cofins')):
@@ -306,6 +308,8 @@ def montar_ini_nfe(
         'vNF': _fmt_money(v_nf),
         'vTotTrib': '0.00',
     }
+    if q_icms_mono_ret:
+        total['qBCMonoRet'] = _fmt_qtd(q_icms_mono_ret)
     if v_icms_mono_ret:
         total['vICMSMonoRet'] = _fmt_money(v_icms_mono_ret)
     sections.append(_section('Total', total))
