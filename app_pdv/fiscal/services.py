@@ -259,6 +259,31 @@ def _provedor_acbr(cfg: FiscalConfig):
     return client if client.credenciais_ok() else None
 
 
+def _reservar_proximo_numero(cfg: FiscalConfig, tipo: str) -> tuple[FiscalConfig, int, int]:
+    """Consome o próximo número ANTES do envio à SEFAZ.
+
+    Evita SEFAZ 539 no lote: se a 1ª tentativa autorizar e a conexão cair, o rollback
+    não pode devolver o mesmo número para a venda seguinte.
+    """
+    campo_numero = 'proximo_numero_nfe' if tipo == 'nfe' else 'proximo_numero_nfce'
+    campo_serie = 'serie_nfe' if tipo == 'nfe' else 'serie_nfce'
+    cfg = FiscalConfig.objects.select_for_update().get(pk=cfg.pk)
+    numero = int(getattr(cfg, campo_numero) or 1)
+    serie = int(getattr(cfg, campo_serie) or 1)
+    setattr(cfg, campo_numero, numero + 1)
+    cfg.save(update_fields=[campo_numero])
+    return cfg, numero, serie
+
+
+def _eh_duplicidade_chave_diferente(retorno: dict | None) -> bool:
+    if not isinstance(retorno, dict):
+        return False
+    if str(retorno.get('status_sefaz') or '').strip() == '539':
+        return True
+    msg = str(retorno.get('mensagem_sefaz') or retorno.get('mensagem') or '').lower()
+    return '539' in msg and 'duplicidade' in msg
+
+
 def _disparar_emissao_acbr(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dict):
     import time
 
@@ -266,40 +291,51 @@ def _disparar_emissao_acbr(doc: DocumentoFiscal, cfg: FiscalConfig, payload: dic
     from .acbr_payload import pedido_emissao, retorno_acbr_para_interno
 
     tipo = _endpoint_tipo(doc.tipo)
-    campo_numero = 'proximo_numero_nfe' if tipo == 'nfe' else 'proximo_numero_nfce'
-    campo_serie = 'serie_nfe' if tipo == 'nfe' else 'serie_nfce'
-    cfg = FiscalConfig.objects.select_for_update().get(pk=cfg.pk)
-    numero = int(getattr(cfg, campo_numero) or 1)
-    serie = int(getattr(cfg, campo_serie) or 1)
-    try:
-        pedido = pedido_emissao(cfg, payload, tipo=tipo, ref=doc.ref, numero=numero, serie=serie)
-    except ValueError as exc:
-        raise FocusNFeError(str(exc)) from exc
-    DocumentoFiscalEvento.objects.create(
-        documento=doc,
-        tipo='envio',
-        descricao=f'Documento enviado para ACBr API ({pedido["ambiente"]})',
-        payload=pedido,
-    )
-    client = _provedor_acbr(cfg)
-    try:
-        dfe = client.emitir_dfe(tipo, pedido)
-        for _ in range(3):
-            if not isinstance(dfe, dict) or (dfe.get('status') or '') != 'pendente' or not dfe.get('id'):
-                break
-            time.sleep(2)
-            dfe = client.consultar_dfe(tipo, dfe['id'])
-    except AcbrApiError as exc:
-        doc.status = 'erro'
-        doc.mensagem_sefaz = str(exc)[:500]
-        doc.payload_retorno = exc.payload if isinstance(exc.payload, dict) else {'raw': exc.payload}
-        doc.save(update_fields=['status', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+    max_tentativas = 4
+    dfe = None
+    numero = serie = None
+    for tentativa in range(1, max_tentativas + 1):
+        cfg, numero, serie = _reservar_proximo_numero(cfg, tipo)
+        try:
+            pedido = pedido_emissao(cfg, payload, tipo=tipo, ref=doc.ref, numero=numero, serie=serie)
+        except ValueError as exc:
+            raise FocusNFeError(str(exc)) from exc
         DocumentoFiscalEvento.objects.create(
-            documento=doc, tipo='erro', descricao=str(exc)[:500], payload=doc.payload_retorno,
+            documento=doc,
+            tipo='envio',
+            descricao=f'Documento enviado para ACBr API ({pedido["ambiente"]}) nNF={numero} tentativa={tentativa}',
+            payload=pedido,
         )
-        raise FocusNFeError(str(exc), status_code=exc.status_code, payload=exc.payload) from exc
-    setattr(cfg, campo_numero, numero + 1)
-    cfg.save(update_fields=[campo_numero])
+        client = _provedor_acbr(cfg)
+        try:
+            dfe = client.emitir_dfe(tipo, pedido)
+            for _ in range(3):
+                if not isinstance(dfe, dict) or (dfe.get('status') or '') != 'pendente' or not dfe.get('id'):
+                    break
+                time.sleep(2)
+                dfe = client.consultar_dfe(tipo, dfe['id'])
+        except AcbrApiError as exc:
+            doc.status = 'erro'
+            doc.numero = str(numero)
+            doc.serie = str(serie)
+            doc.mensagem_sefaz = str(exc)[:500]
+            doc.payload_retorno = exc.payload if isinstance(exc.payload, dict) else {'raw': exc.payload}
+            doc.save(update_fields=['status', 'numero', 'serie', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+            DocumentoFiscalEvento.objects.create(
+                documento=doc, tipo='erro', descricao=str(exc)[:500], payload=doc.payload_retorno,
+            )
+            raise FocusNFeError(str(exc), status_code=exc.status_code, payload=exc.payload) from exc
+        interno = retorno_acbr_para_interno(dfe if isinstance(dfe, dict) else {})
+        if _eh_duplicidade_chave_diferente(interno) and tentativa < max_tentativas:
+            DocumentoFiscalEvento.objects.create(
+                documento=doc,
+                tipo='retry_numero',
+                descricao=f'SEFAZ 539 em nNF={numero}; reservando próximo número (tentativa {tentativa}/{max_tentativas})',
+                payload=interno if isinstance(interno, dict) else {},
+            )
+            continue
+        _aplicar_retorno_focus(doc, interno)
+        return doc
     _aplicar_retorno_focus(doc, retorno_acbr_para_interno(dfe if isinstance(dfe, dict) else {}))
     return doc
 
@@ -357,8 +393,6 @@ def _disparar_emissao_acbr_lib(doc: DocumentoFiscal, cfg: FiscalConfig, payload:
     from .acbr_lib_retorno import retorno_lib_para_interno
 
     tipo = _endpoint_tipo(doc.tipo)
-    campo_numero = 'proximo_numero_nfe' if tipo == 'nfe' else 'proximo_numero_nfce'
-    campo_serie = 'serie_nfe' if tipo == 'nfe' else 'serie_nfce'
     cfg = FiscalConfig.objects.select_for_update().get(pk=cfg.pk)
     if tipo == 'nfce':
         cfg = _sincronizar_csc_acbr_api(cfg)
@@ -366,12 +400,6 @@ def _disparar_emissao_acbr_lib(doc: DocumentoFiscal, cfg: FiscalConfig, payload:
         fone = ''.join(ch for ch in str(getattr(cfg, 'telefone', '') or '') if ch.isdigit())
         if fone:
             payload = {**payload, 'fone_emitente': fone}
-    numero = int(getattr(cfg, campo_numero) or 1)
-    serie = int(getattr(cfg, campo_serie) or 1)
-    try:
-        ini = montar_ini_nfe(cfg, payload, tipo=tipo, numero=numero, serie=serie)
-    except ValueError as exc:
-        raise FocusNFeError(str(exc)) from exc
 
     worker_cfg = config_worker_from_fiscal(cfg)
     worker_cfg['modelo'] = '55' if tipo == 'nfe' else '65'
@@ -380,40 +408,64 @@ def _disparar_emissao_acbr_lib(doc: DocumentoFiscal, cfg: FiscalConfig, payload:
     if not (worker_cfg.get('pfx_path') or '').strip():
         raise FocusNFeError('Envie o certificado A1 (.pfx) em Integração API (modo ACBrLib).')
 
-    DocumentoFiscalEvento.objects.create(
-        documento=doc,
-        tipo='envio',
-        descricao=f'Documento enviado para ACBrLib ({cfg.ambiente})',
-        payload={'ini_preview': ini[:2000], 'config': {**worker_cfg, 'pfx_senha': '***'}},
-    )
     client = AcbrLibClient()
-    try:
-        bruto = client.emitir(worker_cfg, ini)
-    except AcbrLibError as exc:
-        doc.status = 'erro'
-        doc.mensagem_sefaz = str(exc)[:500]
-        doc.payload_retorno = exc.payload if isinstance(exc.payload, dict) else {'raw': exc.payload}
-        doc.save(update_fields=['status', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+    max_tentativas = 4
+    bruto = None
+    interno = {}
+    numero = serie = None
+    for tentativa in range(1, max_tentativas + 1):
+        cfg, numero, serie = _reservar_proximo_numero(cfg, tipo)
+        try:
+            ini = montar_ini_nfe(cfg, payload, tipo=tipo, numero=numero, serie=serie)
+        except ValueError as exc:
+            raise FocusNFeError(str(exc)) from exc
+
         DocumentoFiscalEvento.objects.create(
-            documento=doc, tipo='erro', descricao=str(exc)[:500], payload=doc.payload_retorno,
+            documento=doc,
+            tipo='envio',
+            descricao=f'Documento enviado para ACBrLib ({cfg.ambiente}) nNF={numero} tentativa={tentativa}',
+            payload={'ini_preview': ini[:2000], 'config': {**worker_cfg, 'pfx_senha': '***'}},
         )
-        raise FocusNFeError(str(exc), status_code=exc.status_code, payload=exc.payload) from exc
+        try:
+            bruto = client.emitir(worker_cfg, ini)
+        except AcbrLibError as exc:
+            # Número já consumido: se a SEFAZ autorizou e a conexão caiu, a próxima
+            # emissão do lote não reutiliza o mesmo nNF (evita 539).
+            doc.status = 'erro'
+            doc.numero = str(numero)
+            doc.serie = str(serie)
+            doc.mensagem_sefaz = str(exc)[:500]
+            doc.payload_retorno = exc.payload if isinstance(exc.payload, dict) else {'raw': exc.payload}
+            doc.save(update_fields=['status', 'numero', 'serie', 'mensagem_sefaz', 'payload_retorno', 'atualizado_em'])
+            DocumentoFiscalEvento.objects.create(
+                documento=doc, tipo='erro', descricao=str(exc)[:500], payload=doc.payload_retorno,
+            )
+            raise FocusNFeError(str(exc), status_code=exc.status_code, payload=exc.payload) from exc
 
-    interno = retorno_lib_para_interno(bruto if isinstance(bruto, dict) else {}, numero=numero, serie=serie)
-    chave = interno.get('chave_nfe') or interno.get('chave') or ''
-    arquivos = salvar_arquivos_lib(
-        doc.loja_id, chave or doc.ref,
-        xml_b64=(bruto or {}).get('xml_b64') or '',
-        pdf_b64=(bruto or {}).get('pdf_b64') or '',
-    )
-    interno.update(arquivos)
-    if arquivos.get('caminho_xml'):
-        interno['caminho_xml_nota_fiscal'] = arquivos['caminho_xml']
-    if arquivos.get('caminho_pdf'):
-        interno['caminho_danfe'] = arquivos['caminho_pdf']
+        interno = retorno_lib_para_interno(bruto if isinstance(bruto, dict) else {}, numero=numero, serie=serie)
+        if _eh_duplicidade_chave_diferente(interno) and tentativa < max_tentativas:
+            DocumentoFiscalEvento.objects.create(
+                documento=doc,
+                tipo='retry_numero',
+                descricao=f'SEFAZ 539 em nNF={numero}; reservando próximo número (tentativa {tentativa}/{max_tentativas})',
+                payload=interno if isinstance(interno, dict) else {},
+            )
+            continue
 
-    setattr(cfg, campo_numero, numero + 1)
-    cfg.save(update_fields=[campo_numero])
+        chave = interno.get('chave_nfe') or interno.get('chave') or ''
+        arquivos = salvar_arquivos_lib(
+            doc.loja_id, chave or doc.ref,
+            xml_b64=(bruto or {}).get('xml_b64') or '',
+            pdf_b64=(bruto or {}).get('pdf_b64') or '',
+        )
+        interno.update(arquivos)
+        if arquivos.get('caminho_xml'):
+            interno['caminho_xml_nota_fiscal'] = arquivos['caminho_xml']
+        if arquivos.get('caminho_pdf'):
+            interno['caminho_danfe'] = arquivos['caminho_pdf']
+        _aplicar_retorno_focus(doc, interno)
+        return doc
+
     _aplicar_retorno_focus(doc, interno)
     return doc
 
@@ -615,7 +667,16 @@ def emitir_documento(loja, usuario, *, tipo='nfce', venda=None, avulso=None, nfe
         em_contingencia=cfg.contingencia_ativa,
         criado_por=usuario if getattr(usuario, 'is_authenticated', False) else None,
     )
-    return _disparar_emissao_focus(doc, cfg, payload, params_extra=params_extra or None)
+    try:
+        return _disparar_emissao_focus(doc, cfg, payload, params_extra=params_extra or None)
+    except FocusNFeError as exc:
+        # Mantém o documento e o número já reservado (não faz rollback do nNF).
+        # No lote, a próxima venda usa o próximo número e evita SEFAZ 539.
+        if doc.status == 'processando':
+            doc.status = 'erro'
+            doc.mensagem_sefaz = str(exc)[:500]
+            doc.save(update_fields=['status', 'mensagem_sefaz', 'atualizado_em'])
+        return doc
 
 
 @transaction.atomic
@@ -958,6 +1019,7 @@ def processar_lote_emissao(loja, usuario, *, tipo, vendas, filtros_meta=None):
                 lote.total_erro += 1
             item.save(update_fields=['documento', 'status', 'mensagem'])
         except FocusNFeError as exc:
+            # emitir_documento já captura a maioria dos erros; fallback residual.
             item.status = 'erro'
             item.mensagem = str(exc)
             item.save(update_fields=['status', 'mensagem'])

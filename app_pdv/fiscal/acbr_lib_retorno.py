@@ -148,6 +148,12 @@ def retorno_lib_para_interno(payload: dict, *, numero: int | None = None, serie:
             chave = chave or aut['chave']
             xmotivo = aut['xmotivo']
 
+    # 539 = mesmo número/série já autorizado com OUTRA chave. A chNFe da mensagem
+    # é da nota antiga na SEFAZ — não atribuir ao documento atual.
+    if str(cstat).strip() == '539':
+        chave = ''
+        protocolo = ''
+
     status = _cstat_para_status(cstat)
     if not cstat and payload.get('ok') and chave:
         status = 'autorizado'

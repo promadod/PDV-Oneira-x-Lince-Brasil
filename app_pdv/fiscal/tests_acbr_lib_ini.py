@@ -230,3 +230,23 @@ class AcbrLibIniTests(SimpleTestCase):
         self.assertEqual(interno['protocolo'], '333260002801509')
         self.assertEqual(interno['chave_nfe'], chave)
         self.assertIn('Autorizado', interno['mensagem_sefaz'])
+
+    def test_retorno_539_nao_atribui_chave_da_nota_antiga(self):
+        chave_antiga = '33261149747180000169650020000000041786199460'
+        interno = retorno_lib_para_interno({
+            'ok': True,
+            'resposta': {
+                'Envio': {
+                    'CStat': 539,
+                    'XMotivo': (
+                        'Rejeicao: Duplicidade de NF-e, com diferença na Chave de Acesso '
+                        f'[chNFe:{chave_antiga}]'
+                    ),
+                },
+            },
+        }, numero=4, serie=2)
+        self.assertEqual(interno['status'], 'erro_autorizacao')
+        self.assertEqual(interno['status_sefaz'], '539')
+        self.assertEqual(interno['chave_nfe'], '')
+        self.assertEqual(interno['chave'], '')
+        self.assertIn('Duplicidade', interno['mensagem_sefaz'])
