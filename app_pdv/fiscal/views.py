@@ -6,6 +6,7 @@ from django.contrib import messages
 from django.contrib.auth.decorators import login_required
 from django.http import HttpResponse, JsonResponse
 from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import reverse
 from django.utils import timezone
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_http_methods, require_POST
@@ -453,9 +454,17 @@ def fiscal_produto_editar(request, produto_id):
 
 
 def _produtos_avulsa_json(loja):
-    qs = Produto.objects.filter(loja=loja, ativo=True).order_by('nome_venda')
+    from .produto_fiscal import produto_tem_parametros_fiscais
+
+    qs = Produto.objects.filter(loja=loja, ativo=True).select_related('dados_fiscais').order_by('nome_venda')
     return [
-        {'id': p.id, 'nome': p.nome_venda, 'preco': str(p.preco_venda or '0')}
+        {
+            'id': p.id,
+            'nome': p.nome_venda,
+            'preco': str(p.preco_venda or '0'),
+            'tem_fiscal': produto_tem_parametros_fiscais(p),
+            'url_fiscal': reverse('fiscal_produto_editar', args=[p.id]),
+        }
         for p in qs
     ]
 

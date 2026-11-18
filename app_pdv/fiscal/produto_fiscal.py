@@ -43,6 +43,68 @@ def _dec(value) -> float:
     return float(Decimal(str(value)))
 
 
+MSG_SEM_PARAMETROS_FISCAIS = (
+    'ERRO: cadastre ou importe os parâmetros fiscais para esse produto.'
+)
+
+# Campos que contam como “parametrizado”. Origem/unidade/tipo sozinhos não bastam
+# (já vêm com default). Combustível/serviço/reforma são opcionais, mas se
+# preenchidos também liberam a emissão.
+_CAMPOS_FISCAIS_TEXTO = (
+    'ncm', 'cest', 'cfop_venda', 'cfop_interestadual', 'csosn', 'cst_icms',
+    'cst_pis', 'cst_cofins', 'codigo_beneficio_fiscal',
+    'codigo_anp', 'descricao_anp',
+    'codigo_servico', 'descricao_servico', 'nbs', 'codigo_class_trib', 'cst_ibs_cbs',
+)
+_CAMPOS_FISCAIS_ALIQUOTA = (
+    'aliquota_icms', 'aliquota_pis', 'aliquota_cofins', 'icms_aliquota_ad_rem',
+)
+
+
+def _texto_fiscal_preenchido(valor) -> bool:
+    texto = str(valor or '').strip()
+    if not texto:
+        return False
+    # NCM só com zeros não conta como parametrização real.
+    digits = ''.join(c for c in texto if c.isdigit())
+    if digits and set(digits) <= {'0'} and not any(c.isalpha() for c in texto):
+        return False
+    return True
+
+
+def produto_tem_parametros_fiscais(produto, dados: ProdutoDadosFiscais | None = None) -> bool:
+    """True se o produto tem ao menos um parâmetro fiscal útil cadastrado."""
+    if dados is None:
+        try:
+            dados = produto.dados_fiscais
+        except ProdutoDadosFiscais.DoesNotExist:
+            return False
+        except Exception:
+            return False
+    if dados is None:
+        return False
+    for campo in _CAMPOS_FISCAIS_TEXTO:
+        if _texto_fiscal_preenchido(getattr(dados, campo, '')):
+            return True
+    for campo in _CAMPOS_FISCAIS_ALIQUOTA:
+        try:
+            if float(getattr(dados, campo, 0) or 0) > 0:
+                return True
+        except (TypeError, ValueError):
+            continue
+    return False
+
+
+def garantir_produto_com_parametros_fiscais(produto) -> None:
+    """Bloqueia emissão NFC-e/NF-e quando não há nenhum parâmetro fiscal."""
+    if produto_tem_parametros_fiscais(produto):
+        return
+    nome = (getattr(produto, 'nome_venda', None) or getattr(produto, 'nome', None) or 'produto')
+    raise ValueError(
+        f'{MSG_SEM_PARAMETROS_FISCAIS} ({nome} #{getattr(produto, "pk", "")}).'
+    )
+
+
 def tributacao_do_produto(loja, produto, dados: ProdutoDadosFiscais | None, *, interestadual=False):
     ncm = (dados.ncm if dados and dados.ncm else '00000000').replace('.', '')[:8]
     regra = resolver_regra(loja, ncm=ncm, operacao='venda')
@@ -363,6 +425,7 @@ def montar_item_focus_json(
         dados = produto.dados_fiscais
     except ProdutoDadosFiscais.DoesNotExist:
         dados = None
+    garantir_produto_com_parametros_fiscais(produto)
     trib = tributacao_do_produto(loja, produto, dados, interestadual=interestadual)
     qtd = float(quantidade)
     v_unit = float(preco_unitario)

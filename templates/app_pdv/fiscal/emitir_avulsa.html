@@ -21,6 +21,34 @@
 </div>
 {% endif %}
 
+<style>
+.modal-fiscal-erro-overlay {
+    display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.65);
+    z-index: 9999; align-items: center; justify-content: center; padding: 16px;
+}
+.modal-fiscal-erro-overlay.aberto { display: flex; }
+.modal-fiscal-erro-box {
+    background: #1e1e1e; border-radius: 10px; padding: 22px; max-width: 460px; width: 100%;
+    border: 1px solid #cf6679;
+}
+.modal-fiscal-erro-box h3 { margin: 0 0 12px; color: #cf6679; }
+.modal-fiscal-erro-box p { margin: 0 0 10px; color: #e8e8e8; line-height: 1.45; }
+.modal-fiscal-erro-box .modal-fiscal-erro-acoes {
+    display: flex; gap: 10px; margin-top: 18px; justify-content: flex-end; flex-wrap: wrap;
+}
+</style>
+<div id="modal-fiscal-erro" class="modal-fiscal-erro-overlay" role="alertdialog" aria-modal="true" aria-labelledby="modal-fiscal-erro-titulo">
+    <div class="modal-fiscal-erro-box">
+        <h3 id="modal-fiscal-erro-titulo"><i class="fas fa-exclamation-triangle"></i> ERRO</h3>
+        <p id="modal-fiscal-erro-msg">Cadastre ou importe os parâmetros fiscais para esse produto.</p>
+        <p style="color:#aaa;font-size:0.9em;margin:0;">Você pode cadastrar manualmente ou replicar de outro produto em Fiscal → Produtos.</p>
+        <div class="modal-fiscal-erro-acoes">
+            <button type="button" class="btn" id="btn-modal-fiscal-erro-fechar" style="background:#555;color:#fff;">Fechar</button>
+            <a id="btn-modal-fiscal-erro-cadastro" class="btn" href="{% url 'fiscal_produtos' %}" style="background:#15a0a5;color:#000;text-decoration:none;">Abrir cadastro fiscal</a>
+        </div>
+    </div>
+</div>
+
 <form method="post" data-submit-lock-msg="{% if doc_origem %}Reemitindo NFC-e…{% else %}Emitindo NFC-e avulsa…{% endif %}">
     {% csrf_token %}
     <div class="avulsa-layout">
@@ -200,8 +228,35 @@
     });
     inpPreco.addEventListener('input', function () { inpPreco.dataset.manual = '1'; });
     inpPagValor.addEventListener('input', function () { inpPagValor.dataset.manual = '1'; });
+    function produtoPorId(id) {
+        return produtos.find(function (x) { return String(x.id) === String(id); });
+    }
+    function abrirModalSemFiscal(prod) {
+        var modal = document.getElementById('modal-fiscal-erro');
+        var msg = document.getElementById('modal-fiscal-erro-msg');
+        var link = document.getElementById('btn-modal-fiscal-erro-cadastro');
+        if (msg) {
+            msg.textContent = 'ERRO: cadastre ou importe os parâmetros fiscais para esse produto'
+                + (prod && prod.nome ? ' (' + prod.nome + ' #' + prod.id + ').' : '.');
+        }
+        if (link) link.href = (prod && prod.url_fiscal) ? prod.url_fiscal : '{% url "fiscal_produtos" %}';
+        if (modal) modal.classList.add('aberto');
+    }
+    var btnFecharFiscal = document.getElementById('btn-modal-fiscal-erro-fechar');
+    var modalFiscal = document.getElementById('modal-fiscal-erro');
+    if (btnFecharFiscal && modalFiscal) {
+        btnFecharFiscal.addEventListener('click', function () { modalFiscal.classList.remove('aberto'); });
+        modalFiscal.addEventListener('click', function (ev) {
+            if (ev.target === modalFiscal) modalFiscal.classList.remove('aberto');
+        });
+    }
     document.getElementById('btn-add-item').addEventListener('click', function () {
         if (!selProd.value) { alert('Selecione um produto.'); return; }
+        const prod = produtoPorId(selProd.value);
+        if (prod && prod.tem_fiscal === false) {
+            abrirModalSemFiscal(prod);
+            return;
+        }
         const qtd = num(inpQtd) || 1;
         const preco = num(inpPreco);
         if (preco <= 0) { alert('Informe o preço do produto.'); return; }

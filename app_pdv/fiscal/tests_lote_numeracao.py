@@ -5,7 +5,7 @@ from unittest.mock import MagicMock, patch
 from django.contrib.auth.models import User
 from django.test import TestCase, override_settings
 
-from app_pdv.fiscal.models import DocumentoFiscal, FiscalConfig
+from app_pdv.fiscal.models import DocumentoFiscal, FiscalConfig, ProdutoDadosFiscais
 from app_pdv.fiscal.services import (
     _eh_duplicidade_chave_diferente,
     _reservar_proximo_numero,
@@ -76,6 +76,9 @@ class LoteNumeracaoTest(TestCase):
         self.produto = Produto.objects.create(
             loja=self.loja, nome_venda='P13', preco_venda=Decimal('90'),
             quantidade_baixa=Decimal('1'),
+        )
+        ProdutoDadosFiscais.objects.create(
+            produto=self.produto, ncm='27111910', cfop_venda='5102', csosn='102',
         )
         self.v1 = Venda.objects.create(loja=self.loja, status='FINALIZADO', total=Decimal('100'))
         self.v2 = Venda.objects.create(loja=self.loja, status='FINALIZADO', total=Decimal('90'))

@@ -798,9 +798,14 @@ def parse_itens_avulsa(post, loja):
     for i, pid in enumerate(ids):
         if not str(pid).isdigit():
             continue
-        produto = Produto.objects.filter(pk=int(pid), loja=loja, ativo=True).first()
+        produto = Produto.objects.filter(pk=int(pid), loja=loja, ativo=True).select_related('dados_fiscais').first()
         if not produto:
             raise forms.ValidationError(f'Produto inválido na linha {i + 1}.')
+        from .produto_fiscal import garantir_produto_com_parametros_fiscais
+        try:
+            garantir_produto_com_parametros_fiscais(produto)
+        except ValueError as exc:
+            raise forms.ValidationError(str(exc)) from exc
         qtd = _dec_post(qtds[i] if i < len(qtds) else '1', '1')
         if qtd <= 0:
             raise forms.ValidationError(f'Quantidade inválida na linha {i + 1}.')
