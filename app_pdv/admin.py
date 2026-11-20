@@ -1,6 +1,9 @@
-from django.contrib import admin
+from django import forms
+from django.contrib import admin, messages
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
 from django.contrib.auth.models import User
+from django.shortcuts import get_object_or_404, redirect, render
+from django.urls import path, reverse
 from .models import (
     Loja, PerfilUsuario, Fornecedor, ItemEstoque, Produto, Cliente, GrupoProduto, ComponenteKit,
     Venda, ItemVenda, Caixa, EntradaEstoque, PrecoFornecedorItem, PagamentoFiado, LiquidacaoVenda,
@@ -10,7 +13,13 @@ from .models import (
 )
 from .fiscal.models import (
     FiscalConfig, DocumentoFiscal, RegraTributaria, FiscalWebhookLog, NFeRecebida,
-    LoteEmissaoFiscal, LoteEmissaoFiscalItem,
+    LoteEmissaoFiscal, LoteEmissaoFiscalItem, ProdutoDadosFiscais,
+)
+from .loja_piloto import (
+    importar_produtos_da_piloto,
+    opcoes_loja_piloto,
+    produtos_da_piloto,
+    resolver_loja_piloto_id,
 )
 from .seguranca import descongelar_conta, liberar_ip
 
@@ -107,13 +116,57 @@ class SaasAdmin(admin.ModelAdmin):
 
 # ---  MODELS ORIGINAIS (COM HERANÇA SAAS) ---
 
+class LojaAdminForm(forms.ModelForm):
+    importar_de_piloto = forms.ChoiceField(
+        required=False,
+        label='Importar produtos / parâmetros fiscais de',
+        help_text=(
+            'Opcional. Ao salvar uma loja nova, abre a tela para escolher quais produtos '
+            'copiar da loja piloto (com CFOP, NCM etc. se existirem). CNPJ e certificado '
+            'não são importados. Deixe em branco para cadastro normal.'
+        ),
+    )
+
+    class Meta:
+        model = Loja
+        fields = '__all__'
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.fields['importar_de_piloto'].choices = opcoes_loja_piloto()
+        if self.instance and self.instance.pk:
+            self.fields['importar_de_piloto'].widget = forms.HiddenInput()
+            self.fields['importar_de_piloto'].required = False
+
+
 @admin.register(Loja)
 class LojaAdmin(admin.ModelAdmin):
-    list_display = ('id', 'nome', 'gerente', 'ativo', 'fiscal_habilitado', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'data_criacao')
-    list_filter = ('ativo', 'fiscal_habilitado', 'monitorar_entrega', 'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel', 'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada')
+    form = LojaAdminForm
+    list_display = (
+        'id', 'nome', 'segmento', 'loja_piloto', 'gerente', 'ativo', 'fiscal_habilitado',
+        'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio', 'estoque_diario',
+        'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada', 'monitorar_entrega',
+        'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel',
+        'impressao_automatica', 'data_criacao',
+    )
+    list_filter = (
+        'ativo', 'segmento', 'loja_piloto', 'fiscal_habilitado', 'monitorar_entrega',
+        'trabalha_com_entregas', 'trabalha_com_leitor_codigo_barras', 'trabalha_com_balanca_granel',
+        'impressao_automatica', 'usa_fiado', 'permite_pagamento_dividido', 'controla_vasilhame_vazio',
+        'estoque_diario', 'gerencia_pagamento_mercadorias', 'conferencia_dinheiro_habilitada',
+    )
     fieldsets = (
         (None, {
-            'fields': ('nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta', 'fiscal_habilitado', 'assistente_habilitado')
+            'fields': (
+                'nome', 'cnpj', 'gerente', 'rede', 'nome_unidade', 'ativo', 'loja_aberta',
+                'segmento', 'loja_piloto', 'importar_de_piloto',
+                'fiscal_habilitado', 'assistente_habilitado',
+            ),
+            'description': (
+                'Segmento + loja piloto: ao criar, você pode importar produtos e parâmetros '
+                'fiscais de uma loja piloto do mesmo segmento. Cadastro fiscal (CNPJ/certificado) '
+                'permanece manual.'
+            ),
         }),
         ('Entregas', {
             'fields': ('taxa_entrega_app', 'taxa_entrega_pdv', 'trabalha_com_entregas', 'monitorar_entrega', 'usa_moveon')
@@ -142,6 +195,28 @@ class LojaAdmin(admin.ModelAdmin):
         }),
     )
 
+    def get_urls(self):
+        urls = super().get_urls()
+        custom = [
+            path(
+                'importar-produtos-piloto/',
+                self.admin_site.admin_view(self.importar_produtos_piloto_view),
+                name='app_pdv_loja_importar_produtos_piloto',
+            ),
+        ]
+        return custom + urls
+
+    def get_fieldsets(self, request, obj=None):
+        fieldsets = super().get_fieldsets(request, obj)
+        if obj is not None:
+            # Select de importação só no cadastro de loja nova.
+            ajustados = []
+            for name, opts in fieldsets:
+                fields = tuple(f for f in opts.get('fields', ()) if f != 'importar_de_piloto')
+                ajustados.append((name, {**opts, 'fields': fields}))
+            return ajustados
+        return fieldsets
+
     def save_model(self, request, obj, form, change):
         super().save_model(request, obj, form, change)
         if change:
@@ -154,6 +229,67 @@ class LojaAdmin(admin.ModelAdmin):
                 f'Usuário "{user.username}" criado para esta loja '
                 f'(senha padrão: {SENHA_PADRAO_NOVA_LOJA}). Oriente a troca no primeiro acesso.',
             )
+        piloto_id = resolver_loja_piloto_id(
+            segmento=getattr(obj, 'segmento', '') or '',
+            loja_piloto_id=form.cleaned_data.get('importar_de_piloto') if form else None,
+        )
+        obj._piloto_import_id = piloto_id
+
+    def response_add(self, request, obj, post_url_continue=None):
+        piloto_id = getattr(obj, '_piloto_import_id', None)
+        if piloto_id and request.user.is_superuser:
+            url = reverse('admin:app_pdv_loja_importar_produtos_piloto')
+            return redirect(f'{url}?loja={obj.pk}&piloto={piloto_id}')
+        return super().response_add(request, obj, post_url_continue=post_url_continue)
+
+    def importar_produtos_piloto_view(self, request):
+        if not request.user.is_superuser:
+            messages.error(request, 'Apenas superusuários podem importar produtos da loja piloto.')
+            return redirect('admin:app_pdv_loja_changelist')
+
+        loja = get_object_or_404(Loja, pk=request.GET.get('loja') or request.POST.get('loja'))
+        piloto = get_object_or_404(Loja, pk=request.GET.get('piloto') or request.POST.get('piloto'))
+        if loja.pk == piloto.pk:
+            messages.error(request, 'Loja destino e piloto não podem ser a mesma.')
+            return redirect('admin:app_pdv_loja_change', loja.pk)
+
+        produtos = list(produtos_da_piloto(piloto))
+        fiscais_ids = set(
+            ProdutoDadosFiscais.objects.filter(produto_id__in=[p.pk for p in produtos])
+            .exclude(ncm='')
+            .values_list('produto_id', flat=True)
+        )
+
+        if request.method == 'POST':
+            selecionados = request.POST.getlist('produto_ids')
+            resultado = importar_produtos_da_piloto(loja, piloto, selecionados)
+            for aviso in resultado.avisos:
+                messages.warning(request, aviso)
+            if resultado.produtos_criados:
+                messages.success(
+                    request,
+                    (
+                        f'{resultado.produtos_criados} produto(s) importado(s) de "{piloto.nome}" '
+                        f'para "{loja.nome}". '
+                        f'{resultado.fiscais_copiados} com parâmetros fiscais, '
+                        f'{resultado.itens_estoque_criados} item(ns) de estoque (zerados).'
+                    ),
+                )
+            else:
+                messages.info(request, 'Nenhum produto foi importado.')
+            return redirect('admin:app_pdv_loja_change', loja.pk)
+
+        context = {
+            **self.admin_site.each_context(request),
+            'title': f'Importar produtos da loja piloto — {piloto.nome}',
+            'loja': loja,
+            'piloto': piloto,
+            'produtos': produtos,
+            'fiscais_ids': fiscais_ids,
+            'opts': self.model._meta,
+            'has_view_permission': True,
+        }
+        return render(request, 'admin/app_pdv/loja/importar_produtos_piloto.html', context)
 
 
 @admin.register(FormaPagamentoLoja)
