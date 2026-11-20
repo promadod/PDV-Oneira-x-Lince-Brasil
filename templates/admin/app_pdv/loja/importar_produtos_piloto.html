@@ -1,0 +1,105 @@
+{% extends "admin/base_site.html" %}
+{% load i18n %}
+
+{% block content %}
+<style>
+  .piloto-toolbar { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:16px 0; }
+  .piloto-table { width:100%; border-collapse:collapse; }
+  .piloto-table th, .piloto-table td { padding:8px 10px; border-bottom:1px solid #ddd; text-align:left; }
+  .piloto-table thead th { background:#f5f5f5; position:sticky; top:0; }
+  .piloto-badge {
+    display:inline-block; font-size:11px; padding:2px 6px; border-radius:3px;
+    background:#e8f5e9; color:#1b5e20;
+  }
+  .piloto-badge.off { background:#f5f5f5; color:#666; }
+  .piloto-scroll { max-height:60vh; overflow:auto; border:1px solid #ddd; border-radius:4px; }
+  .piloto-actions { margin-top:18px; display:flex; gap:10px; }
+</style>
+
+<p>
+  Loja nova: <strong>{{ loja.nome }}</strong> (id {{ loja.id }}) —
+  piloto: <strong>{{ piloto.nome }}</strong> (id {{ piloto.id }}).
+</p>
+<p>
+  Selecione os produtos para importar. Estoque é criado zerado.
+  Parâmetros fiscais (NCM, CFOP, CST etc.) são copiados quando existirem na piloto.
+  CNPJ e certificado <strong>não</strong> são importados.
+</p>
+
+<form method="post">
+  {% csrf_token %}
+  <input type="hidden" name="loja" value="{{ loja.id }}">
+  <input type="hidden" name="piloto" value="{{ piloto.id }}">
+
+  <div class="piloto-toolbar">
+    <label><input type="checkbox" id="selecionar-todos"> Selecionar todos ({{ produtos|length }})</label>
+    <input type="search" id="filtro-produtos" placeholder="Filtrar por nome…" style="min-width:240px; padding:6px 8px;">
+  </div>
+
+  <div class="piloto-scroll">
+    <table class="piloto-table">
+      <thead>
+        <tr>
+          <th style="width:40px;"></th>
+          <th>Produto</th>
+          <th>Código</th>
+          <th>Preço venda</th>
+          <th>Fiscal</th>
+        </tr>
+      </thead>
+      <tbody id="lista-produtos">
+        {% for p in produtos %}
+        <tr data-nome="{{ p.nome_venda|lower }}">
+          <td>
+            <input type="checkbox" name="produto_ids" value="{{ p.id }}" class="chk-produto" checked>
+          </td>
+          <td>{{ p.nome_venda }}</td>
+          <td>{{ p.codigo_barras|default:"—" }}</td>
+          <td>R$ {{ p.preco_venda }}</td>
+          <td>
+            {% if p.id in fiscais_ids %}
+              <span class="piloto-badge">Com parâmetros</span>
+            {% else %}
+              <span class="piloto-badge off">Sem fiscal</span>
+            {% endif %}
+          </td>
+        </tr>
+        {% empty %}
+        <tr><td colspan="5">Nenhum produto ativo na loja piloto.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+
+  <div class="piloto-actions">
+    <button type="submit" class="default" name="_importar">Importar selecionados</button>
+    <a class="button" href="{% url 'admin:app_pdv_loja_change' loja.id %}">Pular / não importar</a>
+  </div>
+</form>
+
+<script>
+(function () {
+  var todos = document.getElementById('selecionar-todos');
+  var filtro = document.getElementById('filtro-produtos');
+  var rows = document.querySelectorAll('#lista-produtos tr[data-nome]');
+
+  if (todos) {
+    todos.addEventListener('change', function () {
+      document.querySelectorAll('.chk-produto').forEach(function (el) {
+        if (el.closest('tr').style.display !== 'none') {
+          el.checked = todos.checked;
+        }
+      });
+    });
+  }
+  if (filtro) {
+    filtro.addEventListener('input', function () {
+      var q = (filtro.value || '').toLowerCase().trim();
+      rows.forEach(function (tr) {
+        tr.style.display = (!q || tr.getAttribute('data-nome').indexOf(q) !== -1) ? '' : 'none';
+      });
+    });
+  }
+})();
+</script>
+{% endblock %}

@@ -262,6 +262,26 @@ class Loja(models.Model):
                    "Desligado: confirmação automática — ideal para lojas só com venda no balcão.",
     )
 
+    SEGMENTO_CHOICES = [
+        ('', '— Não informado'),
+        ('mercadinho', 'Mercadinho'),
+        ('revenda_gas', 'Revenda / Depósito / Distribuidora de gás'),
+    ]
+    segmento = models.CharField(
+        max_length=20,
+        choices=SEGMENTO_CHOICES,
+        blank=True,
+        default='',
+        verbose_name='Segmento da loja',
+        help_text='Usado no cadastro para sugerir importação de produtos da loja piloto do mesmo segmento.',
+    )
+    loja_piloto = models.BooleanField(
+        default=False,
+        verbose_name='Loja piloto?',
+        help_text='Marque para esta loja aparecer no select de importação de produtos/parâmetros fiscais '
+                   'ao criar uma nova loja no Django Admin.',
+    )
+
     # --- PLANO DE FIDELIDADE ---
     fidelidade_ativa = models.BooleanField(
         default=False,
